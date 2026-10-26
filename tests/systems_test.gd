@@ -130,6 +130,23 @@ func _run() -> void:
 	for n in 5000:
 		if aurora.strength_for(n) > 0.0:
 			nights_with += 1
+	# curtains never cross: through many nights and times, each sits poleward of the last
+	# by both fold amplitudes plus the minimum gap
+	var crossed := 0
+	var overhead := 0
+	var kept_time := aurora.display_time
+	for n in 200:
+		for step in 12:
+			aurora.display_time = step * 137.0
+			var feet := aurora.curtain_feet(n)
+			for k in range(1, feet.size()):
+				if feet[k].x - feet[k - 1].x < feet[k].y + feet[k - 1].y + Aurora.MIN_GAP - 0.01:
+					crossed += 1
+			if step == 0 and absf(feet[0].x) < 300.0:
+				overhead += 1
+	aurora.display_time = kept_time
+	_check(crossed == 0 and overhead > 10 and overhead < 120,
+			"aurora curtains never cross; %d of 200 displays reach within 300 km of overhead" % overhead)
 	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
 			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
 
