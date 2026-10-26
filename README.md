@@ -30,6 +30,7 @@ and gameplay still work, just without ripples.
 | Space | tread water (do nothing and you sink) |
 | E | board the boat / jump off |
 | W / S, A / D | on the boat: throttle / reverse, steer |
+| [ / ] | scrub time of day backward / forward |
 | R | respawn beside the boat |
 | Esc | quit |
 
@@ -39,7 +40,7 @@ and gameplay still work, just without ripples.
 project.godot       engine settings, input map, physics layers
 src/                all game code and scenes, grouped by feature
   autoload/         global singletons (registered in project settings)
-  systems/          reusable engine-level pieces: ocean, buoyancy, camera
+  systems/          reusable engine-level pieces: ocean, atmosphere, buoyancy, camera
   entities/         things in the world: player, boat, props
   world/            levels / playable spaces (open_ocean is the main scene)
   ui/               HUD and menus

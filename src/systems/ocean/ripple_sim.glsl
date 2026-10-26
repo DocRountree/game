@@ -80,8 +80,8 @@ void main() {
 		float d = pc.mode == 0 ? occ - v.a : 0.0;
 		v.r -= d;                               // shift both time levels: moves water
 		v.g -= d;                               // without injecting velocity
-		v.b += max(d - 0.02, 0.0) * 5.0;        // foam where a hull shoves water hard
-		v.b *= exp(-pc.frame_dt / 2.0);
+		v.b += max(d - 0.05, 0.0) * 2.0;        // foam only where a hull shoves water hard
+		v.b *= exp(-pc.frame_dt / 1.2);
 		v.a = occ;
 		imageStore(dst_img, c, v);
 		return;
@@ -96,8 +96,8 @@ void main() {
 	int e = min(min(c.x, c.y), min(pc.size - 1 - c.x, pc.size - 1 - c.y));
 	nh *= 0.94 + 0.06 * clamp(float(e) / 24.0, 0.0, 1.0);
 	nh = clamp(nh, -1.0, 1.0);
-	float foam = v.b + pc.dt * clamp((abs(nh - h) / pc.dt - 1.2) * 1.5, 0.0, 2.0);
-	foam = min(foam, 1.5);
+	float foam = v.b + pc.dt * clamp((abs(nh - h) / pc.dt - 2.0) * 0.8, 0.0, 1.0);
+	foam = min(foam, 1.0);
 	imageStore(dst_img, c, vec4(nh, h, foam, v.a));
 	imageStore(disp_img, c, vec4(nh, foam, 0.0, 0.0));
 }

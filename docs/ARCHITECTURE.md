@@ -47,6 +47,31 @@ Objects read ripples on a ring just outside their own footprint, and compute
 their displacement against the swell only. That breaks the feedback loop where
 an object would sink into its own displacement trough.
 
+### Atmosphere (`src/systems/atmosphere/`)
+
+A single-scattering sky after Sebastian Lague's
+[Solar System](https://github.com/SebLague/Solar-System) atmosphere, reworked from
+his whole-planet post-process into a Godot sky shader for a camera on the surface.
+Because it is the sky, it automatically drives water reflections, ambient light
+and distance haze (the environment's fog uses `aerial_perspective = 1`, which
+tints distant geometry with the sky colour in that direction).
+
+| File | Role |
+|---|---|
+| `atmosphere_sky.gdshader` | Marches the view ray (16 samples bunched near the camera, dithered). At each sample it looks up the sunlight's optical depth in a baked table and accumulates the view ray's own. Draws the sun disc, reddened by the air in front of it. |
+| `atmosphere.gd` | Bakes the optical-depth table (~25 ms at startup), pushes parameters, runs the time of day, and sets the sun light's direction, colour and energy from the same maths, so sunsets light the world orange. |
+
+Model, as in Lague's: planet radius 1, density `exp(-h * falloff) * (1 - h)` with
+`h` the height through the atmosphere 0..1, and scattering `(400 / wavelength)^4 * strength`.
+
+Changes from his version:
+- **Proportions.** His atmospheres are 32% of the planet's radius, tuned for
+  viewing from orbit. From the ground that gives either a milky zenith or weak
+  sunsets. The defaults use a 10% shell and 440 nm blue.
+- **View-ray optical depth is summed** along the march instead of taken as
+  differences of baked values. That is exact here and removes banding in thin atmospheres.
+- **Ozone absorption** (Earth's ratios) keeps twilight blue instead of olive.
+
 ### Buoyancy (`src/systems/buoyancy/buoyancy.gd`)
 
 A component node under any `RigidBody3D`. Each `Marker3D` child is a probe that

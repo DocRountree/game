@@ -10,6 +10,7 @@ extends Node3D
 @onready var boat: Boat = $Boat
 @onready var camera: ThirdPersonCamera = $Camera
 @onready var hud: Hud = $HUD
+@onready var atmosphere: Atmosphere = $Atmosphere
 
 
 func _ready() -> void:
@@ -32,7 +33,7 @@ func _process(_delta: float) -> void:
 	camera.follow_heading = driving
 	camera.distance = 9.0 if driving else 4.5
 	camera.target_offset = Vector3(0, 2.4, 0) if driving else Vector3(0, 0.5, 0)
-	hud.refresh(player, boat)
+	hud.refresh(player, boat, atmosphere.time_text())
 
 
 func _unhandled_input(event: InputEvent) -> void:

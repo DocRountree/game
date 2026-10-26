@@ -23,6 +23,21 @@ func _run() -> void:
 
 	_check(_shader_compiles(), "ripple compute shader compiles to SPIR-V")
 	_check(_lookup_consistent(ocean), "height_at() inverts the Gerstner displacement")
+	await _frames(2)   # let the scene enter the tree and run _ready()
+	var atmosphere: Atmosphere = world.get_node("Atmosphere")
+	var sun: DirectionalLight3D = world.get_node("Sun")
+	atmosphere.time_of_day = 12.0
+	atmosphere._update_sun()
+	var noon := sun.light_color
+	atmosphere.time_of_day = 17.9
+	atmosphere._update_sun()
+	var dusk := sun.light_color
+	_check(noon.b > 0.8 and dusk.r > dusk.b * 2.0 and sun.light_energy > 0.0,
+			"sunlight is white at noon and reddens at sunset")
+	atmosphere.time_of_day = 23.0
+	atmosphere._update_sun()
+	_check(sun.light_energy == 0.0, "no sunlight at night")
+	atmosphere.time_of_day = 16.75
 
 	await _frames(300)
 	var boat_draft := boat.buoyancy.submerged * boat.buoyancy.max_depth   # mean probe depth

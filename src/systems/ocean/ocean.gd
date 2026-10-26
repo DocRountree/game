@@ -92,6 +92,7 @@ func _process(delta: float) -> void:
 	_material.set_shader_parameter("ripple_rect", Vector3(ripples.origin.x, ripples.origin.y, ripples.size()))
 	if sun:
 		_material.set_shader_parameter("sun_direction", sun.global_basis.z)
+		_material.set_shader_parameter("sun_color", Vector3(sun.light_color.r, sun.light_color.g, sun.light_color.b) * sun.light_energy)
 	var cam := get_viewport().get_camera_3d()
 	if cam and not Engine.is_editor_hint():
 		surface.global_position = Vector3(cam.global_position.x, 0.0, cam.global_position.z)

@@ -13,6 +13,7 @@ uniform vec2 waves2[NW];         // omega, phase
 uniform float steepness = 0.8;
 uniform float time;
 uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
+uniform vec3 sun_color = vec3(1.0);
 
 uniform sampler2D ripple_tex : filter_linear, repeat_disable;  // r height, g foam
 uniform vec3 ripple_rect = vec3(0.0, 0.0, 1.0);                // origin x, origin z, size
@@ -128,13 +129,14 @@ void fragment() {
 	crest_t *= crest_t;
 	vec3 body = deep_color * (0.5 + 0.8 * diffuse)
 			+ scatter_color * crest_t * (0.35 + 1.5 * pow(toward_sun, 4.0)) * (0.5 + 0.5 * diffuse);
+	body *= 0.12 + 0.88 * sun_color;   // the water body is lit by the (possibly sunset-coloured) sun
 	vec3 refracted = background * transmit + body * (1.0 - transmit);
 
 	// foam: crest compression + ripple foam, broken up by noise so it reads as foam
-	float f = smoothstep(0.84, 0.66, jac) + ripple_foam * 0.8;
+	float f = smoothstep(0.72, 0.55, jac) * 0.6 + ripple_foam * 0.5;   // whitecaps only on the sharpest crests
 	float noise = texture(foam_noise, (x0 + vec2(0.2, 0.0) * time) * (2.5 / detail_tile)).r * 0.6
 			+ texture(foam_noise, (x0 - vec2(0.0, 0.15) * time) * (5.0 / detail_tile)).r * 0.4;
-	float lo = 1.0 - 0.75 * clamp(f, 0.0, 1.0);
+	float lo = 1.0 - 0.6 * clamp(f, 0.0, 1.0);
 	float foam = smoothstep(lo, lo + 0.25, noise) * sqrt(min(f, 1.0));
 
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
