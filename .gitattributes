@@ -1,0 +1,22 @@
+# Normalize text files to LF in the repository
+* text=auto eol=lf
+
+# Binary assets: never diff or merge as text.
+# When large art and audio start landing, move these to Git LFS
+# (git lfs track "*.png" etc.) before the first big commit of them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.exr binary
+*.hdr binary
+*.ktx2 binary
+*.glb binary
+*.fbx binary
+*.blend binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.ttf binary
+*.otf binary
+*.woff2 binary
