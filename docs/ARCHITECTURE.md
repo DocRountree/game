@@ -87,18 +87,31 @@ textures at the undisplaced position, so the detail rides the swell. Physics
 ignores it (the Gerstner swell does the floating); without a RenderingDevice
 the detail is flat.
 
-**Ripples.** A damped 2D wave equation on a 256 x 256 grid (0.3 m cells, ~77 m)
-that scrolls with the player. Each physics frame:
+**Wakes and ripples.** A 256 x 256 grid (0.4 m cells, ~102 m) that scrolls
+with the player holds the water's height and vertical velocity. Each physics frame:
 
 1. Every node in the `ripple_sources` group reports a footprint (hull, box or
-   disc) and how deep it sits in the swell.
-2. The compute shader turns *changes* in that occupancy into displaced water.
-   A moving hull pushes water out at the bow and lets it back in at the stern:
-   that is the wake. Bobbing makes rings.
-3. Two wave steps at 120 Hz propagate it; edges absorb.
+   disc) and how deep it sits in the swell. The compute shader turns *changes*
+   in that occupancy into displaced water (height only, no kick): a moving
+   hull pushes water out at the bow and lets it back in at the stern. Where it
+   shoves or refills hard, it leaves foam that lingers ~3 s: the churned trail.
+2. Height and velocity are packed into one complex field and FFT'd (the same
+   shared-memory FFT as the ocean). Every wavelength is advanced *exactly* by
+   its own deep-water frequency, omega = sqrt(g k + sigma k^3), then
+   transformed back. Long waves outrun short ones, so a moving hull leaves a
+   proper Kelvin wake (the 19.5 degree V, with feathered diverging waves and
+   transverse waves behind) and a swimmer makes dispersing rings. Exact in
+   time, so one step per frame is stable at any speed; short ripples are
+   damped a little faster than long waves.
+3. A sponge border soaks up outgoing waves, so the FFT's wrap-around never
+   brings them back.
 4. The result goes to the water shader as a `Texture2DRD` (stays on the GPU) and
    back to the CPU with `texture_get_data_async` for physics, about a frame late,
    with no stall.
+
+(This replaced a plain wave equation, whose single wave speed gave a smeared
+V and rings. A short convolution kernel (Tessendorf's iWave) was tried first,
+but a 13 x 13 kernel can't get deep-water speeds right across these wavelengths.)
 
 Objects read ripples on a ring just outside their own footprint, and compute
 their displacement against the swell only. That breaks the feedback loop where

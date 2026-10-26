@@ -1,19 +1,35 @@
 #[compute]
 #version 450
 
-// Interactive ripples: a damped 2D wave equation on a grid that follows the player.
+// Local wakes and ripples on a grid that follows the player, with exact
+// deep-water dispersion. Each frame the height h and vertical velocity v are
+// packed into one complex field (h + i v), FFT'd, and every wavelength is
+// advanced exactly by its own frequency omega = sqrt(g k + sigma k^3) before
+// transforming back. So long waves outrun short ones: a moving hull leaves a
+// Kelvin wake (the 19.5 degree V, with feathered diverging waves and transverse
+// waves behind) and a swimmer makes dispersing rings. Exact in time, so one
+// step per frame is stable at any speed.
 //
-// State texels hold (height, previous height, foam, previous occupancy).
-// Mode 0 scrolls the grid and applies sources: every floating object
-// "occupies" water by how deep it sits, and any change in occupancy pushes
-// that water out, so moving hulls make wakes and bobbing makes rings.
-// Mode 1 is one wave-equation step and also writes the sampled display texture.
-// Mode 2 records occupancy without displacing water (objects already present).
+// Floating things "occupy" water by how deep they sit; any change in occupancy
+// pushes that water out (height only, no injected velocity), so moving hulls
+// make wakes and bobbing makes rings. A sponge border soaks up waves before the
+// FFT's wrap-around could bring them back.
+//
+// Modes, one workgroup per grid row (x = column):
+//   0  scroll the grid, apply sources and the sponge, pack h + i v      A -> B, field_a
+//   2  forward FFT along rows of field_a      3  ... along columns
+//   1  advance every wavelength exactly                                  field_a -> field_b
+//   4  inverse FFT along rows of field_b      5  ... along columns
+//   6  unpack h, v, update foam, write the display texture               B -> A, disp
+//   7  record occupancy without displacing water (objects already present)
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+#define N 256
+#define LOG_N 8
 
-layout(set = 0, binding = 0, rgba32f) uniform restrict readonly image2D src_img;
-layout(set = 0, binding = 1, rgba32f) uniform restrict writeonly image2D dst_img;
+layout(local_size_x = N, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, rgba32f) uniform restrict image2D state_a;   // h, v, foam, occupancy
+layout(set = 0, binding = 1, rgba32f) uniform restrict image2D state_b;
 
 struct Source {
 	vec4 a;  // centre x, centre z, forward x, forward z
@@ -23,25 +39,35 @@ layout(set = 0, binding = 2, std430) restrict readonly buffer Sources {
 	Source items[];
 } sources;
 
-layout(set = 0, binding = 3, rgba16f) uniform restrict writeonly image2D disp_img;
+layout(set = 0, binding = 3, rgba16f) uniform restrict writeonly image2D disp_img;   // h, foam
+layout(set = 0, binding = 4, std430) restrict buffer FieldA { vec2 field_a[]; };
+layout(set = 0, binding = 5, std430) restrict buffer FieldB { vec2 field_b[]; };
 
 layout(push_constant, std430) uniform Params {
 	vec2 origin;       // world x, z of the grid's corner
 	ivec2 shift;       // grid scroll this frame, in cells (mode 0)
 	float cell;        // cell size (m)
-	float dt;          // wave step (s)
-	float k;           // (wave speed * dt / cell)^2
-	float frame_dt;    // frame time (s), for foam decay
+	float dt;          // frame time (s)
+	float damping;     // per second, all wavelengths
+	float viscosity;   // extra damping per second per (rad/m)^2: short waves die sooner
 	int mode;
 	int source_count;
-	int size;
+	int sponge;        // border width in cells
 	float pad;
 } pc;
 
-vec4 load_state(ivec2 c) {
-	if (c.x < 0 || c.y < 0 || c.x >= pc.size || c.y >= pc.size)
-		return vec4(0.0);
-	return imageLoad(src_img, c);
+shared vec2 lane[2][N];
+
+const float TAU = 6.28318530718;
+const float G = 9.81;
+const float TENSION = 7.28e-5;   // surface tension / density: capillary ripples
+
+vec2 cmul(vec2 a, vec2 b) {
+	return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
+
+vec2 conj2(vec2 a) {
+	return vec2(a.x, -a.y);
 }
 
 // How deep the cell at world point p is pushed down by floating things.
@@ -69,35 +95,97 @@ float occupancy(vec2 p) {
 	return occ_max + occ_add;
 }
 
-void main() {
-	ivec2 c = ivec2(gl_GlobalInvocationID.xy);
-	if (c.x >= pc.size || c.y >= pc.size)
-		return;
-
-	if (pc.mode != 1) {
-		vec4 v = load_state(c + pc.shift);
-		float occ = occupancy(pc.origin + (vec2(c) + 0.5) * pc.cell);
-		float d = pc.mode == 0 ? occ - v.a : 0.0;
-		v.r -= d;                               // shift both time levels: moves water
-		v.g -= d;                               // without injecting velocity
-		v.b += max(d - 0.05, 0.0) * 2.0;        // foam only where a hull shoves water hard
-		v.b *= exp(-pc.frame_dt / 1.2);
-		v.a = occ;
-		imageStore(dst_img, c, v);
-		return;
+// One radix-2 FFT of N points held one per thread in lane[0] (bit-reversed);
+// returns the index of the lane holding the result. dir -1 forward, +1 inverse.
+uint fft_lane(uint x, float dir) {
+	uint src = 0u;
+	for (uint span = 2u; span <= uint(N); span <<= 1u) {
+		uint half_span = span >> 1u;
+		uint pos = x % span;
+		vec2 v;
+		if (pos < half_span) {
+			float a = dir * TAU * float(pos) / float(span);
+			v = lane[src][x] + cmul(vec2(cos(a), sin(a)), lane[src][x + half_span]);
+		} else {
+			float a = dir * TAU * float(pos - half_span) / float(span);
+			v = lane[src][x - half_span] - cmul(vec2(cos(a), sin(a)), lane[src][x]);
+		}
+		lane[1u - src][x] = v;
+		barrier();
+		src = 1u - src;
 	}
+	return src;
+}
 
-	vec4 v = load_state(c);
-	float h = v.r;
-	float lap = load_state(c + ivec2(1, 0)).r + load_state(c - ivec2(1, 0)).r
-			+ load_state(c + ivec2(0, 1)).r + load_state(c - ivec2(0, 1)).r - 4.0 * h;
-	float nh = h + (h - v.g) * (1.0 - 0.6 * pc.dt) + (pc.k + 0.004) * lap;
-	// absorbing border so waves leave the grid instead of bouncing back
-	int e = min(min(c.x, c.y), min(pc.size - 1 - c.x, pc.size - 1 - c.y));
-	nh *= 0.94 + 0.06 * clamp(float(e) / 24.0, 0.0, 1.0);
-	nh = clamp(nh, -1.0, 1.0);
-	float foam = v.b + pc.dt * clamp((abs(nh - h) / pc.dt - 2.0) * 0.8, 0.0, 1.0);
-	foam = min(foam, 1.0);
-	imageStore(dst_img, c, vec4(nh, h, foam, v.a));
-	imageStore(disp_img, c, vec4(nh, foam, 0.0, 0.0));
+uint at(uint row, uint col) {
+	return row * uint(N) + col;
+}
+
+void main() {
+	uint x = gl_LocalInvocationID.x;
+	uint y = gl_WorkGroupID.y;
+	ivec2 c = ivec2(x, y);
+	uint rev = bitfieldReverse(x) >> (32 - LOG_N);
+
+	if (pc.mode == 0 || pc.mode == 7) {
+		ivec2 from = c + pc.shift;
+		vec4 s = vec4(0.0);
+		if (all(greaterThanEqual(from, ivec2(0))) && all(lessThan(from, ivec2(N))))
+			s = imageLoad(state_a, from);
+		float occ = occupancy(pc.origin + (vec2(c) + 0.5) * pc.cell);
+		float d = pc.mode == 0 ? occ - s.a : 0.0;
+		s.r -= d;                                 // move water, don't kick it
+		// foam where a hull shoves water aside or it rushes back in behind (the
+		// churned trail); it lingers a few seconds, so a moving boat leaves a fading line
+		s.b = min(s.b + max(abs(d) - 0.004, 0.0) * 8.0, 1.0);
+		s.b *= exp(-pc.dt / 3.0);
+		s.a = occ;
+		// sponge: waves fade out over the border instead of wrapping round
+		int e = min(min(c.x, c.y), min(N - 1 - c.x, N - 1 - c.y));
+		float soak = clamp(float(e) / float(pc.sponge), 0.0, 1.0);
+		float keep = mix(0.9, 1.0, soak * soak);
+		s.r *= keep;
+		s.g *= keep;
+		imageStore(state_b, c, s);
+		field_a[at(y, x)] = s.rg;
+	} else if (pc.mode == 2 || pc.mode == 3 || pc.mode == 4 || pc.mode == 5) {
+		bool rows = pc.mode == 2 || pc.mode == 4;
+		bool forward = pc.mode <= 3;
+		uint i = rows ? at(y, x) : at(x, y);
+		lane[0][rev] = forward ? field_a[i] : field_b[i];
+		barrier();
+		uint src = fft_lane(x, forward ? -1.0 : 1.0);
+		if (forward)
+			field_a[i] = lane[src][x];
+		else
+			field_b[i] = lane[src][x];
+	} else if (pc.mode == 1) {
+		// F = FFT(h + i v); since h and v are real, H(k) and V(k) separate out
+		// using F(-k). Rotate each wavelength by its own phase, then repack.
+		vec2 f = field_a[at(y, x)];
+		vec2 fm = conj2(field_a[at((uint(N) - y) % uint(N), (uint(N) - x) % uint(N))]);
+		vec2 hk = 0.5 * (f + fm);
+		vec2 vk = 0.5 * vec2(f.y - fm.y, -(f.x - fm.x));   // (f - fm) / 2i
+		vec2 n = vec2(x < uint(N / 2) ? float(x) : float(x) - float(N),
+				y < uint(N / 2) ? float(y) : float(y) - float(N));
+		float k = length(n) * TAU / (float(N) * pc.cell);
+		vec2 out_f = vec2(0.0);
+		if (k > 0.0 && abs(n.x) < float(N / 2) && abs(n.y) < float(N / 2)) {   // drop the mean and Nyquist
+			float w = sqrt(G * k + TENSION * k * k * k);
+			float cw = cos(w * pc.dt);
+			float sw = sin(w * pc.dt);
+			float fade = exp(-(pc.damping + pc.viscosity * k * k) * pc.dt);
+			vec2 h2 = (hk * cw + vk * (sw / w)) * fade;
+			vec2 v2 = (vk * cw - hk * (w * sw)) * fade;
+			out_f = h2 + vec2(-v2.y, v2.x);   // h + i v
+		}
+		field_b[at(y, x)] = out_f;
+	} else if (pc.mode == 6) {
+		vec2 hv = field_b[at(y, x)] / float(N * N);
+		vec4 s = imageLoad(state_b, c);
+		float h = clamp(hv.x, -1.5, 1.5);
+		float foam = min(s.b + pc.dt * clamp((abs(hv.y) - 2.0) * 0.8, 0.0, 1.0), 1.0);   // fast-moving water froths
+		imageStore(state_a, c, vec4(h, hv.y, foam, s.a));
+		imageStore(disp_img, c, vec4(h, foam, 0.0, 0.0));
+	}
 }

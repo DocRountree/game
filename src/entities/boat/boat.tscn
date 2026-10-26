@@ -73,7 +73,7 @@ footprint = 2.6
 feels_ripples = false
 ripple_shape = 1
 ripple_half_extents = Vector2(3.5, 1.3)
-ripple_gain = 1.5
+ripple_gain = 2.5
 
 [node name="ProbeBowPort" type="Marker3D" parent="Buoyancy"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, -2.8)
