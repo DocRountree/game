@@ -8,7 +8,7 @@ extends Node3D
 
 @onready var player: Player = $Player
 @onready var boat: Boat = $Boat
-@onready var camera: ThirdPersonCamera = $Camera
+@onready var camera: PlayerCamera = $Camera
 @onready var hud: Hud = $HUD
 @onready var atmosphere: Atmosphere = $Atmosphere
 
@@ -24,6 +24,7 @@ func _ready() -> void:
 		crate.rotation.y = rng.randf() * PI
 		$Crates.add_child(crate)
 	camera.yaw = PI   # face south, toward the noon sun
+	camera.eyes = player.get_node("Model/Head")
 	player.drowned.connect(_on_player_drowned)
 	hud.flash("Press E near the boat to climb aboard", 4.0)
 
@@ -40,6 +41,9 @@ func _process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"quit"):
 		get_tree().quit()
+	elif event.is_action_pressed(&"toggle_view"):
+		camera.first_person = not camera.first_person
+		player.model.visible = not camera.first_person   # don't look out through your own head
 	elif event.is_action_pressed(&"toggle_mouse"):
 		var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if captured else Input.MOUSE_MODE_CAPTURED

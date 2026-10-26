@@ -30,6 +30,7 @@ and gameplay still work, just without ripples.
 | | |
 |---|---|
 | Mouse | look around (Tab releases the cursor; arrow keys also orbit) |
+| F5 | toggle first-person / third-person view |
 | W A S D | swim, relative to the camera |
 | Space | tread water (do nothing and you sink) |
 | E | board the boat / jump off |

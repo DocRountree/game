@@ -79,6 +79,10 @@ time_forward={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":93)]
 }
+toggle_view={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":4194336)]
+}
 quit={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":4194305)]

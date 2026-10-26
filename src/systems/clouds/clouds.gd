@@ -13,7 +13,7 @@ extends MultiMeshInstance3D
 @export var area := 24000.0              ## Side of the square of sky wrapped around the camera (m); big enough to reach low over the horizon.
 @export var altitude := 1300.0           ## Cloud base (m).
 @export var cloud_count := 1000
-@export var puffs_per_cloud := 14
+@export var puffs_per_cloud := 40       ## More puffs means smaller ones: overall cloud size stays the same.
 @export var wind := Vector2(7.0, 2.5)    ## m/s.
 @export var life_seconds := 150.0        ## Real seconds for one form-live-evaporate cycle.
 @export_range(0.0, 1.0) var coverage := 0.6   ## Share of clouds active in a cycle.
@@ -34,6 +34,10 @@ func _build() -> void:
 	mm.use_custom_data = true
 	mm.mesh = QuadMesh.new()
 	mm.instance_count = n
+	# puff radius shrinks with the puff count so a cloud's coverage stays the same
+	var puff_scale := sqrt(14.0 / puffs_per_cloud)
+	var buf := PackedFloat32Array()
+	buf.resize(n * 20)   # per puff: 12 transform floats, 4 colour, 4 custom
 	for c in cloud_count:
 		var site := Vector2(rng.randf() * area, rng.randf() * area)
 		var cloud_seed := rng.randf()
@@ -44,11 +48,21 @@ func _build() -> void:
 			var spread := (1.0 - 0.7 * order) * rng.randf_range(0.3, 1.0) * 150.0 * size
 			var offset := Vector3(cos(a) * spread, order * order * 170.0 * size + rng.randf() * 15.0,
 					sin(a) * spread * 0.7)
-			var radius := rng.randf_range(70.0, 110.0) * size * (1.0 - 0.3 * order)
-			var i := c * puffs_per_cloud + p
-			mm.set_instance_transform(i, Transform3D(Basis().scaled(Vector3.ONE * radius), offset))
-			mm.set_instance_custom_data(i, Color(site.x, site.y, cloud_seed, order))
-			mm.set_instance_color(i, Color(clampf(offset.y / (200.0 * size), 0.0, 1.0), 0.0, 0.0))
+			var radius := rng.randf_range(70.0, 110.0) * puff_scale * size * (1.0 - 0.3 * order)
+			var o := (c * puffs_per_cloud + p) * 20
+			buf[o] = radius        # rows of the 3x4 transform: uniform scale, puff offset
+			buf[o + 3] = offset.x
+			buf[o + 5] = radius
+			buf[o + 7] = offset.y
+			buf[o + 10] = radius
+			buf[o + 11] = offset.z
+			buf[o + 12] = clampf(offset.y / (200.0 * size), 0.0, 1.0)   # colour.r: height in the cloud
+			buf[o + 15] = 1.0
+			buf[o + 16] = site.x   # custom: cloud site, seed, formation order
+			buf[o + 17] = site.y
+			buf[o + 18] = cloud_seed
+			buf[o + 19] = order
+	mm.buffer = buf
 	mm.custom_aabb = AABB(Vector3(-1e6, -1e5, -1e6), Vector3(2e6, 2e5, 2e6))
 	multimesh = mm
 	custom_aabb = mm.custom_aabb
