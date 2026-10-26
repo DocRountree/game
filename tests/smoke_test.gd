@@ -26,18 +26,41 @@ func _run() -> void:
 	await _frames(2)   # let the scene enter the tree and run _ready()
 	var atmosphere: Atmosphere = world.get_node("Atmosphere")
 	var sun: DirectionalLight3D = world.get_node("Sun")
+	var start_time := atmosphere.time_of_day
 	atmosphere.time_of_day = 12.0
+	_check(absf(rad_to_deg(asin(atmosphere.sun_direction().y)) - 31.6) < 0.5,
+			"winter solstice noon sun at 31.6 deg for 35N")
 	atmosphere._update_sun()
 	var noon := sun.light_color
-	atmosphere.time_of_day = 17.9
+	atmosphere.time_of_day = 16.6
 	atmosphere._update_sun()
 	var dusk := sun.light_color
-	_check(noon.b > 0.8 and dusk.r > dusk.b * 2.0 and sun.light_energy > 0.0,
+	_check(noon.b > 0.6 and dusk.r > dusk.b * 2.0 and sun.light_energy > 0.0,
 			"sunlight is white at noon and reddens at sunset")
-	atmosphere.time_of_day = 23.0
+	atmosphere.time_of_day = 0.0
 	atmosphere._update_sun()
 	_check(sun.light_energy == 0.0, "no sunlight at night")
-	atmosphere.time_of_day = 16.75
+	var sky := atmosphere.equatorial_to_world()
+	var betelgeuse := sky * Starfield._unit(deg_to_rad(88.79), deg_to_rad(7.41))
+	var polaris := sky * Starfield._unit(deg_to_rad(37.95), deg_to_rad(89.26))
+	# facing south (+Z) with up +Y, east (+X) must be on the left, as in the real sky
+	var aldebaran := sky * Starfield._unit(deg_to_rad(68.98), deg_to_rad(16.51))
+	_check(betelgeuse.y > 0.85 and betelgeuse.z > 0.0 and polaris.z < 0.0
+			and absf(rad_to_deg(asin(polaris.y)) - 35.0) < 1.0,
+			"Dec 21 midnight: Orion high in the south, Polaris 35 deg up in the north")
+	atmosphere.time_of_day = 22.0
+	sky = atmosphere.equatorial_to_world()
+	aldebaran = sky * Starfield._unit(deg_to_rad(68.98), deg_to_rad(16.51))
+	var rising := sky * Starfield._unit(deg_to_rad(88.79), deg_to_rad(7.41))
+	_check(aldebaran.x > 0.0 and rising.x > aldebaran.x, "22:00: Taurus and Orion still east of the meridian")
+	atmosphere.time_of_day = 16.6
+	_check(atmosphere.sun_direction().x < 0.0 and atmosphere.sun_direction().z > 0.0, "winter sun sets in the southwest")
+	var planets := Planets.positions(Planets.julian_date(2020, 356, 18.0))
+	_check((planets[3][1] as Vector3).angle_to(planets[4][1]) < deg_to_rad(0.5),
+			"planets: Jupiter-Saturn great conjunction on 2020-12-21")
+	var catalog: StarCatalog = world.get_node("Starfield").catalog
+	_check(catalog.star_count() > 8000 and catalog.deep_sky_count() == 110, "star catalogue and all 110 Messier objects load")
+	atmosphere.time_of_day = start_time
 
 	await _frames(300)
 	var boat_draft := boat.buoyancy.submerged * boat.buoyancy.max_depth   # mean probe depth

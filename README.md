@@ -4,6 +4,8 @@ An exploration-based video game featuring a playable character, a navigable ocea
 and rivers, plants, fungi, animals, and land. Built in **Godot 4.7** (GDScript,
 with C++ via GDExtension where profiling calls for it).
 
+The sky is a single-scattering atmosphere over the real winter night sky:
+naked-eye stars, planets and Messier objects, every day the winter solstice.
 The first system in place is the water: a Gerstner-wave ocean that physics and
 rendering agree on exactly, spring buoyancy for anything that floats, and an
 interactive GPU ripple simulation that turns hulls and swimmers into wakes that

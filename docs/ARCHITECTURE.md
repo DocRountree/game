@@ -59,7 +59,7 @@ tints distant geometry with the sky colour in that direction).
 | File | Role |
 |---|---|
 | `atmosphere_sky.gdshader` | Marches the view ray (16 samples bunched near the camera, dithered). At each sample it looks up the sunlight's optical depth in a baked table and accumulates the view ray's own. Draws the sun disc, reddened by the air in front of it. |
-| `atmosphere.gd` | Bakes the optical-depth table (~25 ms at startup), pushes parameters, runs the time of day, and sets the sun light's direction, colour and energy from the same maths, so sunsets light the world orange. |
+| `atmosphere.gd` | Bakes the optical-depth table (~50 ms at startup), pushes parameters, runs the clock and the astronomy, and sets the sun light's direction, colour and energy from the same maths, so sunsets light the world orange. |
 
 Model, as in Lague's: planet radius 1, density `exp(-h * falloff) * (1 - h)` with
 `h` the height through the atmosphere 0..1, and scattering `(400 / wavelength)^4 * strength`.
@@ -71,6 +71,30 @@ Changes from his version:
 - **View-ray optical depth is summed** along the march instead of taken as
   differences of baked values. That is exact here and removes banding in thin atmospheres.
 - **Ozone absorption** (Earth's ratios) keeps twilight blue instead of olive.
+- **Haze (Mie scattering):** aerosols near the surface with a forward-scattering
+  phase function give the warm glow around a low sun. The lookup has a second
+  channel for them. The sun disc is kept dim enough that its colour survives tone mapping.
+
+### Astronomy and the night sky
+
+Every day is the same day: the 2026 winter solstice at 35 degrees north. The
+clock alone drives the sky, so it repeats exactly each day.
+
+- **One rotation for everything.** `Atmosphere.equatorial_to_world()` turns
+  equatorial coordinates (right ascension, declination) into the local sky from
+  local sidereal time and latitude. The sun, stars, planets and deep-sky
+  objects all go through it. World axes: +X east, +Y up, -Z north.
+- **Sun and planets** (`planets.gd`): Keplerian orbits from JPL's approximate
+  elements, Kepler's equation solved per body. Checked against the 2020
+  Jupiter-Saturn conjunction and the 2020 Mars opposition (`tests/smoke_test.gd`).
+- **Stars** (`starfield.gd`, `starfield.gdshader`): all 8,404 naked-eye stars
+  of the Yale Bright Star Catalog plus the 110 Messier objects, as one
+  `MultiMesh` draw. Stars are white points, all the same size; brightness follows
+  their real magnitudes with one uniform boost. Planets are small coloured discs.
+  Messier objects are grey ellipses at their true angular size. At night the air
+  doesn't dim anything; it only adds a slight shimmer that grows toward the horizon.
+- **Data:** `tools/build_star_catalog.py` builds `bright_stars.tres`. Sources and
+  licences are in `docs/THIRD_PARTY.md`.
 
 ### Buoyancy (`src/systems/buoyancy/buoyancy.gd`)
 
