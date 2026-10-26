@@ -78,7 +78,13 @@ with directions spread around the wind and true deep-water speeds, so the
 detail evolves like real ripples instead of sliding or tiling. Each wave uses
 an exponentiated sine (sharper crests) and is shifted by the slopes of the
 waves before it (domain warping), which breaks up the regularity of a plain
-sum. They are evaluated at the undisplaced position, so they ride the swell.
+sum. Real chop is short-crested, so crest lines are curved and short: a broad,
+slowly drifting warp (~1 m over tens of metres) bends them, and each wave comes
+in packets, with an envelope that fades it along its crest after ~2 wavelengths and
+along its travel after ~3. The envelope moves at the group velocity (half the crest
+speed), so crests are born at the back of a packet and die at its front.
+A floor keeps a little roughness between packets. They are evaluated at the
+undisplaced position, so they ride the swell.
 The loop stops at the first wave shorter than ~2.5 pixels, so distant water
 costs only a few iterations and nothing aliases.
 

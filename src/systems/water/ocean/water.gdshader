@@ -33,6 +33,10 @@ uniform float detail_slope = 0.11;         // slope of the longest detail wave
 uniform float detail_spread = 3.6;         // radians of direction spread around the wind
 uniform float detail_warp = 0.5;           // how much earlier waves bend later ones
 uniform float wind_angle = 0.45;           // radians (matches the main swell)
+uniform float detail_bend = 1.1;           // m: broad warp that curves crest lines over metres
+uniform float packet_crest = 2.2;          // crest length of a packet, in wavelengths
+uniform float packet_length = 3.0;         // packet length along travel, in wavelengths
+uniform float packet_floor = 0.3;          // between packets a wave keeps this share (never glassy)
 uniform sampler2D foam_noise : filter_linear_mipmap, repeat_enable;
 
 group_uniforms water;
@@ -63,8 +67,17 @@ float rip_fade(vec2 uv) { vec2 e = min(uv, 1.0 - uv); return clamp(min(e.x, e.y)
 float hash1(float n) { return fract(sin(n * 91.3458) * 47453.5453); }
 
 // Summed slope of the procedural detail waves at undisplaced position p.
+// Real chop is short-crested: each little wave has a curved front that runs
+// only a few wavelengths. Two cheap tricks give that:
+//  - a broad, slowly drifting warp of the position bends crest lines over metres;
+//  - each wave comes in packets: an envelope fades it out along its crest after
+//    packet_crest wavelengths and along its travel after packet_length. The
+//    envelope moves at the group velocity (half the crest speed in deep water),
+//    so crests are born at the back of a packet and die at its front, as in the sea.
 vec2 detail_slope_at(vec2 p, float footprint) {
 	vec2 grad = vec2(0.0);
+	p += detail_bend * vec2(sin(dot(p, vec2(0.21, 0.13)) + time * 0.07) + 0.5 * sin(dot(p, vec2(-0.37, 0.52)) - time * 0.11),
+			sin(dot(p, vec2(-0.16, 0.24)) - time * 0.05) + 0.5 * sin(dot(p, vec2(0.48, 0.33)) + time * 0.09));
 	float lambda = detail_longest;
 	float amp_slope = detail_slope;
 	for (int i = 0; i < detail_waves; i++) {
@@ -76,10 +89,18 @@ vec2 detail_slope_at(vec2 p, float footprint) {
 		float ang = wind_angle + (hash1(fi + 1.0) - 0.5) * detail_spread;
 		vec2 d = vec2(cos(ang), sin(ang));
 		float k = 6.2831853 / lambda;
-		float th = k * dot(d, p) - sqrt(9.81 * k) * time + hash1(fi + 17.0) * 6.2831853;
+		float omega = sqrt(9.81 * k);
+		float along = k * dot(d, p);
+		float th = along - omega * time + hash1(fi + 17.0) * 6.2831853;
 		// exponentiated sine: sharper crests, broader troughs, like real ripples
 		float e = exp(sin(th) - 1.0);
-		vec2 g = d * (amp_slope * e * cos(th) * fade);
+		// packet envelope: 0..1 with mean 0.25, lifted by packet_floor and rescaled
+		// so the overall roughness stays the same
+		float across = k * (d.y * p.x - d.x * p.y);
+		float env = (0.5 + 0.5 * sin(across / packet_crest + hash1(fi + 31.0) * 6.2831853))
+				* (0.5 + 0.5 * sin((along - 0.5 * omega * time) / packet_length + hash1(fi + 47.0) * 6.2831853));
+		env = packet_floor + (1.0 - packet_floor) * 4.0 * env;   // mean stays 1
+		vec2 g = d * (amp_slope * e * cos(th) * fade * env);
 		grad += g;
 		p += g * (lambda * detail_warp);
 		lambda *= detail_ratio;
