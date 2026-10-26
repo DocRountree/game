@@ -7,16 +7,22 @@ extends MeshInstance3D
 ## same) of a display.
 ##
 ## Each display is rolled from the seed: how strong the storm is (strong ones
-## reach overhead, or south of you), where the auroral oval sits, and 1-6
-## curtains, each with its own folds, pace, length, base height and softness,
-## rays, thickness and colours (pink fringe, green, red, violet, white cores),
-## plus structureless glows. Through the night the oval drifts, curtains
-## brighten and fade on their own, and their folds and rays move. The curtains
-## are stacked north to south with a gap of at least MIN_GAP between their
-## fold envelopes, so they never cross.
+## reach overhead, or south of you), where the auroral oval sits, 1-3 curtains
+## made of pillars (each with its own pillar spacing and crowding, ragged base
+## height and softness, length, pace and colours: yellow-green to cyan, red or
+## blue-violet tops, sometimes magenta), swirls that fold the curtains (S folds,
+## spirals, folds within folds) and structureless glows. Through the night the
+## oval drifts, curtains brighten and fade on their own, swirls wind and unwind,
+## and pillars flicker.
+##
+## No crossing, by construction: curtains are stacked north to south in an
+## "unwarped" plane with a gap of at least MIN_GAP between their fold envelopes,
+## and the swirls that fold them are bijections of the plane (rotations about a
+## centre by an angle that depends only on the distance from it).
 
 const RADIUS := 2300.0
-const MAX_CURTAINS := 6         ## Must match aurora.gdshader.
+const MAX_CURTAINS := 4         ## Must match aurora.gdshader.
+const MAX_SWIRLS := 5           ## Must match aurora.gdshader.
 const MIN_GAP := 15.0           ## km between neighbouring curtains' fold envelopes.
 
 @export_range(0.0, 1.0) var chance := 0.02    ## About one night in fifty.
@@ -67,46 +73,71 @@ func update_sky(night: float, night_id: int) -> void:
 	_push_curtains(mat)
 
 
-# The night's character. Everything per curtain is independent.
+# The night's character. Everything per curtain and per swirl is independent.
 func _style_for(night_id: int) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = WorldConfig.current().seed_for("aurora-style:%d" % night_id)
 	var storm := rng.randf()
 	var curtains: Array[Dictionary] = []
-	var count := clampi(1 + rng.randi_range(0, 2) + int(storm * 3.0), 1, MAX_CURTAINS)
+	var count := 1 + int(rng.randf() < 0.45) + int(storm > 0.75 and rng.randf() < 0.4)
 	for k in count:
-		var high_base := rng.randf() < 0.2          # rays that start high: no visible base
+		var high_base := rng.randf() < 0.15          # pillars that start high: no visible base
+		var magenta_roll := rng.randf()
 		curtains.append({
-			"amplitude": rng.randf_range(10.0, 110.0),
-			"gap": rng.randf_range(MIN_GAP, 160.0),
-			"base": rng.randf_range(135.0, 170.0) if high_base else rng.randf_range(95.0, 120.0),
-			"softness": rng.randf_range(2.0, 15.0),
-			"decay": rng.randf_range(25.0, 150.0),
-			"thickness": rng.randf_range(1.0, 6.0),
-			"brightness": rng.randf_range(0.4, 1.0),
-			"rays": rng.randf() * rng.randf() * 1.2 if rng.randf() < 0.3 else rng.randf_range(0.3, 1.0),
-			"pink": rng.randf_range(0.3, 1.0) if rng.randf() < 0.35 else 0.0,
-			"red": pow(rng.randf(), 2.0) * (0.3 + 0.7 * storm),   # usually little; strong on some
-			"violet": rng.randf_range(0.2, 0.8) if rng.randf() < 0.4 else 0.0,
-			"white": rng.randf_range(0.2, 0.6) if rng.randf() < 0.3 else 0.0,
-			"green_top": rng.randf_range(150.0, 220.0),
+			"amplitude": rng.randf_range(5.0, 60.0),
+			"gap": rng.randf_range(MIN_GAP, 150.0),
+			"base": rng.randf_range(130.0, 160.0) if high_base else rng.randf_range(95.0, 120.0),
+			"softness": rng.randf_range(6.0, 25.0),
+			"decay": rng.randf_range(30.0, 160.0),
+			"thickness": rng.randf_range(2.0, 10.0),
+			"brightness": rng.randf_range(0.5, 1.0),
+			"pillar_spacing": rng.randf_range(3.0, 14.0),
+			"sheet": rng.randf_range(0.4, 0.6) if rng.randf() < 0.1 else rng.randf_range(0.0, 0.3),
+			"ragged": rng.randf_range(5.0, 30.0),
+			"magenta": rng.randf_range(0.8, 1.0) if magenta_roll < 0.1 else (rng.randf_range(0.3, 0.6) if magenta_roll < 0.35 else 0.0),
+			"red": rng.randf_range(0.2, 1.0) * (0.5 + storm) if rng.randf() < 0.5 else 0.0,
+			"blue": rng.randf_range(0.2, 0.9) if rng.randf() < 0.45 else 0.0,
+			"hue": rng.randf(),
+			"green_top": rng.randf_range(140.0, 230.0),
 			"seed": rng.randf() * 100.0,
-			"pace": rng.randf_range(0.3, 2.0),
-			"ray_spacing": rng.randf_range(2.0, 12.0),
+			"pace": rng.randf_range(0.3, 1.8),
 			"west": -rng.randf_range(400.0, 1800.0),
 			"east": rng.randf_range(400.0, 1800.0),
 			"fold_scale": rng.randf_range(0.5, 2.0),
-			"patchiness": rng.randf_range(0.0, 0.8),
 			"swell_rate": rng.randf_range(0.004, 0.03),   # how fast it brightens and fades
 		})
+	# swirls that fold the curtains; some nest a smaller one inside
+	var swirls: Array[Dictionary] = []
+	var n_swirls := rng.randi_range(0, 2) + int(storm > 0.5) + int(storm > 0.8)
+	for i in n_swirls:
+		if swirls.size() >= MAX_SWIRLS:
+			break
+		var big := {
+			"curtain": rng.randi_range(0, count - 1),
+			"x": rng.randf_range(-700.0, 700.0), "dy": rng.randf_range(-40.0, 40.0),
+			"radius": rng.randf_range(50.0, 250.0),
+			"angle": rng.randf_range(0.8, 3.5) * (1.0 if rng.randf() < 0.5 else -1.0),
+			"sway": rng.randf_range(100.0, 500.0), "rate": rng.randf_range(0.002, 0.012),
+			"seed": rng.randf() * 100.0,
+		}
+		swirls.append(big)
+		if rng.randf() < 0.4 and swirls.size() < MAX_SWIRLS:
+			swirls.append({
+				"curtain": big.curtain, "parent": swirls.size() - 1,
+				"x": rng.randf_range(-0.3, 0.3) * big.radius, "dy": rng.randf_range(-0.3, 0.3) * big.radius,
+				"radius": big.radius * rng.randf_range(0.2, 0.45),
+				"angle": rng.randf_range(1.0, 3.0) * (1.0 if rng.randf() < 0.5 else -1.0),
+				"sway": 0.0, "rate": rng.randf_range(0.004, 0.02), "seed": rng.randf() * 100.0,
+			})
 	return {
 		"storm": storm,
 		"oval": lerpf(1100.0, -200.0, pow(storm, 1.3)),   # km north of the equatorward curtain
 		"oval_drift": rng.randf_range(60.0, 300.0),
-		"red_glow": rng.randf() * (0.3 + 0.7 * storm) if rng.randf() < 0.4 else 0.0,
+		"red_glow": rng.randf() * (0.3 + 0.7 * storm) if rng.randf() < 0.3 else 0.0,
 		"green_patches": rng.randf() * 0.6 if rng.randf() < 0.5 else 0.0,
 		"glow_seed": rng.randf() * 100.0,
 		"curtains": curtains,
+		"swirls": swirls,
 	}
 
 
@@ -116,7 +147,7 @@ func _push_curtains(mat: ShaderMaterial) -> void:
 		mat.set_shader_parameter(key, c[key])
 
 
-# Every curtain's shader parameters at the current display time.
+# Every curtain's and swirl's shader parameters at the current display time.
 func _curtains_now() -> Dictionary:
 	var t := display_time
 	var curtains: Array = style.get("curtains", [])
@@ -125,6 +156,7 @@ func _curtains_now() -> Dictionary:
 	var colour: Array[Vector4] = []
 	var look: Array[Vector4] = []
 	var extent: Array[Vector4] = []
+	var lines: Array[float] = []
 	# the oval drifts north and south; curtains stack poleward from it, never crossing
 	var north: float = style.get("oval", 0.0) + style.get("oval_drift", 0.0) * (_smooth_noise(t * 0.003 + 5.0) - 0.5) * 2.0
 	for k in MAX_CURTAINS:
@@ -137,15 +169,33 @@ func _curtains_now() -> Dictionary:
 		if k > 0:
 			var gap: float = c.gap * (0.6 + 0.8 * _smooth_noise(t * 0.005 + c.seed))
 			north += curtains[k - 1].amplitude + maxf(gap, MIN_GAP) + amp
+		lines.append(north)
 		var swell := smoothstep(0.15, 0.75, _smooth_noise(t * c.swell_rate + c.seed * 3.0))
 		shape.append(Vector4(north, amp, c.base, c.softness))
-		glow.append(Vector4(c.decay, c.thickness, c.brightness * swell, c.rays))
-		colour.append(Vector4(c.pink, c.red, c.violet, c.white))
-		look.append(Vector4(c.green_top, c.seed, c.pace, c.ray_spacing))
-		extent.append(Vector4(c.west, c.east, c.fold_scale, c.patchiness))
+		glow.append(Vector4(c.decay, c.thickness, c.brightness * swell, c.pillar_spacing))
+		colour.append(Vector4(c.magenta, c.red, c.blue, c.hue))
+		look.append(Vector4(c.green_top, c.seed, c.pace, c.sheet))
+		extent.append(Vector4(c.west, c.east, c.fold_scale, c.ragged))
+	# swirls follow their curtain, sway along it, and wind and unwind
+	var swirl_data: Array[Vector4] = []
+	var centres: Array[Vector2] = []
+	for i in MAX_SWIRLS:
+		var sw: Dictionary = (style.get("swirls", []) as Array)[i] if i < (style.get("swirls", []) as Array).size() else {}
+		if sw.is_empty():
+			swirl_data.append(Vector4(0.0, 0.0, 1.0, 0.0))
+			continue
+		var centre: Vector2
+		if sw.has("parent"):
+			centre = centres[sw.parent] + Vector2(sw.x, sw.dy)
+		else:
+			centre = Vector2(sw.x + sw.sway * sin(t * sw.rate + sw.seed), lines[sw.curtain] + sw.dy)
+		centres.append(centre)
+		var wind := lerpf(0.15, 1.0, _smooth_noise(t * sw.rate * 2.0 + sw.seed * 7.0))
+		swirl_data.append(Vector4(centre.x, centre.y, sw.radius, sw.angle * wind))
 	return {
 		"curtain_count": curtains.size(), "c_shape": shape, "c_glow": glow, "c_color": colour,
 		"c_style": look, "c_extent": extent,
+		"swirl_count": centres.size(), "swirls": swirl_data,
 		"red_glow": style.get("red_glow", 0.0) * (0.6 + 0.8 * _smooth_noise(t * 0.006 + 2.0)),
 		"green_patches": style.get("green_patches", 0.0), "glow_seed": style.get("glow_seed", 0.0),
 	}
@@ -159,6 +209,26 @@ func curtain_feet(night_id: int) -> Array[Vector2]:
 	for k in (style.curtains as Array).size():
 		out.append(Vector2(shape[k].x, shape[k].y))
 	return out
+
+
+## Swirl maths, mirroring aurora.gdshader: unwarp undoes the swirls (applied in
+## order) by turning back through each, last first. Both are exact bijections.
+static func unwarp_point(q: Vector2, swirls: Array[Vector4]) -> Vector2:
+	for i in range(swirls.size() - 1, -1, -1):
+		q = _turn(q, swirls[i], -1.0)
+	return q
+
+
+static func warp_point(q: Vector2, swirls: Array[Vector4]) -> Vector2:
+	for sw in swirls:
+		q = _turn(q, sw, 1.0)
+	return q
+
+
+static func _turn(q: Vector2, sw: Vector4, direction: float) -> Vector2:
+	var d := q - Vector2(sw.x, sw.y)
+	var r := d.length() / sw.z
+	return Vector2(sw.x, sw.y) + d.rotated(direction * sw.w * exp(-r * r))
 
 
 static func _smooth_noise(x: float) -> float:

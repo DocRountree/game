@@ -147,6 +147,15 @@ func _run() -> void:
 	aurora.display_time = kept_time
 	_check(crossed == 0 and overhead > 10 and overhead < 120,
 			"aurora curtains never cross; %d of 200 displays reach within 300 km of overhead" % overhead)
+	# swirls fold curtains without tearing or crossing: warping is exactly undone by unwarping
+	var swirl_set: Array[Vector4] = [Vector4(0, 300, 200, 3.0), Vector4(40, 280, 60, -2.5), Vector4(-300, 500, 120, 1.7)]
+	var worst := 0.0
+	var prng := RandomNumberGenerator.new()
+	prng.seed = 4
+	for i in 2000:
+		var q := Vector2(prng.randf_range(-800, 800), prng.randf_range(-200, 900))
+		worst = maxf(worst, Aurora.unwarp_point(Aurora.warp_point(q, swirl_set), swirl_set).distance_to(q))
+	_check(worst < 1e-3, "aurora swirls are exact bijections (round trip error %.6f km)" % worst)
 	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
 			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
 

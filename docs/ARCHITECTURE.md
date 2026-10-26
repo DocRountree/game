@@ -195,30 +195,31 @@ stars, so they repeat exactly each day. The moon and planets move on:
 - **Aurora** (`aurora.gd`, `aurora.gdshader`): a 3D emission field above a
   round Earth, drawn on a sky dome. Each night independently has a 1-in-50
   chance (`chance`) from the world seed; a night belongs to the day it began.
-  - *Curtains* are thin sheets along the geomagnetic field. Each one's foot
-    follows a folding curve on the map, single-valued so it can't cross
-    itself, with fold harmonics capped at slope 0.6 (curls, not kinks). The
-    curtains are stacked poleward from the auroral oval with at least 15 km
-    between their fold envelopes, so they never cross each other (tested).
-    Field lines tilt toward the equator as they rise, so rays overhead
-    converge on the magnetic zenith (a corona).
-  - Per pixel, the view ray is stepped through 80-450 km of altitude and, per
-    step, the length of ray inside each sheet's Gaussian profile is integrated
-    in closed form (error functions), so edge-on sheets glow brighter and
-    neighbouring pixels never jump. Rays and the finest folds fade out once
-    they'd be under a few pixels, so nothing aliases at a distance.
-  - Each curtain is independent: folds, pace, length, thickness, brightness
-    swells, base altitude (wandering along it) and base softness (2-15 km:
-    blurred bottoms; some start high with no visible base), decay height, ray
-    spacing and contrast, and colour by altitude (an optional pink N2 fringe at
-    the base, green to that curtain's green top, red above, violet tops, white
-    cores). Interleaved red, purple and green strips come from curtains with
-    different balances seen in perspective.
-  - The storm strength sets where the oval sits: weak nights stay low in the
-    north, strong ones reach overhead or south. Through the night the oval
-    drifts and every curtain swells and fades on its own. Structureless
-    glows: an optional high red glow (typical at mid-latitudes) and faint,
-    slowly pulsing green patches.
+  - *Pillars first.* 1-3 curtains, each made of field-aligned pillars at two
+    scales with gaps, each pillar with its own base height and length (ragged,
+    staggered, soft bottoms) and brightest near its bottom. A curtain only
+    reads as a sheet where pillars crowd together.
+  - *Folding without crossing.* Curtains are straight lines (plus gentle folds,
+    slope under 0.6) in an unwarped plane, stacked north to south with at least
+    15 km between their fold envelopes. Swirls then warp the plane: each
+    rotates points about a centre by an angle that fades with distance, so it
+    maps every circle to itself and is an exact bijection. The curtains become
+    S folds, spirals and folds within folds (some swirls nest a smaller one)
+    but can never cross themselves or each other; the shader undoes the
+    swirls exactly to evaluate them. Both properties are tested.
+  - Field lines tilt toward the equator as they rise, so overhead pillars
+    converge on the magnetic zenith.
+  - Per pixel, the view ray is stepped through 80-450 km of altitude with a
+    per-pixel jitter (altitude steps become grain, not stripes); per step the
+    length of ray inside each sheet's profile is integrated in closed form, so
+    edge-on sheets glow and nothing jumps between pixels. Pillars and fine folds
+    fade out below a few pixels, so distance doesn't alias.
+  - Colour by altitude, per curtain and drifting along it: green from
+    yellow-green to cyan, red or blue-violet tops, sometimes magenta lower parts.
+    Only genuinely bright light whitens.
+  - Storm strength places the oval (strong nights overhead or south); the oval
+    drifts, curtains swell and fade on their own, swirls sway and wind and
+    unwind. Optional faint high red glow and soft pulsing green patches.
   - `time_scale` speeds up, slows or freezes the display for tuning.
 
 - **One rotation for everything.** `Astronomy.equatorial_to_world()` turns
