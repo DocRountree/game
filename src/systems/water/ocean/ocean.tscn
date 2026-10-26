@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://src/systems/water/ocean/ocean_wave.gd" id="2_wave"]
 [ext_resource type="Script" path="res://src/systems/water/ocean/ocean_surface.gd" id="3_surface"]
 [ext_resource type="Script" path="res://src/systems/water/ocean/ripple_sim.gd" id="4_ripples"]
+[ext_resource type="Script" path="res://src/systems/water/ocean/ocean_fft.gd" id="7_fft"]
 [ext_resource type="Shader" path="res://src/systems/water/ocean/water.gdshader" id="5_water"]
 [ext_resource type="Resource" path="res://src/data/biomes/open_ocean.tres" id="6_biome"]
 
@@ -76,3 +77,6 @@ script = ExtResource("3_surface")
 
 [node name="Ripples" type="Node" parent="."]
 script = ExtResource("4_ripples")
+
+[node name="SmallWaves" type="Node" parent="."]
+script = ExtResource("7_fft")

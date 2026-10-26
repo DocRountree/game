@@ -29,6 +29,7 @@ var _sources := PackedFloat32Array()
 
 @onready var surface: OceanSurface = $Surface
 @onready var ripples: RippleSim = $Ripples
+@onready var small_waves: OceanFFT = $SmallWaves
 @onready var _material: ShaderMaterial = surface.material_override
 
 
@@ -75,6 +76,11 @@ func _process(delta: float) -> void:
 		time += delta   # animate the preview; in game, physics owns the clock
 	_material.set_shader_parameter("time", time)
 	_material.set_shader_parameter("ripple_tex", ripples.texture)
+	if not Engine.is_editor_hint():
+		small_waves.update(time)
+	for c in OceanFFT.CASCADES:
+		_material.set_shader_parameter("fft_%d" % c, small_waves.textures[c])
+	_material.set_shader_parameter("fft_sizes", small_waves.sizes)
 	_material.set_shader_parameter("ripple_rect", Vector3(ripples.origin.x, ripples.origin.y, ripples.size()))
 	if sun:
 		_material.set_shader_parameter("sun_direction", sun.global_basis.z)

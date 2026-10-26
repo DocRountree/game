@@ -65,6 +65,7 @@ lower in fresh water.
 | `ocean_surface.gd` | Builds the camera-centred polar mesh. Each vertex stores its local spacing so the shader can drop waves too short to resolve there (no far-field aliasing). |
 | `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + procedural small waves, see below), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
 | `ripple_sim.gd` / `ripple_sim.glsl` | Interactive ripples on the GPU (see below). |
+| `ocean_fft.gd` / `ocean_fft.glsl` | The small waves: an FFT ocean spectrum on the GPU (see below). |
 
 **Height queries.** `surface_height(x, z, footprint, ripple_radius)` returns the swell
 height above a world point. Gerstner moves water sideways, so it first finds the
@@ -72,21 +73,19 @@ undisplaced point that lands on `(x, z)` (three fixed-point iterations).
 `footprint` low-passes the swell so a large hull ignores short waves.
 `ripple_radius >= 0` adds the interactive ripples.
 
-**Small waves.** No normal-map textures: the fragment shader sums up to 28
-short travelling waves, from 7 m down to about 0.2 m (each 0.88x the last),
-with directions spread around the wind and true deep-water speeds, so the
-detail evolves like real ripples instead of sliding or tiling. Each wave uses
-an exponentiated sine (sharper crests) and is shifted by the slopes of the
-waves before it (domain warping), which breaks up the regularity of a plain
-sum. Real chop is short-crested, so crest lines are curved and short: a broad,
-slowly drifting warp (~1 m over tens of metres) bends them, and each wave comes
-in packets, with an envelope that fades it along its crest after ~2 wavelengths and
-along its travel after ~3. The envelope moves at the group velocity (half the crest
-speed), so crests are born at the back of a packet and die at its front.
-A floor keeps a little roughness between packets. They are evaluated at the
-undisplaced position, so they ride the swell.
-The loop stops at the first wave shorter than ~2.5 pixels, so distant water
-costs only a few iterations and nothing aliases.
+**Small waves (FFT ocean).** `ocean_fft.gd` / `ocean_fft.glsl`, after
+Tessendorf's "Simulating Ocean Water". A Phillips wind-wave spectrum (broad
+directional spreading, gravity-capillary dispersion) is evolved in time and
+inverse-FFT'd on the GPU into surface slopes every frame, in three 256x256
+cascades with tile sizes 97 m, 13.7 m and 2.31 m. Each cascade owns a band of
+wavelengths (20-3 m, 3-0.3 m, 0.3 m down to ~2 cm), so nothing is counted twice,
+and the odd size ratios keep their repeats from lining up. One compute shader,
+12 small dispatches a frame: evolve the spectrum, a row and a column FFT in
+shared memory (one workgroup per line), write the slopes, then a mip chain so
+distant water averages instead of sparkling. The water shader samples the three
+textures at the undisplaced position, so the detail rides the swell. Physics
+ignores it (the Gerstner swell does the floating); without a RenderingDevice
+the detail is flat.
 
 **Ripples.** A damped 2D wave equation on a 256 x 256 grid (0.3 m cells, ~77 m)
 that scrolls with the player. Each physics frame:

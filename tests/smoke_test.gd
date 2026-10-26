@@ -21,7 +21,8 @@ func _run() -> void:
 	var boat: Boat = world.get_node("Boat")
 	var player: Player = world.get_node("Player")
 
-	_check(_shader_compiles(), "ripple compute shader compiles to SPIR-V")
+	_check(_shader_compiles("res://src/systems/water/ocean/ripple_sim.glsl"), "ripple compute shader compiles to SPIR-V")
+	_check(_shader_compiles("res://src/systems/water/ocean/ocean_fft.glsl"), "FFT ocean compute shader compiles to SPIR-V")
 	_check(_lookup_consistent(ocean), "surface_height() inverts the Gerstner displacement")
 	await _frames(2)   # let the scene enter the tree and run _ready()
 	var atmosphere: Atmosphere = world.get_node("Atmosphere")
@@ -191,8 +192,8 @@ func _check(ok: bool, what: String) -> void:
 		_failures += 1
 
 
-func _shader_compiles() -> bool:
-	var file: RDShaderFile = load("res://src/systems/water/ocean/ripple_sim.glsl")
+func _shader_compiles(path: String) -> bool:
+	var file: RDShaderFile = load(path)
 	var spirv := file.get_spirv()
 	if spirv.compile_error_compute != "":
 		print(spirv.compile_error_compute)

@@ -3,7 +3,7 @@ render_mode blend_mix, depth_draw_always, cull_disabled;
 
 // Open-ocean surface. The same Gerstner waves as Ocean.height_at() displace a
 // camera-centred mesh; per pixel it adds the analytic wave normal, interactive
-// ripples, and procedural small waves. Godot's lighting handles the
+// ripples, and FFT small waves. Godot's lighting handles the
 // sky reflection and sun glints; this shader supplies the light coming up
 // through the water (refraction + depth absorption + crest scattering) and foam.
 
@@ -19,24 +19,13 @@ uniform sampler2D ripple_tex : filter_linear, repeat_disable;  // r height, g fo
 uniform vec3 ripple_rect = vec3(0.0, 0.0, 1.0);                // origin x, origin z, size
 
 group_uniforms detail;
-// Small waves, procedurally: a sum of short travelling waves with their own
-// directions (spread around the wind), wavelengths (a geometric series) and
-// deep-water speeds. They evolve like real ripples: no texture to slide or
-// tile. Each wave is shifted a little by the slopes of the waves before it
-// (domain warping), which breaks up the regularity of a plain sum of sines.
-// Cheap: waves too short for a pixel are skipped, so far water costs a few
-// iterations.
-uniform int detail_waves = 28;
-uniform float detail_longest = 7.0;        // m
-uniform float detail_ratio = 0.88;         // each wave this much shorter than the last
-uniform float detail_slope = 0.11;         // slope of the longest detail wave
-uniform float detail_spread = 3.6;         // radians of direction spread around the wind
-uniform float detail_warp = 0.5;           // how much earlier waves bend later ones
-uniform float wind_angle = 0.45;           // radians (matches the main swell)
-uniform float detail_bend = 1.1;           // m: broad warp that curves crest lines over metres
-uniform float packet_crest = 2.2;          // crest length of a packet, in wavelengths
-uniform float packet_length = 3.0;         // packet length along travel, in wavelengths
-uniform float packet_floor = 0.3;          // between packets a wave keeps this share (never glassy)
+// Small waves: slopes from the FFT ocean (OceanFFT), three cascades of
+// different tile sizes. Mipmapped, so distant water averages instead of sparkling.
+uniform sampler2D fft_0 : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D fft_1 : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D fft_2 : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform vec3 fft_sizes = vec3(97.0, 13.7, 2.31);   // tile size (m) per cascade
+uniform float detail_strength = 1.0;
 uniform sampler2D foam_noise : filter_linear_mipmap, repeat_enable;
 
 group_uniforms water;
@@ -63,51 +52,6 @@ float lod(int i, float sp) {
 
 vec2 rip_uv(vec2 p) { return (p - ripple_rect.xy) / ripple_rect.z; }
 float rip_fade(vec2 uv) { vec2 e = min(uv, 1.0 - uv); return clamp(min(e.x, e.y) * 25.0, 0.0, 1.0); }
-
-float hash1(float n) { return fract(sin(n * 91.3458) * 47453.5453); }
-
-// Summed slope of the procedural detail waves at undisplaced position p.
-// Real chop is short-crested: each little wave has a curved front that runs
-// only a few wavelengths. Two cheap tricks give that:
-//  - a broad, slowly drifting warp of the position bends crest lines over metres;
-//  - each wave comes in packets: an envelope fades it out along its crest after
-//    packet_crest wavelengths and along its travel after packet_length. The
-//    envelope moves at the group velocity (half the crest speed in deep water),
-//    so crests are born at the back of a packet and die at its front, as in the sea.
-vec2 detail_slope_at(vec2 p, float footprint) {
-	vec2 grad = vec2(0.0);
-	p += detail_bend * vec2(sin(dot(p, vec2(0.21, 0.13)) + time * 0.07) + 0.5 * sin(dot(p, vec2(-0.37, 0.52)) - time * 0.11),
-			sin(dot(p, vec2(-0.16, 0.24)) - time * 0.05) + 0.5 * sin(dot(p, vec2(0.48, 0.33)) + time * 0.09));
-	float lambda = detail_longest;
-	float amp_slope = detail_slope;
-	for (int i = 0; i < detail_waves; i++) {
-		float resolve = lambda / (2.5 * footprint);   // < 1: too short for this pixel
-		if (resolve < 1.0)
-			break;                                      // the rest are shorter still
-		float fade = clamp(resolve - 1.0, 0.0, 1.0);
-		float fi = float(i);
-		float ang = wind_angle + (hash1(fi + 1.0) - 0.5) * detail_spread;
-		vec2 d = vec2(cos(ang), sin(ang));
-		float k = 6.2831853 / lambda;
-		float omega = sqrt(9.81 * k);
-		float along = k * dot(d, p);
-		float th = along - omega * time + hash1(fi + 17.0) * 6.2831853;
-		// exponentiated sine: sharper crests, broader troughs, like real ripples
-		float e = exp(sin(th) - 1.0);
-		// packet envelope: 0..1 with mean 0.25, lifted by packet_floor and rescaled
-		// so the overall roughness stays the same
-		float across = k * (d.y * p.x - d.x * p.y);
-		float env = (0.5 + 0.5 * sin(across / packet_crest + hash1(fi + 31.0) * 6.2831853))
-				* (0.5 + 0.5 * sin((along - 0.5 * omega * time) / packet_length + hash1(fi + 47.0) * 6.2831853));
-		env = packet_floor + (1.0 - packet_floor) * 4.0 * env;   // mean stays 1
-		vec2 g = d * (amp_slope * e * cos(th) * fade * env);
-		grad += g;
-		p += g * (lambda * detail_warp);
-		lambda *= detail_ratio;
-		amp_slope *= 0.985;
-	}
-	return grad;
-}
 
 float view_depth(vec2 uv, mat4 inv_proj) {
 	float raw = texture(depth_tex, uv).r;
@@ -159,9 +103,9 @@ void fragment() {
 			/ (2.0 * e * ripple_rect.z) * rf;
 	float ripple_foam = texture(ripple_tex, ruv).g * rf;
 
-	// small waves: procedural, attached to the water (x0 rides the swell)
-	vec2 fw = fwidth(x0);
-	slope += detail_slope_at(x0, max(sqrt(fw.x * fw.y) * 1.4, 0.002));   // mean footprint: keeps cross-view detail at grazing angles
+	// small waves: FFT ocean slopes, attached to the water (x0 rides the swell)
+	slope += detail_strength * (texture(fft_0, x0 / fft_sizes.x).rg + texture(fft_1, x0 / fft_sizes.y).rg
+			+ texture(fft_2, x0 / fft_sizes.z).rg);
 
 	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
