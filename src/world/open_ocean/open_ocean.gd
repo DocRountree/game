@@ -23,6 +23,7 @@ func _ready() -> void:
 				rng.randf_range(-crate_spread, crate_spread))
 		crate.rotation.y = rng.randf() * PI
 		$Crates.add_child(crate)
+	camera.yaw = 2.4   # face the southwest, where the winter sun sets
 	player.drowned.connect(_on_player_drowned)
 	hud.flash("Press E near the boat to climb aboard", 4.0)
 

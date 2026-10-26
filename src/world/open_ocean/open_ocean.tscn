@@ -9,6 +9,9 @@
 [ext_resource type="Script" path="res://src/systems/camera/third_person_camera.gd" id="7_camera"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/atmosphere_sky.gdshader" id="8_sky"]
 [ext_resource type="Script" path="res://src/systems/atmosphere/atmosphere.gd" id="9_atmosphere"]
+[ext_resource type="Script" path="res://src/systems/atmosphere/starfield.gd" id="10_starfield"]
+[ext_resource type="Shader" path="res://src/systems/atmosphere/starfield.gdshader" id="11_stars"]
+[ext_resource type="Resource" path="res://src/systems/atmosphere/bright_stars.tres" id="12_catalog"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -24,6 +27,7 @@ sky = SubResource("Sky")
 ambient_light_source = 3
 reflected_light_source = 2
 tonemap_mode = 2
+tonemap_white = 3.0
 glow_enabled = true
 fog_enabled = true
 fog_light_color = Color(0.62, 0.72, 0.82, 1)
@@ -31,6 +35,9 @@ fog_sun_scatter = 0.15
 fog_density = 0.0006
 fog_aerial_perspective = 1.0
 fog_sky_affect = 0.0
+
+[sub_resource type="ShaderMaterial" id="Star_material"]
+shader = ExtResource("11_stars")
 
 [node name="OpenOcean" type="Node3D"]
 script = ExtResource("1_world")
@@ -43,10 +50,17 @@ environment = SubResource("Environment")
 shadow_enabled = true
 directional_shadow_max_distance = 60.0
 
-[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("sun", "world_environment")]
+[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("sun", "world_environment", "starfield")]
 script = ExtResource("9_atmosphere")
 sun = NodePath("../Sun")
 world_environment = NodePath("../WorldEnvironment")
+starfield = NodePath("../Starfield")
+
+[node name="Starfield" type="MultiMeshInstance3D" parent="."]
+material_override = SubResource("Star_material")
+cast_shadow = 0
+script = ExtResource("10_starfield")
+catalog = ExtResource("12_catalog")
 
 [node name="Ocean" parent="." node_paths=PackedStringArray("focus", "sun") instance=ExtResource("2_ocean")]
 focus = NodePath("../Player")
