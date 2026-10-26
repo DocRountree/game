@@ -21,6 +21,10 @@
 [ext_resource type="Resource" path="res://src/world/open_ocean/open_ocean_world.tres" id="22_world"]
 [ext_resource type="Script" path="res://src/systems/atmosphere/planet_layer.gd" id="23_planets"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/planet_layer.gdshader" id="24_planet_shader"]
+[ext_resource type="Script" path="res://src/systems/atmosphere/meteors.gd" id="25_meteors"]
+[ext_resource type="Shader" path="res://src/systems/atmosphere/meteors.gdshader" id="26_meteor_shader"]
+[ext_resource type="Script" path="res://src/systems/atmosphere/aurora.gd" id="27_aurora"]
+[ext_resource type="Shader" path="res://src/systems/atmosphere/aurora.gdshader" id="28_aurora_shader"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -56,6 +60,14 @@ shader = ExtResource("14_moon_shader")
 
 [sub_resource type="QuadMesh" id="Moon_mesh"]
 
+[sub_resource type="ShaderMaterial" id="Meteor_material"]
+render_priority = 1
+shader = ExtResource("26_meteor_shader")
+
+[sub_resource type="ShaderMaterial" id="Aurora_material"]
+render_priority = 1
+shader = ExtResource("28_aurora_shader")
+
 [sub_resource type="ShaderMaterial" id="Planet_material"]
 render_priority = 1
 shader = ExtResource("24_planet_shader")
@@ -78,7 +90,7 @@ directional_shadow_max_distance = 60.0
 [node name="Clock" type="Node" parent="."]
 script = ExtResource("20_clock")
 
-[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "planets", "moonlight", "clouds")]
+[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "planets", "meteors", "aurora", "moonlight", "clouds")]
 script = ExtResource("9_atmosphere")
 clock = NodePath("../Clock")
 sun = NodePath("../Sun")
@@ -86,6 +98,8 @@ world_environment = NodePath("../WorldEnvironment")
 starfield = NodePath("../Starfield")
 moon = NodePath("../Moon")
 planets = NodePath("../Planets")
+meteors = NodePath("../Meteors")
+aurora = NodePath("../Aurora")
 moonlight = NodePath("../Moonlight")
 clouds = NodePath("../Clouds")
 
@@ -99,6 +113,16 @@ catalog = ExtResource("12_catalog")
 material_override = SubResource("Planet_material")
 cast_shadow = 0
 script = ExtResource("23_planets")
+
+[node name="Meteors" type="MultiMeshInstance3D" parent="."]
+material_override = SubResource("Meteor_material")
+cast_shadow = 0
+script = ExtResource("25_meteors")
+
+[node name="Aurora" type="MeshInstance3D" parent="."]
+material_override = SubResource("Aurora_material")
+cast_shadow = 0
+script = ExtResource("27_aurora")
 
 [node name="Moon" type="MeshInstance3D" parent="."]
 material_override = SubResource("Moon_material")

@@ -1,0 +1,70 @@
+@tool
+class_name Aurora
+extends MeshInstance3D
+## Northern lights: rippling curtains over the northern horizon, green at the
+## lower edge shading to violet above. Rare at this latitude: each night has an
+## independent `chance` (from the world seed, so a given night is always the
+## same) of an aurora, which then brightens and fades through the night.
+
+const RADIUS := 2300.0
+const ARC_DEGREES := 150.0      ## Width of the display, centred on north.
+const LOW_DEGREES := 2.0        ## Elevation of the curtains' lower edge.
+const HIGH_DEGREES := 40.0
+
+@export_range(0.0, 1.0) var chance := 0.02    ## About one night in fifty.
+
+var strength := 0.0             ## This night's display, 0 = none.
+var _night_id := -2147483648
+
+
+func _ready() -> void:
+	mesh = _build_arc()
+	custom_aabb = AABB(Vector3.ONE * -RADIUS, Vector3.ONE * RADIUS * 2.0)
+
+
+## Whether night `night_id` (the day it began) has an aurora, and how strong.
+func strength_for(night_id: int) -> float:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = WorldConfig.current().seed_for("aurora:%d" % night_id)
+	return rng.randf_range(0.5, 1.0) if rng.randf() < chance else 0.0
+
+
+## night: 0 by day, 1 at night; night_id: the day the current night began.
+func update_sky(night: float, night_id: int) -> void:
+	if night_id != _night_id:
+		_night_id = night_id
+		strength = strength_for(night_id)
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam:
+		global_position = cam.global_position
+	var mat := material_override as ShaderMaterial
+	if mat:
+		mat.set_shader_parameter("strength", strength * smoothstep(0.5, 1.0, night))
+	visible = strength > 0.0 and night > 0.5
+
+
+# A curved band of quads around the north, UV.x along it, UV.y upward.
+func _build_arc() -> ArrayMesh:
+	var segs := 96
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var low := deg_to_rad(LOW_DEGREES)
+	var high := deg_to_rad(HIGH_DEGREES)
+	for i in segs + 1:
+		var u := float(i) / segs
+		var az := deg_to_rad((u - 0.5) * ARC_DEGREES)
+		for e: float in [low, high]:
+			verts.append(Vector3(sin(az) * cos(e), sin(e), -cos(az) * cos(e)) * RADIUS)
+			uvs.append(Vector2(u, 0.0 if e == low else 1.0))
+	var idx := PackedInt32Array()
+	for i in segs:
+		var a := i * 2
+		idx.append_array([a, a + 2, a + 1, a + 1, a + 2, a + 3])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return m

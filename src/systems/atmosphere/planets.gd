@@ -92,12 +92,17 @@ static func sun_ecliptic_longitude(jd: float) -> float:
 ## periodic terms (equation of centre, evection, variation). Good to ~1 degree.
 ## The phase comes from D, so the moon goes round its 29.5-day cycle of phases.
 static func moon_direction(days: float, sun_longitude: float) -> Vector3:
-	var d := deg_to_rad(297.850 + 12.190749 * days)
+	var d := moon_mean_elongation(days)
 	var m := deg_to_rad(134.963 + 13.064993 * days)
 	var f := deg_to_rad(93.272 + 13.229350 * days)
 	var lon := sun_longitude + d + deg_to_rad(6.289 * sin(m) + 1.274 * sin(2.0 * d - m) + 0.658 * sin(2.0 * d))
 	var lat := deg_to_rad(5.128 * sin(f))
 	return _to_equatorial(Vector3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat)))
+
+
+## The moon's mean angle east of the sun (rad), `days` after J2000: it sets the phase.
+static func moon_mean_elongation(days: float) -> float:
+	return deg_to_rad(297.850 + 12.190749 * days)
 
 
 ## Mean longitude of the sun (rad), which sets mean solar time.

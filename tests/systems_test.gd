@@ -88,6 +88,51 @@ func _run() -> void:
 	atmosphere._vary_air(clock.day)
 	_check(air[0] != air[1] and air[0] == air[2], "sunset air varies by day and repeats for the same day")
 
+	# the real clock node, ticked like the game does: a full day from noon
+	var atmosphere_node: Atmosphere = world.get_node("Atmosphere")
+	clock.time_of_day = 12.0
+	var noon_day := clock.day
+	var real := 0.0
+	var set_at := -1.0
+	var rise_at := -1.0
+	var was_up := true
+	while real < 2000.0 and not (clock.day > noon_day and clock.time_of_day >= 12.0):
+		clock._process(1.0 / 30.0)
+		real += 1.0 / 30.0
+		var up := atmosphere_node.sun_direction().y > 0.0
+		if was_up and not up and set_at < 0.0:
+			set_at = real
+		if up and not was_up and set_at > 0.0 and rise_at < 0.0:
+			rise_at = real
+		was_up = up
+	var night_len := rise_at - set_at
+	var day_len := real - night_len
+	_check(set_at > 0.0 and absf(night_len - 600.0) < 3.0 and absf(day_len - 900.0) < 3.0,
+			"clock node: %.0f s of daylight, %.0f s of night" % [day_len, night_len])
+	clock.day = noon_day
+	clock.time_of_day = 12.0
+
+	# meteors fall only at night, at random; auroras come about one night in fifty
+	var meteors: Meteors = world.get_node("Meteors")
+	var before := meteors.launched
+	meteors.update_sky(0.0)
+	for i in 3000:   # 100 s of daylight
+		meteors._process(1.0 / 30.0)
+	var by_day := meteors.launched - before
+	meteors.update_sky(1.0)
+	for i in 18000:  # 10 minutes of night
+		meteors._process(1.0 / 30.0)
+		meteors.update_sky(1.0)
+	var by_night := meteors.launched - before - by_day
+	_check(by_day == 0 and by_night >= 10 and by_night <= 45, "meteors: %d in a 10-minute night, none by day" % by_night)
+	var aurora: Aurora = world.get_node("Aurora")
+	var nights_with := 0
+	for n in 5000:
+		if aurora.strength_for(n) > 0.0:
+			nights_with += 1
+	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
+			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
+
 	# exploration: cells around the player are revealed, and survive a save/load
 	var explore: ExplorationTracker = world.get_node("Exploration")
 	var revealed := explore.explored.size()

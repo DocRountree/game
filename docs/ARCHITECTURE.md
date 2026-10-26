@@ -173,18 +173,30 @@ stars, so they repeat exactly each day. The moon and planets move on:
   and `real_seconds`, saves to a dictionary and emits `Events.day_changed`.
   The game starts at noon. Daylight (sunrise to sunset, found from
   the astronomy) lasts `day_minutes` (15) of real time and the night
-  `night_minutes` (5). Time eases from day speed to night speed through
+  `night_minutes` (10). Time eases from day speed to night speed through
   twilight, so the sunset glow lasts about a minute instead of rushing by. The
   night speed is solved numerically so the night still comes to exactly 5 minutes.
 - **Moon** (`moon.gd`, `moon.gdshader`, `Planets.moon_direction`).
   Low-precision lunar theory: mean elongation, anomaly and argument of
   latitude, plus the three largest periodic terms, placed relative to the fixed
-  sun. So the phase cycle is the real 29.5 days, it rises about 50 minutes
-  later each day, and it is up by day for part of every month. It is drawn as a
-  sphere lit by the actual sun direction (5x real size, so the phase is
-  visible). By day it adds to the sky; at night it covers the stars. A
-  `Moonlight` directional light scales with phase and altitude, so a bright
-  moon lays a glitter path on the sea.
+  sun. Its clock runs fast: a lunation takes `WorldConfig.lunar_cycle_days`
+  (8) game days instead of 29.5, so each of the eight named phases lasts one
+  day. The phase name comes from the mean elongation at noon, so it changes
+  exactly at midnight and never repeats or skips a day; the drawn shape and
+  position come from the full theory. It rises about 3 hours later each day and
+  is up by day for half the cycle. It is drawn as a sphere lit by the actual sun
+  direction (5x real size, so the phase is visible). By day it adds to the sky;
+  at night it covers the stars. A `Moonlight` directional light scales with
+  phase and altitude, so a bright moon lays a glitter path on the sea.
+- **Meteors** (`meteors.gd`, `meteors.gdshader`): white streaks that taper from
+  a thread to a round, bright head, racing 15-45 degrees across the sky in under
+  a second. Random arrivals (about one every 25 s of night), only at night,
+  drawn in front of the stars and behind the clouds. `launched` counts them.
+- **Aurora** (`aurora.gd`, `aurora.gdshader`): rippling curtains on an arc
+  over the northern horizon, green at the lower edge shading to violet, with
+  shimmering rays and slow folds. Each night independently has a 1-in-50
+  chance (`chance`), drawn from the world seed, so a given night always looks
+  the same; a night belongs to the day it began.
 
 - **One rotation for everything.** `Astronomy.equatorial_to_world()` turns
   equatorial coordinates (right ascension, declination) into the local sky from

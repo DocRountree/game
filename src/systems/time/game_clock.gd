@@ -12,7 +12,7 @@ extends Node
 
 @export_range(0.0, 24.0) var time_of_day := 12.0    ## Local mean solar time, hours.
 @export var day_minutes := 15.0                     ## Real minutes from sunrise to sunset (0 = frozen).
-@export var night_minutes := 5.0                    ## Real minutes from sunset to sunrise.
+@export var night_minutes := 10.0                   ## Real minutes from sunset to sunrise.
 @export var scrub_speed := 2.0                      ## Game hours per real second on [ and ].
 
 var day := 0               ## Days since the start; the moon's orbit follows it.

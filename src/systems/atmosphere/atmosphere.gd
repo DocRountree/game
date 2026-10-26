@@ -19,6 +19,8 @@ extends Node
 @export var starfield: Starfield
 @export var moon: Moon
 @export var planets: PlanetLayer
+@export var meteors: Meteors
+@export var aurora: Aurora
 @export var moonlight: DirectionalLight3D
 @export var clouds: Clouds
 @export var sun_energy := 1.4
@@ -168,7 +170,7 @@ func moon_illumination() -> float:
 
 
 func moon_phase_text() -> String:
-	return Astronomy.moon_phase_name(WorldConfig.current(), day(), time_of_day())
+	return Astronomy.moon_phase_name(WorldConfig.current(), day())
 
 
 ## 0 by day, 1 from nautical twilight (sun 9+ degrees down): stars, fish that feed at night.
@@ -196,6 +198,10 @@ func _update_sun() -> void:
 	if planets:   # they wander from day to day, relative to the fixed sun
 		planets.update_sky(Astronomy.planet_positions(WorldConfig.current(), day(), time_of_day()),
 				equatorial_to_world(), night)
+	if meteors:
+		meteors.update_sky(night)
+	if aurora:   # a night belongs to the day it began
+		aurora.update_sky(night, day() if time_of_day() >= 12.0 else day() - 1)
 	var moon_dir := moon_direction()
 	var moon_up := smoothstep(-0.02, 0.05, moon_dir.y)
 	var illuminated := (1.0 - moon_dir.dot(dir)) * 0.5   # lit fraction from the sun-moon angle

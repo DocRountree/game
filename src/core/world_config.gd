@@ -14,6 +14,9 @@ extends Resource
 ## How fast Mars, Jupiter, Saturn and Uranus cross the stars: 0 = real (weeks
 ## to see a change), 1 = about as fast as the moon (13 degrees a day).
 @export_range(0.0, 1.0) var outer_planet_pace := 1.0
+## Game days from new moon to new moon (real: 29.53). 8 gives each of the
+## eight named phases one day.
+@export_range(1.0, 60.0) var lunar_cycle_days := 8.0
 
 static var _default: WorldConfig
 

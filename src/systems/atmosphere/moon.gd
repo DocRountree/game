@@ -32,14 +32,5 @@ func update_sky(moon_dir: Vector3, sun_dir: Vector3, night: float) -> void:
 	visible = moon_dir.y > -0.05
 
 
-## Phase name from the sun and moon directions (waxing while the moon trails the sun eastward).
-static func phase_name(moon_equatorial: Vector3, sun_equatorial: Vector3) -> String:
-	var lit := (1.0 - moon_equatorial.dot(sun_equatorial)) * 0.5
-	var waxing := sun_equatorial.cross(moon_equatorial).z > 0.0
-	if lit < 0.03:
-		return "new moon"
-	if lit > 0.97:
-		return "full moon"
-	if absf(lit - 0.5) < 0.06:
-		return "first quarter" if waxing else "last quarter"
-	return ("waxing " if waxing else "waning ") + ("crescent" if lit < 0.5 else "gibbous")
+const PHASES: Array[String] = ["new moon", "waxing crescent", "first quarter", "waxing gibbous",
+		"full moon", "waning gibbous", "last quarter", "waning crescent"]

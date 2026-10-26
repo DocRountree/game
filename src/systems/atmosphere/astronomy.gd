@@ -33,10 +33,18 @@ static func sun_direction(world: WorldConfig, t: float) -> Vector3:
 	return equatorial_to_world(world, t) * Planets.sun_direction(julian_date(world, t))
 
 
+const SYNODIC_MONTH := 29.530589   ## Real days from new moon to new moon.
+
+
+## Lunar-theory days after J2000 on game day `day` at clock time t. The moon's
+## clock runs fast so a lunation takes world.lunar_cycle_days game days.
+static func moon_days(world: WorldConfig, day: int, t: float) -> float:
+	return world.day_jd - 2451545.0 + (day + t / 24.0) * (SYNODIC_MONTH / world.lunar_cycle_days)
+
+
 ## Equatorial unit vector toward the moon. Unlike the sun it moves on every day.
 static func moon_equatorial(world: WorldConfig, day: int, t: float) -> Vector3:
-	var days := world.day_jd - 2451545.0 + day + t / 24.0
-	return Planets.moon_direction(days, Planets.sun_ecliptic_longitude(julian_date(world, t)))
+	return Planets.moon_direction(moon_days(world, day, t), Planets.sun_ecliptic_longitude(julian_date(world, t)))
 
 
 static func moon_direction(world: WorldConfig, day: int, t: float) -> Vector3:
@@ -57,5 +65,13 @@ static func moon_illumination(world: WorldConfig, day: int, t: float) -> float:
 	return (1.0 - moon_equatorial(world, day, t).dot(Planets.sun_direction(julian_date(world, t)))) * 0.5
 
 
-static func moon_phase_name(world: WorldConfig, day: int, t: float) -> String:
-	return Moon.phase_name(moon_equatorial(world, day, t), Planets.sun_direction(julian_date(world, t)))
+## Which of the eight named phases day `day` is (0 new .. 4 full .. 7 waning
+## crescent). Taken from the moon's mean elongation at noon, so it changes
+## exactly at midnight and, with an 8-day cycle, steps once a day.
+static func moon_phase_index(world: WorldConfig, day: int) -> int:
+	var turns := Planets.moon_mean_elongation(moon_days(world, day, 12.0)) / TAU
+	return posmod(roundi(turns * 8.0), 8)
+
+
+static func moon_phase_name(world: WorldConfig, day: int) -> String:
+	return Moon.PHASES[moon_phase_index(world, day)]

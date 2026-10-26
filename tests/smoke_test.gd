@@ -92,19 +92,29 @@ func _run() -> void:
 			wrapped = true
 		if up: day_s += 1.0 / 30.0
 		else: night_s += 1.0 / 30.0
-	_check(absf(day_s - 900.0) < 3.0 and absf(night_s - 300.0) < 3.0,
-			"days last 15 real minutes, nights 5 (%.0f s / %.0f s)" % [day_s, night_s])
-	# moon: phases advance day to day, and it is up at noon on some days only
+	_check(absf(day_s - 900.0) < 3.0 and absf(night_s - 600.0) < 3.0,
+			"days last 15 real minutes, nights 10 (%.0f s / %.0f s)" % [day_s, night_s])
+	# moon: a new phase every day (8-day cycle), and it is up at noon on some days only
 	var phases := []
+	var names := []
 	var up_at_noon := 0
-	for d in 30:
+	for d in 16:
 		clock.day = d
 		clock.time_of_day = 12.0
 		phases.append((1.0 - atmosphere.moon_direction().dot(atmosphere.sun_direction())) * 0.5)
+		names.append(atmosphere.moon_phase_text())
 		if atmosphere.moon_direction().y > 0.0:
 			up_at_noon += 1
-	_check(phases.max() > 0.97 and phases.min() < 0.03 and up_at_noon > 5 and up_at_noon < 25,
-			"moon runs through its phases in a month and is up by day on %d of 30 days" % up_at_noon)
+	var daily := true
+	for d in range(1, 16):
+		daily = daily and names[d] != names[d - 1]
+	var week: Array = names.slice(0, 8)
+	var distinct := {}
+	for n in week:
+		distinct[n] = true
+	_check(daily and distinct.size() == 8 and names[8] == names[0] and phases.max() > 0.9 and phases.min() < 0.1
+			and up_at_noon > 3 and up_at_noon < 13,
+			"moon phase changes every day through all 8 phases (%s, ...) and is up by day on %d of 16 days" % [names[0], up_at_noon])
 	clock.day = 0
 	var clouds: Clouds = world.get_node("Clouds")
 	_check(clouds.multimesh.instance_count == clouds.cloud_count * clouds.puffs_per_cloud, "cloud puffs laid out")
