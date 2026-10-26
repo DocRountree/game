@@ -1,0 +1,104 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/systems/ocean/ocean.gd" id="1_ocean"]
+[ext_resource type="Script" path="res://src/systems/ocean/ocean_wave.gd" id="2_wave"]
+[ext_resource type="Script" path="res://src/systems/ocean/ocean_surface.gd" id="3_surface"]
+[ext_resource type="Script" path="res://src/systems/ocean/ripple_sim.gd" id="4_ripples"]
+[ext_resource type="Shader" path="res://src/systems/ocean/water.gdshader" id="5_water"]
+
+[sub_resource type="Resource" id="Wave_1"]
+script = ExtResource("2_wave")
+direction_degrees = 20.0
+wavelength = 60.0
+amplitude = 0.9
+
+[sub_resource type="Resource" id="Wave_2"]
+script = ExtResource("2_wave")
+direction_degrees = -15.0
+wavelength = 31.0
+amplitude = 0.45
+phase = 1.3
+
+[sub_resource type="Resource" id="Wave_3"]
+script = ExtResource("2_wave")
+direction_degrees = 50.0
+wavelength = 18.0
+amplitude = 0.25
+phase = 2.1
+
+[sub_resource type="Resource" id="Wave_4"]
+script = ExtResource("2_wave")
+direction_degrees = 5.0
+wavelength = 9.0
+amplitude = 0.12
+phase = 0.7
+
+[sub_resource type="Resource" id="Wave_5"]
+script = ExtResource("2_wave")
+direction_degrees = -60.0
+wavelength = 5.0
+amplitude = 0.06
+phase = 4.0
+
+[sub_resource type="Resource" id="Wave_6"]
+script = ExtResource("2_wave")
+direction_degrees = 80.0
+wavelength = 3.0
+amplitude = 0.03
+phase = 2.5
+
+[sub_resource type="FastNoiseLite" id="Noise_detail_a"]
+seed = 1
+frequency = 0.02
+fractal_octaves = 4
+
+[sub_resource type="NoiseTexture2D" id="Tex_detail_a"]
+width = 512
+height = 512
+seamless = true
+as_normal_map = true
+bump_strength = 6.0
+noise = SubResource("Noise_detail_a")
+
+[sub_resource type="FastNoiseLite" id="Noise_detail_b"]
+seed = 2
+frequency = 0.012
+fractal_octaves = 3
+
+[sub_resource type="NoiseTexture2D" id="Tex_detail_b"]
+width = 512
+height = 512
+seamless = true
+as_normal_map = true
+bump_strength = 6.0
+noise = SubResource("Noise_detail_b")
+
+[sub_resource type="FastNoiseLite" id="Noise_foam"]
+seed = 3
+frequency = 0.03
+fractal_octaves = 4
+
+[sub_resource type="NoiseTexture2D" id="Tex_foam"]
+width = 256
+height = 256
+seamless = true
+noise = SubResource("Noise_foam")
+
+[sub_resource type="ShaderMaterial" id="Water_material"]
+render_priority = 0
+shader = ExtResource("5_water")
+shader_parameter/detail_a = SubResource("Tex_detail_a")
+shader_parameter/detail_b = SubResource("Tex_detail_b")
+shader_parameter/foam_noise = SubResource("Tex_foam")
+
+[node name="Ocean" type="Node3D"]
+script = ExtResource("1_ocean")
+waves = Array[ExtResource("2_wave")]([SubResource("Wave_1"), SubResource("Wave_2"), SubResource("Wave_3"), SubResource("Wave_4"), SubResource("Wave_5"), SubResource("Wave_6")])
+
+[node name="Surface" type="MeshInstance3D" parent="."]
+material_override = SubResource("Water_material")
+cast_shadow = 0
+script = ExtResource("3_surface")
+
+[node name="Ripples" type="Node" parent="."]
+script = ExtResource("4_ripples")

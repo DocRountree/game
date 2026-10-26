@@ -1,2 +1,65 @@
 # game
-a exploration-based video game featuring a playable character, a navigable ocean and rivers, plants, fungi, and animals, and land.
+
+An exploration-based video game featuring a playable character, a navigable ocean
+and rivers, plants, fungi, animals, and land. Built in **Godot 4.7** (GDScript,
+with C++ via GDExtension where profiling calls for it).
+
+The first system in place is the water: a Gerstner-wave ocean that physics and
+rendering agree on exactly, spring buoyancy for anything that floats, and an
+interactive GPU ripple simulation that turns hulls and swimmers into wakes that
+lift and shove whatever they reach.
+
+## Running
+
+1. Install [Godot 4.7](https://godotengine.org/download) (standard build; .NET not needed).
+2. Open `project.godot` in the editor and press **F5**, or from a terminal:
+   ```sh
+   godot --path .
+   ```
+
+**Renderer:** Forward+ (default) or Mobile. Interactive ripples run as a compute
+shader and need one of those; under the Compatibility renderer the ocean, buoyancy
+and gameplay still work, just without ripples.
+
+## Controls
+
+| | |
+|---|---|
+| Mouse | look around (Tab releases the cursor; arrow keys also orbit) |
+| W A S D | swim, relative to the camera |
+| Space | tread water (do nothing and you sink) |
+| E | board the boat / jump off |
+| W / S, A / D | on the boat: throttle / reverse, steer |
+| R | respawn beside the boat |
+| Esc | quit |
+
+## Layout
+
+```
+project.godot       engine settings, input map, physics layers
+src/                all game code and scenes, grouped by feature
+  autoload/         global singletons (registered in project settings)
+  systems/          reusable engine-level pieces: ocean, buoyancy, camera
+  entities/         things in the world: player, boat, props
+  world/            levels / playable spaces (open_ocean is the main scene)
+  ui/               HUD and menus
+  minigames/        self-contained minigames, one folder each
+assets/             imported art and audio (models, textures, audio, fonts)
+addons/             third-party editor plugins
+native/             C++ GDExtension sources (not scanned by Godot)
+tests/              headless tests
+tools/              build, export and test scripts (not scanned by Godot)
+docs/               architecture notes and conventions (not scanned by Godot)
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the systems fit together
+and [docs/CONVENTIONS.md](docs/CONVENTIONS.md) for naming and structure rules.
+
+## Tests
+
+```sh
+tools/run_tests.sh            # uses `godot` on PATH, or set GODOT=/path/to/godot
+```
+
+Runs the main scene headless and checks the core water gameplay: things float,
+an idle swimmer sinks, treading recovers, the boat can be boarded and driven.
