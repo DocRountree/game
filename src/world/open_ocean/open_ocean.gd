@@ -23,7 +23,7 @@ func _ready() -> void:
 				rng.randf_range(-crate_spread, crate_spread))
 		crate.rotation.y = rng.randf() * PI
 		$Crates.add_child(crate)
-	camera.yaw = 2.4   # face the southwest, where the winter sun sets
+	camera.yaw = PI   # face south, toward the noon sun
 	player.drowned.connect(_on_player_drowned)
 	hud.flash("Press E near the boat to climb aboard", 4.0)
 
@@ -34,7 +34,7 @@ func _process(_delta: float) -> void:
 	camera.follow_heading = driving
 	camera.distance = 9.0 if driving else 4.5
 	camera.target_offset = Vector3(0, 2.4, 0) if driving else Vector3(0, 0.5, 0)
-	hud.refresh(player, boat, atmosphere.time_text())
+	hud.refresh(player, boat, atmosphere.time_text() + "\nmoon   " + atmosphere.moon_phase_text())
 
 
 func _unhandled_input(event: InputEvent) -> void:

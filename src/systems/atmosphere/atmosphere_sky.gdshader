@@ -15,15 +15,15 @@ shader_type sky;
 // Parameters are pushed by atmosphere.gd, which also bakes the lookup.
 
 uniform sampler2D optical_depth_lut : filter_linear, repeat_disable;  // r = air, g = aerosol optical depth to space
-uniform vec3 scattering_coefficients = vec3(2.13, 6.49, 13.66);
+uniform vec3 scattering_coefficients = vec3(3.2, 9.73, 20.49);
 // Ozone absorbs (mostly orange-green) without scattering: keeps twilight blue
 // instead of the olive a pure Rayleigh sky gives. Not in Lague's version.
 uniform vec3 ozone_absorption = vec3(0.27, 0.78, 0.04);
 // Aerosols (haze): grey, concentrated near the surface, scatter strongly
 // forward. They make the warm glow around a low sun. Not in Lague's version.
-uniform float mie_scattering = 1.5;
+uniform float mie_scattering = 2.5;
 uniform float mie_falloff = 28.0;
-uniform float mie_g = 0.8;
+uniform float mie_g = 0.74;
 uniform float atmosphere_scale = 0.1;     // atmosphere thickness / planet radius
 uniform float density_falloff = 4.3;
 uniform float intensity = 1.0;
