@@ -76,6 +76,26 @@ static func sun_direction(jd: float) -> Vector3:
 	return _to_equatorial(-_heliocentric(EARTH, 0, (jd - 2451545.0) / 36525.0)).normalized()
 
 
+## The sun's ecliptic longitude (rad) at Julian date jd.
+static func sun_ecliptic_longitude(jd: float) -> float:
+	var earth := _heliocentric(EARTH, 0, (jd - 2451545.0) / 36525.0)
+	return atan2(-earth.y, -earth.x)
+
+
+## Equatorial unit vector toward the moon, `days` after J2000, placed relative to
+## the sun's ecliptic longitude. Low-precision lunar theory: mean elongation D,
+## the moon's mean anomaly M and argument of latitude F, plus the three largest
+## periodic terms (equation of centre, evection, variation). Good to ~1 degree.
+## The phase comes from D, so the moon goes round its 29.5-day cycle of phases.
+static func moon_direction(days: float, sun_longitude: float) -> Vector3:
+	var d := deg_to_rad(297.850 + 12.190749 * days)
+	var m := deg_to_rad(134.963 + 13.064993 * days)
+	var f := deg_to_rad(93.272 + 13.229350 * days)
+	var lon := sun_longitude + d + deg_to_rad(6.289 * sin(m) + 1.274 * sin(2.0 * d - m) + 0.658 * sin(2.0 * d))
+	var lat := deg_to_rad(5.128 * sin(f))
+	return _to_equatorial(Vector3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat)))
+
+
 ## Mean longitude of the sun (rad), which sets mean solar time.
 static func mean_sun_longitude(jd: float) -> float:
 	var t := (jd - 2451545.0) / 36525.0

@@ -74,11 +74,30 @@ Changes from his version:
 - **Haze (Mie scattering):** aerosols near the surface with a forward-scattering
   phase function give the warm glow around a low sun. The lookup has a second
   channel for them. The sun disc is kept dim enough that its colour survives tone mapping.
+- **Tuned for vivid sunsets:** stronger scattering (30) for a redder horizon,
+  more ozone (2.2x Earth's) for a deeper blue above it, and more haze (2.5).
 
 ### Astronomy and the night sky
 
 Every day is the same day: the 2026 winter solstice at 35 degrees north. The
-clock alone drives the sky, so it repeats exactly each day.
+clock alone drives the sun, stars and planets, so they repeat exactly each day.
+Only the moon moves on: `Atmosphere.day` counts days, and the moon's orbit
+follows it.
+
+- **Clock.** The game starts at noon. Daylight (sunrise to sunset, found from
+  the astronomy) lasts `day_minutes` (15) of real time and the night
+  `night_minutes` (5). Time eases from day speed to night speed through
+  twilight, so the sunset glow lasts about a minute instead of rushing by. The
+  night speed is solved numerically so the night still comes to exactly 5 minutes.
+- **Moon** (`moon.gd`, `moon.gdshader`, `Planets.moon_direction`).
+  Low-precision lunar theory: mean elongation, anomaly and argument of
+  latitude, plus the three largest periodic terms, placed relative to the fixed
+  sun. So the phase cycle is the real 29.5 days, it rises about 50 minutes
+  later each day, and it is up by day for part of every month. It is drawn as a
+  sphere lit by the actual sun direction (5x real size, so the phase is
+  visible). By day it adds to the sky; at night it covers the stars. A
+  `Moonlight` directional light scales with phase and altitude, so a bright
+  moon lays a glitter path on the sea.
 
 - **One rotation for everything.** `Atmosphere.equatorial_to_world()` turns
   equatorial coordinates (right ascension, declination) into the local sky from
@@ -110,6 +129,24 @@ The same component optionally registers the body as a ripple source.
 
 Orbiting third-person camera. Optionally swings back behind a vehicle's heading
 when the player stops looking around. Never dips below the water surface.
+
+### Clouds (`src/systems/clouds/`)
+
+Highly stylised cumulus made of round puffs ("dots"), about 14,000 of them in
+one `MultiMesh`. The CPU lays them out once; the vertex shader does the rest:
+
+- **Wind** drifts the whole layer, which wraps around the camera (24 km square,
+  1.3 km up) and shrinks clouds away near the wrap edge instead of popping.
+- **Life cycle.** Each cloud cycles through condensing, maturing and evaporating
+  (`life_seconds`), with a fresh random strength each cycle. Some cycles never
+  form (`coverage`). Base puffs condense first and the tower builds last, so
+  clouds grow upward and evaporate from the top down. Puffs appear by growing,
+  not fading, so they stay crisp opaque dots with correct overlap (alpha scissor).
+- **Lighting.** Three-band toon shading of each puff as a sphere, darker toward
+  the cloud base. The sunlight colour is computed per frame for the cloud
+  layer's height, which still sees the sun a little after sunset at sea level.
+  That light is kept fully saturated (stylised), so clouds glow orange and pink
+  through the afterglow, then go slate-grey.
 
 ## Entities
 

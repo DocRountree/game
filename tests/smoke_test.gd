@@ -27,6 +27,7 @@ func _run() -> void:
 	var atmosphere: Atmosphere = world.get_node("Atmosphere")
 	var sun: DirectionalLight3D = world.get_node("Sun")
 	var start_time := atmosphere.time_of_day
+	_check(absf(start_time - 12.0) < 0.1, "the day starts at noon")
 	atmosphere.time_of_day = 12.0
 	_check(absf(rad_to_deg(asin(atmosphere.sun_direction().y)) - 31.6) < 0.5,
 			"winter solstice noon sun at 31.6 deg for 35N")
@@ -60,6 +61,35 @@ func _run() -> void:
 			"planets: Jupiter-Saturn great conjunction on 2020-12-21")
 	var catalog: StarCatalog = world.get_node("Starfield").catalog
 	_check(catalog.star_count() > 8000 and catalog.deep_sky_count() == 110, "star catalogue and all 110 Messier objects load")
+	# clock: 15 real minutes of daylight, 5 of night
+	var day_s := 0.0
+	var night_s := 0.0
+	var clock := 12.0
+	var wrapped := false
+	while not (wrapped and clock >= 12.0):
+		var up := atmosphere.sun_direction(clock).y > 0.0
+		clock += atmosphere.clock_rate(clock) / 30.0
+		if clock >= 24.0:
+			clock -= 24.0
+			wrapped = true
+		if up: day_s += 1.0 / 30.0
+		else: night_s += 1.0 / 30.0
+	_check(absf(day_s - 900.0) < 3.0 and absf(night_s - 300.0) < 3.0,
+			"days last 15 real minutes, nights 5 (%.0f s / %.0f s)" % [day_s, night_s])
+	# moon: phases advance day to day, and it is up at noon on some days only
+	var phases := []
+	var up_at_noon := 0
+	for d in 30:
+		atmosphere.day = d
+		atmosphere.time_of_day = 12.0
+		phases.append((1.0 - atmosphere.moon_direction().dot(atmosphere.sun_direction())) * 0.5)
+		if atmosphere.moon_direction().y > 0.0:
+			up_at_noon += 1
+	_check(phases.max() > 0.97 and phases.min() < 0.03 and up_at_noon > 5 and up_at_noon < 25,
+			"moon runs through its phases in a month and is up by day on %d of 30 days" % up_at_noon)
+	atmosphere.day = 0
+	var clouds: Clouds = world.get_node("Clouds")
+	_check(clouds.multimesh.instance_count == clouds.cloud_count * clouds.puffs_per_cloud, "cloud puffs laid out")
 	atmosphere.time_of_day = start_time
 
 	await _frames(300)

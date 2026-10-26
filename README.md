@@ -6,6 +6,8 @@ with C++ via GDExtension where profiling calls for it).
 
 The sky is a single-scattering atmosphere over the real winter night sky:
 naked-eye stars, planets and Messier objects, every day the winter solstice.
+A moon goes through its phases day by day, and stylised puffy clouds form,
+drift, evaporate and catch the sunset. Days last 15 real minutes, nights 5.
 The first system in place is the water: a Gerstner-wave ocean that physics and
 rendering agree on exactly, spring buoyancy for anything that floats, and an
 interactive GPU ripple simulation that turns hulls and swimmers into wakes that
