@@ -220,7 +220,10 @@ stars, so they repeat exactly each day. The moon and planets move on:
   - Storm strength places the oval (strong nights overhead or south); the oval
     drifts, curtains swell and fade on their own, swirls sway and wind and
     unwind. Optional faint high red glow and soft pulsing green patches.
-  - `time_scale` speeds up, slows or freezes the display for tuning.
+  - `time_scale` speeds up, slows or freezes the display for tuning. Shader
+    knobs on the material: `gain` (brightness), `saturation` (below 1 pulls
+    toward grey, so stars show through), `blur` (softens pillars, sheet edges
+    and bottoms; distant pillars merge into a glow).
 
 - **One rotation for everything.** `Astronomy.equatorial_to_world()` turns
   equatorial coordinates (right ascension, declination) into the local sky from

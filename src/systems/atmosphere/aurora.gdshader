@@ -38,7 +38,9 @@ const vec3 MAGENTA = vec3(1.0, 0.2, 0.75);
 
 uniform float strength = 0.0;
 uniform float clock = 0.0;            // display time (s), from aurora.gd
-uniform float gain = 0.05;
+uniform float gain = 0.012;
+uniform float saturation = 0.75;      // below 1 pulls colour toward grey: a fainter, see-through glow
+uniform float blur = 1.0;             // softens pillars and fine detail (higher = less defined)
 uniform float field_tilt = 0.6;       // cot(inclination): ~59 degrees at this latitude
 uniform int steps = 72;
 uniform int curtain_count = 0;
@@ -88,7 +90,7 @@ float ray_to(float h, float ey) {
 
 // fades detail below a few pixels at distance t (pa: radians per pixel)
 float resolved(float size, float t, float pa) {
-	return smoothstep(2.0, 6.0, size / max(t * pa, 1e-4));
+	return smoothstep(2.0 + 4.0 * blur, 6.0 + 8.0 * blur, size / max(t * pa, 1e-4));
 }
 
 // map a foot point back through the swirls (each undone by the opposite rotation)
@@ -142,16 +144,20 @@ vec3 curtain_light(int k, float t, vec2 track, float ey, float pa) {
 	float big = noise(x / sp + s * 11.0 + clock * 0.05 * pace);
 	float fine = noise(x / (sp * 0.33) - clock * 0.25 * pace + s * 3.0);
 	float detail = resolved(sp * 0.33, t, pa);
-	float pillars = pow(big, 3.0) * 2.2 + mix(0.35, pow(fine, 4.0) * 3.0, detail) * big;
+	// softer profiles as blur rises: rounded pillars rather than sharp lines
+	float pillars = pow(big, mix(3.0, 1.8, clamp(blur, 0.0, 1.0))) * 2.0 + mix(0.35, pow(fine, 2.5) * 1.6, detail * (1.0 - 0.5 * blur)) * big;
+	pillars = mix(0.75, pillars, resolved(sp * (1.0 + 4.0 * blur), t, pa));   // far away, pillars merge into a glow
+	pillars = mix(pillars, 0.75, 0.35 * blur);                                // and softer everywhere
 	float crowd = smoothstep(0.1, 0.9, noise(x / 180.0 + s * 5.0 + clock * 0.01 * pace));   // dense stretches
 	float sheet = c_style[k].w;
 	float amount = mix(pillars * (0.4 + 0.9 * crowd), 1.0, sheet) * mix(0.25, 1.0, crowd);
 	// each pillar has its own base height and length: ragged, staggered bottoms
-	float ragged = c_extent[k].w * (noise(x / (sp * 0.5) + s * 17.0) - 0.5) * 2.0;
+	float far = resolved(sp * (1.0 + 4.0 * blur), t, pa);   // 0 where pillars are too small to keep crisp
+	float ragged = c_extent[k].w * (noise(x / (sp * 0.5) + s * 17.0) - 0.5) * 2.0 * far;
 	float base = c_shape[k].z + 8.0 * (noise(x / 160.0 + s * 7.0 + clock * 0.004) - 0.5) + ragged;
-	float decay = c_glow[k].x * mix(0.5, 1.4, noise(x / sp + s * 23.0));
+	float decay = c_glow[k].x * mix(1.0, mix(0.5, 1.4, noise(x / sp + s * 23.0)), far);
 	float above = h - base;
-	float lower = 1.0 / (1.0 + exp(-above / c_shape[k].w));
+	float lower = 1.0 / (1.0 + exp(-above / (c_shape[k].w * (1.0 + 0.6 * blur))));
 	float upper = exp(-max(above, 0.0) / decay);
 	float bottom_glow = 1.0 + 0.8 * exp(-pow(max(above, 0.0) / 15.0, 2.0));   // brightest near the bottom
 	// colour by altitude, drifting along the curtain
@@ -187,7 +193,7 @@ void fragment() {
 	for (int k = 0; k < MAX_CURTAINS; k++) {
 		if (k >= curtain_count)
 			break;
-		float w = c_glow[k].y;
+		float w = c_glow[k].y * (1.0 + blur);   // thicker sheets: softer edges
 		float ta = t0;
 		float ga = offset(k, ta, track, ey, pa);
 		for (int i = 0; i <= steps; i++) {
@@ -205,7 +211,7 @@ void fragment() {
 					inside = abs(seg * w / dg) * 0.8862 * abs(erf_approx(gb / w) - erf_approx(ga / w));
 				if (inside > 1e-4) {
 					float tc = ta + seg * clamp(-ga / (abs(dg) > 1e-6 ? dg : 1e-6), 0.0, 1.0);
-					light += curtain_light(k, tc, track, ey, pa) * min(inside, 120.0);
+					light += curtain_light(k, tc, track, ey, pa) * min(inside, 25.0);   // edge-on glow, capped
 				}
 			}
 			ta = tb;
@@ -229,10 +235,11 @@ void fragment() {
 		}
 	}
 
-	light *= exp(-0.03 / max(ey, 0.01)) * gain * strength;
+	light *= exp(-0.06 / max(ey, 0.01)) * gain * strength;   // fades through the thick air low down
 	// only genuinely bright light whitens, as the eye and camera see it
 	float lum = dot(light, vec3(0.3, 0.55, 0.15));
 	light = mix(light, vec3(lum * 1.15), smoothstep(0.6, 2.5, lum) * 0.5);
+	light = mix(vec3(dot(light, vec3(0.3, 0.55, 0.15))), light, saturation);
 	ALBEDO = light;
 	ALPHA = 1.0;
 }
