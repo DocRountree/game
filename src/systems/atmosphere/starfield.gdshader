@@ -6,7 +6,6 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled, 
 // the atmosphere shows only as a slight shimmer, stronger through more air.
 //   kind 0 star:   white point, same size for all; brightness only. A very
 //                  slight positional wobble (seeing), stronger through more air.
-//   kind 1 planet: coloured disc, a few pixels across.
 //   kind 2 deep-sky object: grey soft ellipse at its true angular size; the
 //                  instance basis carries its axes.
 // COLOR.rgb = colour; INSTANCE_CUSTOM = (brightness, kind, size px, 0).
@@ -42,9 +41,7 @@ void vertex() {
 void fragment() {
 	float r = length(quad) * 2.0;    // 0 at the centre, 1 at the quad's edge
 	float a;
-	if (kind == 1)
-		a = smoothstep(1.0, 0.6, r);          // a small disc
-	else if (kind == 2)
+	if (kind == 2)
 		a = exp(-r * r * 4.8);                // soft glow, object edge at r = 0.5
 	else
 		a = exp(-r * r * 5.0);                // a point

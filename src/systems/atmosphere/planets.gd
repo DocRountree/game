@@ -71,6 +71,10 @@ static func _to_equatorial(v: Vector3) -> Vector3:
 	return Vector3(v.x, v.y * cos(OBLIQUITY) - v.z * sin(OBLIQUITY), v.y * sin(OBLIQUITY) + v.z * cos(OBLIQUITY))
 
 
+static func _to_ecliptic(v: Vector3) -> Vector3:
+	return Vector3(v.x, v.y * cos(OBLIQUITY) + v.z * sin(OBLIQUITY), -v.y * sin(OBLIQUITY) + v.z * cos(OBLIQUITY))
+
+
 ## Equatorial unit vector toward the sun (x to the March equinox, z to the north pole).
 static func sun_direction(jd: float) -> Vector3:
 	return _to_equatorial(-_heliocentric(EARTH, 0, (jd - 2451545.0) / 36525.0)).normalized()
@@ -100,6 +104,22 @@ static func moon_direction(days: float, sun_longitude: float) -> Vector3:
 static func mean_sun_longitude(jd: float) -> float:
 	var t := (jd - 2451545.0) / 36525.0
 	return deg_to_rad(EARTH[3] + EARTH[9] * t + 180.0)
+
+
+## Planet positions at Julian date jd for a sky whose sun is frozen at sun_jd.
+## The game repeats one calendar day for the sun but lets the days count on.
+## Mercury and Venus never stray far from the sun, so they are turned about the
+## ecliptic pole to keep their real angle from the frozen sun (otherwise they
+## could end up at midnight). The outer planets keep their true places among
+## the stars, creeping east and looping back (retrograde) at the real rate.
+static func positions_relative_to_sun(jd: float, sun_jd: float) -> Array:
+	var turn := sun_ecliptic_longitude(sun_jd) - sun_ecliptic_longitude(jd)
+	var out := positions(jd)
+	for i in out.size():
+		if BODIES[i][5] < 1.0:   # inner planet (semi-major axis < 1 AU)
+			var e := _to_ecliptic(out[i][1]).rotated(Vector3(0, 0, 1), turn)
+			out[i][1] = _to_equatorial(e).normalized()
+	return out
 
 
 ## For each planet: [name, equatorial unit vector, magnitude, colour, disc size px].

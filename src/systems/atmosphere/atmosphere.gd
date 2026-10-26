@@ -9,7 +9,7 @@ extends Node
 ## through the same air, so sunsets light the world orange.
 ##
 ## Time comes from a GameClock and positions from Astronomy (sun, stars and
-## planets on the world's fixed date; the moon moves on daily). This node only
+## on the world's fixed date; the moon and planets move on daily). This node only
 ## draws them, and answers sky questions for gameplay (is it night, how bright
 ## is the moon). Without a clock it shows noon on day 0.
 
@@ -18,6 +18,7 @@ extends Node
 @export var world_environment: WorldEnvironment
 @export var starfield: Starfield
 @export var moon: Moon
+@export var planets: PlanetLayer
 @export var moonlight: DirectionalLight3D
 @export var clouds: Clouds
 @export var sun_energy := 1.4
@@ -139,9 +140,6 @@ func _vary_air(for_day: int) -> void:
 
 # --- sky queries ---------------------------------------------------------------
 
-var _planets_placed := false
-
-
 func time_of_day() -> float:
 	return clock.time_of_day if clock else 12.0
 
@@ -195,9 +193,9 @@ func _update_sun() -> void:
 	var night := night_amount()
 	if starfield:   # stars come out from civil twilight (sun 0-10 degrees below the horizon)
 		starfield.update_sky(equatorial_to_world(), night)
-		if not _planets_placed:   # same day every day: planets never move among the stars
-			_planets_placed = true
-			starfield.update_planets(WorldConfig.current().day_jd)
+	if planets:   # they wander from day to day, relative to the fixed sun
+		planets.update_sky(Astronomy.planet_positions(WorldConfig.current(), day(), time_of_day()),
+				equatorial_to_world(), night)
 	var moon_dir := moon_direction()
 	var moon_up := smoothstep(-0.02, 0.05, moon_dir.y)
 	var illuminated := (1.0 - moon_dir.dot(dir)) * 0.5   # lit fraction from the sun-moon angle

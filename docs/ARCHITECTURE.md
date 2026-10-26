@@ -63,7 +63,7 @@ lower in fresh water.
 | `ocean.gd` / `ocean.tscn` | `Ocean extends WaterBody`: endless, the fallback everywhere. Owns the wave list, the wave time and `surface_height()`. Pushes uniforms to the water shader each frame. |
 | `ocean_wave.gd` | One Gerstner component (direction, wavelength, amplitude, phase), editable in the inspector. |
 | `ocean_surface.gd` | Builds the camera-centred polar mesh. Each vertex stores its local spacing so the shader can drop waves too short to resolve there (no far-field aliasing). |
-| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + two 1024² detail normal maps, plus a finer 3.5 m capillary layer that fades out by 40 m; the detail churns in place, two cross-fading copies that each drift only slightly before re-forming at a new offset, so it never reads as a film sliding over the waves), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
+| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + two 1024² detail normal maps, plus a finer 3.5 m capillary layer that fades out by 40 m; layers use unrelated tile sizes and rotations, and a slow 140 m noise trades strength between them so no repeat dominates; the detail churns in place, two cross-fading copies that each drift only slightly before re-forming at a new offset, so it never reads as a film sliding over the waves), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
 | `ripple_sim.gd` / `ripple_sim.glsl` | Interactive ripples on the GPU (see below). |
 
 **Height queries.** `surface_height(x, z, footprint, ripple_radius)` returns the swell
@@ -136,9 +136,9 @@ Changes from his version:
 ### Astronomy and the night sky
 
 Every day is the same day: by default the 2026 winter solstice at 35 degrees
-north (`WorldConfig.day_jd`, `latitude`). The clock alone drives the sun, stars
-and planets, so they repeat exactly each day. Only the moon moves on:
-`GameClock.day` counts days, and the moon's orbit follows it.
+north (`WorldConfig.day_jd`, `latitude`). The clock alone drives the sun and
+stars, so they repeat exactly each day. The moon and planets move on:
+`GameClock.day` counts days, and their orbits follow it.
 
 - **Clock** (`src/systems/time/game_clock.gd`). A node in the level that ticks
   first each frame (`process_priority = -100`). It also tracks `total_hours`
@@ -162,13 +162,20 @@ and planets, so they repeat exactly each day. Only the moon moves on:
   equatorial coordinates (right ascension, declination) into the local sky from
   local sidereal time and latitude. The sun, stars, planets and deep-sky
   objects all go through it. World axes: +X east, +Y up, -Z north.
-- **Sun and planets** (`planets.gd`): Keplerian orbits from JPL's approximate
+- **Planets** (`planet_layer.gd`, `planet_layer.gdshader`): small coloured
+  discs on their own layer at 2,450 m, in front of the stars, behind the moon
+  (which can pass over them) and behind the clouds. They wander from day to day.
+  The outer planets keep their true places among the stars for the advancing
+  date, so they creep east and loop back in retrograde at the real rate.
+  Mercury and Venus are turned to keep their real angle from the frozen sun,
+  so they never stray from it.
+- **Orbits** (`planets.gd`): Keplerian orbits from JPL's approximate
   elements, Kepler's equation solved per body. Checked against the 2020
   Jupiter-Saturn conjunction and the 2020 Mars opposition (`tests/smoke_test.gd`).
 - **Stars** (`starfield.gd`, `starfield.gdshader`): all 8,404 naked-eye stars
   of the Yale Bright Star Catalog plus the 110 Messier objects, as one
   `MultiMesh` draw. Stars are white points, all the same size; brightness follows
-  their real magnitudes with one uniform boost. Planets are small coloured discs.
+  their real magnitudes with one uniform boost.
   Messier objects are grey ellipses at their true angular size. At night the air
   doesn't dim anything; it only adds a slight shimmer that grows toward the horizon.
 - **Data:** `tools/build_star_catalog.py` builds `bright_stars.tres`. Sources and

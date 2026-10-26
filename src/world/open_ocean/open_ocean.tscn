@@ -19,6 +19,8 @@
 [ext_resource type="Script" path="res://src/systems/time/game_clock.gd" id="20_clock"]
 [ext_resource type="Script" path="res://src/systems/exploration/exploration_tracker.gd" id="21_explore"]
 [ext_resource type="Resource" path="res://src/world/open_ocean/open_ocean_world.tres" id="22_world"]
+[ext_resource type="Script" path="res://src/systems/atmosphere/planet_layer.gd" id="23_planets"]
+[ext_resource type="Shader" path="res://src/systems/atmosphere/planet_layer.gdshader" id="24_planet_shader"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -54,6 +56,10 @@ shader = ExtResource("14_moon_shader")
 
 [sub_resource type="QuadMesh" id="Moon_mesh"]
 
+[sub_resource type="ShaderMaterial" id="Planet_material"]
+render_priority = 1
+shader = ExtResource("24_planet_shader")
+
 [sub_resource type="ShaderMaterial" id="Cloud_material"]
 shader = ExtResource("16_clouds_shader")
 
@@ -72,13 +78,14 @@ directional_shadow_max_distance = 60.0
 [node name="Clock" type="Node" parent="."]
 script = ExtResource("20_clock")
 
-[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "moonlight", "clouds")]
+[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "planets", "moonlight", "clouds")]
 script = ExtResource("9_atmosphere")
 clock = NodePath("../Clock")
 sun = NodePath("../Sun")
 world_environment = NodePath("../WorldEnvironment")
 starfield = NodePath("../Starfield")
 moon = NodePath("../Moon")
+planets = NodePath("../Planets")
 moonlight = NodePath("../Moonlight")
 clouds = NodePath("../Clouds")
 
@@ -87,6 +94,11 @@ material_override = SubResource("Star_material")
 cast_shadow = 0
 script = ExtResource("10_starfield")
 catalog = ExtResource("12_catalog")
+
+[node name="Planets" type="MultiMeshInstance3D" parent="."]
+material_override = SubResource("Planet_material")
+cast_shadow = 0
+script = ExtResource("23_planets")
 
 [node name="Moon" type="MeshInstance3D" parent="."]
 material_override = SubResource("Moon_material")

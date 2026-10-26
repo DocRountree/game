@@ -43,6 +43,14 @@ static func moon_direction(world: WorldConfig, day: int, t: float) -> Vector3:
 	return equatorial_to_world(world, t) * moon_equatorial(world, day, t)
 
 
+## Planets on day `day` at clock time t: Mercury and Venus kept near the fixed
+## sun, the outer planets wandering among the stars (see
+## Planets.positions_relative_to_sun). Each: [name, equatorial unit vector,
+## magnitude, colour, disc size px].
+static func planet_positions(world: WorldConfig, day: int, t: float) -> Array:
+	return Planets.positions_relative_to_sun(julian_date(world, t) + day, julian_date(world, t))
+
+
 ## Lit fraction of the moon's disc, 0 (new) .. 1 (full).
 static func moon_illumination(world: WorldConfig, day: int, t: float) -> float:
 	return (1.0 - moon_equatorial(world, day, t).dot(Planets.sun_direction(julian_date(world, t)))) * 0.5

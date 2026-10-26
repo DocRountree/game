@@ -1,14 +1,14 @@
 @tool
 class_name Starfield
 extends MultiMeshInstance3D
-## The naked-eye sky as one instanced draw: stars (white points), planets
-## (small coloured discs at their real positions for the date) and Messier
-## objects (grey smudges at their true angular size and orientation).
+## The fixed sky as one instanced draw: stars (white points) and Messier
+## objects (grey smudges at their true angular size and orientation). The
+## planets wander, so they live on their own layer (PlanetLayer).
 ##
 ## Everything sits on a big sphere around the camera in equatorial coordinates;
 ## Atmosphere rotates the node into the local sky for the date and time.
 ## Per instance: COLOR.rgb = colour; CUSTOM = (brightness, kind, size px, 0)
-## with kind 0 star, 1 planet, 2 deep-sky object (ellipse in the instance basis).
+## with kind 0 star, 2 deep-sky object (ellipse in the instance basis).
 
 const RADIUS := 2500.0          ## Inside the camera's far plane.
 const STAR_SIZE_PX := 2.2       ## Stars are points: every star the same size.
@@ -17,9 +17,6 @@ const STAR_SIZE_PX := 2.2       ## Stars are points: every star the same size.
 ## Uniform boost over real brightness: a magnitude-1 star draws at this level
 ## (1 = screen white). Brighter stars bloom; magnitude 6 is a faint dot.
 @export var brightness := 1.5
-
-var _planet_start := 0
-var _planet_count := Planets.BODIES.size()
 
 
 func _ready() -> void:
@@ -31,8 +28,7 @@ func _build() -> void:
 		return
 	var stars := catalog.star_count()
 	var dsos := catalog.deep_sky_count()
-	_planet_start = stars + dsos
-	var n := _planet_start + _planet_count
+	var n := stars + dsos
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -65,19 +61,6 @@ func _build() -> void:
 	mm.custom_aabb = AABB(Vector3.ONE * -RADIUS, Vector3.ONE * RADIUS * 2.0)
 	multimesh = mm
 	custom_aabb = mm.custom_aabb
-
-
-## Move the planets to where they are at Julian date jd.
-func update_planets(jd: float) -> void:
-	if multimesh == null:
-		return
-	var i := _planet_start
-	for p: Array in Planets.positions(jd):
-		var dir: Vector3 = p[1]
-		multimesh.set_instance_transform(i, Transform3D(Basis(), dir * RADIUS))
-		multimesh.set_instance_color(i, p[3])
-		multimesh.set_instance_custom_data(i, Color(brightness * _flux(p[2]), 1.0, p[4], 0.0))
-		i += 1
 
 
 ## Place the sky: basis maps equatorial coordinates into the world; visibility 0..1.

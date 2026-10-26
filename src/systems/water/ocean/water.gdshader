@@ -21,12 +21,14 @@ uniform vec3 ripple_rect = vec3(0.0, 0.0, 1.0);                // origin x, orig
 group_uniforms detail;
 uniform sampler2D detail_a : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D detail_b : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform float detail_tile = 20.0;          // meters per texture repeat
+uniform float detail_tile = 19.3;          // meters per texture repeat (odd sizes and angles
+                                           // per layer, so their repeats never line up)
 uniform float detail_strength = 0.3;
-uniform float fine_tile = 3.5;             // meters per repeat of the finest ripple layer
+uniform float fine_tile = 4.13;             // meters per repeat of the finest ripple layer
 uniform float fine_strength = 0.18;
 uniform float fine_fade = 40.0;            // the fine layer fades out by this distance (no sparkle)
 uniform float churn_period = 3.0;          // seconds for a detail layer to fade out and re-form
+uniform float patch_size = 140.0;          // meters: scale of the slow variation in which layer dominates
 uniform sampler2D foam_noise : filter_linear_mipmap, repeat_enable;
 
 group_uniforms water;
@@ -69,6 +71,10 @@ vec2 churn(sampler2D tex, vec2 uv, vec2 drift, float t) {
 		s += (1.0 - abs(2.0 * f - 1.0)) * n.xy / max(n.z, 0.2);   // triangle weights sum to 1
 	}
 	return s * 1.35;   // blending two copies flattens them a little; restore contrast
+}
+
+vec2 rot(vec2 p, float a) {
+	return vec2(p.x * cos(a) - p.y * sin(a), p.x * sin(a) + p.y * cos(a));
 }
 
 float view_depth(vec2 uv, mat4 inv_proj) {
@@ -123,12 +129,17 @@ void fragment() {
 
 	// small waves: detail normal maps churning in place on the (orbiting) water.
 	// x0 is the undisplaced position, so they ride the swell like real ripples.
-	slope += detail_strength * (churn(detail_a, x0 / detail_tile, vec2(0.04, 0.02), time)
-			+ 0.6 * churn(detail_b, x0 * 0.6 / detail_tile, vec2(-0.02, 0.035), time + 1.3));
+	// A slow, large noise trades strength between the layers from place to
+	// place, so no single repeating pattern dominates the whole sea.
+	float patch = texture(foam_noise, x0 / patch_size + vec2(0.37, 0.61)).r;
+	float wa = mix(0.45, 1.4, smoothstep(0.25, 0.75, patch));
+	float wb = mix(1.4, 0.45, smoothstep(0.3, 0.7, patch));
+	slope += detail_strength * (wa * churn(detail_a, rot(x0, 0.83) / detail_tile, vec2(0.04, 0.02), time)
+			+ 0.6 * wb * churn(detail_b, rot(x0, 2.37) / (detail_tile * 1.618), vec2(-0.02, 0.035), time + 1.3));
 	// finest capillary ripples close up, so the near water isn't smooth blotches
 	float fine = fine_strength * (1.0 - smoothstep(fine_fade * 0.3, fine_fade, -VERTEX.z));
 	if (fine > 0.0) {
-		slope += fine * churn(detail_b, x0.yx * vec2(1.0, -1.0) / fine_tile, vec2(0.08, -0.05), time * 1.7 + 0.6);
+		slope += fine * churn(detail_a, rot(x0, 4.11) / fine_tile, vec2(0.08, -0.05), time * 1.7 + 0.6);
 	}
 
 	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));
