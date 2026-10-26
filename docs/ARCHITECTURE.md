@@ -125,15 +125,19 @@ and roll for free. Place probes in the editor to tune any floating object.
 
 The same component optionally registers the body as a ripple source.
 
-### Camera (`src/systems/camera/third_person_camera.gd`)
+### Camera (`src/systems/camera/player_camera.gd`)
 
-Orbiting third-person camera. Optionally swings back behind a vehicle's heading
-when the player stops looking around. Never dips below the water surface.
+`PlayerCamera` has two modes, toggled with F5. Third person orbits the target,
+optionally swings back behind a vehicle's heading when the player stops looking
+around, and never dips below the water surface. First person sits at the
+player's head (the model is hidden so you don't see out through it) and looks
+along the same yaw and pitch; it follows the head down if you sink.
 
 ### Clouds (`src/systems/clouds/`)
 
-Highly stylised cumulus made of round puffs ("dots"), about 14,000 of them in
-one `MultiMesh`. The CPU lays them out once; the vertex shader does the rest:
+Highly stylised cumulus made of round puffs ("dots"): 40 small puffs per cloud,
+40,000 in one `MultiMesh`. Puff size scales with the puff count so a cloud's
+overall size stays put when the count changes. The CPU lays them out once; the vertex shader does the rest:
 
 - **Wind** drifts the whole layer, which wraps around the camera (24 km square,
   1.3 km up) and shrinks clouds away near the wrap edge instead of popping.

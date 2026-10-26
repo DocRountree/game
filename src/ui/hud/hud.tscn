@@ -25,14 +25,14 @@ script = ExtResource("1_hud")
 offset_left = 14.0
 offset_top = 10.0
 offset_right = 400.0
-offset_bottom = 120.0
+offset_bottom = 140.0
 label_settings = SubResource("Text")
 
 [node name="Breath" type="ProgressBar" parent="."]
 offset_left = 14.0
-offset_top = 128.0
+offset_top = 148.0
 offset_right = 174.0
-offset_bottom = 138.0
+offset_bottom = 158.0
 theme_override_styles/background = SubResource("Bar_bg")
 theme_override_styles/fill = SubResource("Bar_fill")
 max_value = 1.0
