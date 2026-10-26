@@ -14,9 +14,11 @@ const LOW_DEGREES := 2.0        ## Elevation of the curtains' lower edge.
 const HIGH_DEGREES := 40.0
 
 @export_range(0.0, 1.0) var chance := 0.02    ## About one night in fifty.
+@export var time_scale := 1.0   ## How fast the display moves and evolves (0 = frozen; for tuning).
 
 var strength := 0.0             ## This night's display, 0 = none.
 var style := {}                 ## This night's character (see _style_for).
+var display_time := 0.0         ## Seconds of display animation (drives the shader).
 var _night_id := -2147483648
 
 
@@ -30,6 +32,10 @@ func strength_for(night_id: int) -> float:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = WorldConfig.current().seed_for("aurora:%d" % night_id)
 	return rng.randf_range(0.5, 1.0) if rng.randf() < chance else 0.0
+
+
+func _process(delta: float) -> void:
+	display_time += delta * time_scale
 
 
 ## night: 0 by day, 1 at night; night_id: the day the current night began.
@@ -48,6 +54,7 @@ func update_sky(night: float, night_id: int) -> void:
 	var mat := material_override as ShaderMaterial
 	if mat:
 		mat.set_shader_parameter("strength", strength * smoothstep(0.5, 1.0, night))
+		mat.set_shader_parameter("clock", display_time)
 	visible = strength > 0.0 and night > 0.5
 
 

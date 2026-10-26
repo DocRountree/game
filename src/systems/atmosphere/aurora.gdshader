@@ -9,6 +9,7 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled, 
 // Green where the glow is brightest (the lower edge), shading to violet above.
 
 uniform float strength = 0.0;
+uniform float clock = 0.0;        // display time (s), from aurora.gd
 uniform float ripples = 1.0;      // weight of folding curtains
 uniform float pillars = 0.0;      // weight of ray columns
 uniform float bands = 2.0;        // 1..3 curtains
@@ -30,12 +31,12 @@ float noise(float x) {
 void fragment() {
 	float u = UV.x;
 	float v = UV.y;
-	float t = TIME * drift;
+	float t = clock * drift;
 	// the display evolves over minutes: the mix of structure and its activity wander
-	float slow = noise(TIME * 0.008 + 3.0);
-	float rip_w = ripples * mix(0.4, 1.3, noise(TIME * 0.011 + 7.0));
-	float pil_w = pillars * mix(0.4, 1.3, noise(TIME * 0.009 + 11.0));
-	float surge = 1.0 + 0.8 * smoothstep(0.75, 0.95, noise(TIME * 0.02 + 19.0));   // brief brightenings
+	float slow = noise(clock * 0.008 + 3.0);
+	float rip_w = ripples * mix(0.4, 1.3, noise(clock * 0.011 + 7.0));
+	float pil_w = pillars * mix(0.4, 1.3, noise(clock * 0.009 + 11.0));
+	float surge = 1.0 + 0.8 * smoothstep(0.75, 0.95, noise(clock * 0.02 + 19.0));   // brief brightenings
 	vec3 glow = vec3(0.0);
 	for (int c = 0; c < 3; c++) {
 		float fc = float(c);
@@ -62,7 +63,7 @@ void fragment() {
 	}
 	float ends = smoothstep(0.0, 0.15, u) * smoothstep(1.0, 0.85, u)   // fade at the arc's ends
 			* smoothstep(1.0, 0.55, v);                                  // and well before its top
-	float pulse = 0.75 + 0.25 * sin(TIME * 0.21) * sin(TIME * 0.13 + 1.0);
+	float pulse = 0.75 + 0.25 * sin(clock * 0.21) * sin(clock * 0.13 + 1.0);
 	ALBEDO = glow * ends * pulse * surge * strength * 0.15;
 	ALPHA = 1.0;
 }
