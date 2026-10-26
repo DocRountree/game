@@ -62,29 +62,20 @@ func _run() -> void:
 	var planets := Planets.positions(Planets.julian_date(2020, 356, 18.0))
 	_check((planets[3][1] as Vector3).angle_to(planets[4][1]) < deg_to_rad(0.5),
 			"planets: Jupiter-Saturn great conjunction on 2020-12-21")
-	# planets wander day to day, relative to the fixed sun
+	# planets wander: outer ones about as fast as the moon, Venus stays near the fixed sun
 	var cfg := WorldConfig.current()
 	var sun_eq := Planets.sun_direction(Astronomy.julian_date(cfg, 0.0))
 	var max_venus := 0.0
-	var reversals := 0
-	var prev_lon := NAN
-	var prev_step := 0.0
 	for d in range(0, 400, 4):
-		var ps := Astronomy.planet_positions(cfg, d, 0.0)
-		max_venus = maxf(max_venus, rad_to_deg((ps[1][1] as Vector3).angle_to(sun_eq)))
-		var e := Planets._to_ecliptic(ps[3][1])
-		var lon := atan2(e.y, e.x)
-		if not is_nan(prev_lon):
-			var step := angle_difference(prev_lon, lon)
-			if prev_step != 0.0 and signf(step) != signf(prev_step):
-				reversals += 1
-			prev_step = step
-		prev_lon = lon
-	var jup0: Vector3 = Astronomy.planet_positions(cfg, 0, 0.0)[3][1]
-	var jup60: Vector3 = Astronomy.planet_positions(cfg, 60, 0.0)[3][1]
-	_check(max_venus < 48.0 and rad_to_deg(jup0.angle_to(jup60)) > 1.0 and rad_to_deg(jup0.angle_to(jup60)) < 15.0
-			and reversals >= 1,
-			"planets wander (Jupiter moves %.1f deg, %d reversals), Venus stays within %.0f deg of the sun" % [rad_to_deg(jup0.angle_to(jup60)), reversals, max_venus])
+		max_venus = maxf(max_venus, rad_to_deg((Astronomy.planet_positions(cfg, d, 0.0)[1][1] as Vector3).angle_to(sun_eq)))
+	var rates := []
+	for i in [2, 3, 4, 5]:   # Mars .. Uranus: degrees moved in one day
+		var a0: Vector3 = Astronomy.planet_positions(cfg, 10, 0.0)[i][1]
+		var a1: Vector3 = Astronomy.planet_positions(cfg, 11, 0.0)[i][1]
+		rates.append(rad_to_deg(a0.angle_to(a1)))
+	_check(max_venus < 48.0 and rates.min() > 8.0 and rates.max() < 20.0,
+			"outer planets cross the stars at moon pace (%.0f-%.0f deg/day), Venus within %.0f deg of the sun"
+			% [rates.min(), rates.max(), max_venus])
 	var catalog: StarCatalog = world.get_node("Starfield").catalog
 	_check(catalog.star_count() > 8000 and catalog.deep_sky_count() == 110, "star catalogue and all 110 Messier objects load")
 	# clock: 15 real minutes of daylight, 5 of night

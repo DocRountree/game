@@ -3,7 +3,7 @@ render_mode blend_mix, depth_draw_always, cull_disabled;
 
 // Open-ocean surface. The same Gerstner waves as Ocean.height_at() displace a
 // camera-centred mesh; per pixel it adds the analytic wave normal, interactive
-// ripples, and detail normal maps that churn in place. Godot's lighting handles the
+// ripples, and procedural small waves. Godot's lighting handles the
 // sky reflection and sun glints; this shader supplies the light coming up
 // through the water (refraction + depth absorption + crest scattering) and foam.
 
@@ -19,16 +19,20 @@ uniform sampler2D ripple_tex : filter_linear, repeat_disable;  // r height, g fo
 uniform vec3 ripple_rect = vec3(0.0, 0.0, 1.0);                // origin x, origin z, size
 
 group_uniforms detail;
-uniform sampler2D detail_a : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D detail_b : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
-uniform float detail_tile = 19.3;          // meters per texture repeat (odd sizes and angles
-                                           // per layer, so their repeats never line up)
-uniform float detail_strength = 0.3;
-uniform float fine_tile = 4.13;             // meters per repeat of the finest ripple layer
-uniform float fine_strength = 0.18;
-uniform float fine_fade = 40.0;            // the fine layer fades out by this distance (no sparkle)
-uniform float churn_period = 3.0;          // seconds for a detail layer to fade out and re-form
-uniform float patch_size = 140.0;          // meters: scale of the slow variation in which layer dominates
+// Small waves, procedurally: a sum of short travelling waves with their own
+// directions (spread around the wind), wavelengths (a geometric series) and
+// deep-water speeds. They evolve like real ripples: no texture to slide or
+// tile. Each wave is shifted a little by the slopes of the waves before it
+// (domain warping), which breaks up the regularity of a plain sum of sines.
+// Cheap: waves too short for a pixel are skipped, so far water costs a few
+// iterations.
+uniform int detail_waves = 28;
+uniform float detail_longest = 7.0;        // m
+uniform float detail_ratio = 0.88;         // each wave this much shorter than the last
+uniform float detail_slope = 0.11;         // slope of the longest detail wave
+uniform float detail_spread = 3.6;         // radians of direction spread around the wind
+uniform float detail_warp = 0.5;           // how much earlier waves bend later ones
+uniform float wind_angle = 0.45;           // radians (matches the main swell)
 uniform sampler2D foam_noise : filter_linear_mipmap, repeat_enable;
 
 group_uniforms water;
@@ -56,25 +60,32 @@ float lod(int i, float sp) {
 vec2 rip_uv(vec2 p) { return (p - ripple_rect.xy) / ripple_rect.z; }
 float rip_fade(vec2 uv) { vec2 e = min(uv, 1.0 - uv); return clamp(min(e.x, e.y) * 25.0, 0.0, 1.0); }
 
-// Slope from a detail normal map that churns in place instead of scrolling:
-// two copies cross-fade, each drifting only a little before it fades out and
-// comes back at a fresh random offset. A plain scroll reads as a film sliding
-// over the waves; this keeps the ripples attached to the water.
-vec2 churn(sampler2D tex, vec2 uv, vec2 drift, float t) {
-	vec2 s = vec2(0.0);
-	for (int k = 0; k < 2; k++) {
-		float phase = t / churn_period + float(k) * 0.5;
-		float cycle = floor(phase);
-		float f = fract(phase);
-		vec2 jump = fract(sin(vec2(cycle * 12.9898 + float(k) * 3.1, cycle * 78.233 + float(k) * 7.7)) * 43758.5453);
-		vec3 n = texture(tex, uv + jump + drift * (f - 0.5)).xyz * 2.0 - 1.0;
-		s += (1.0 - abs(2.0 * f - 1.0)) * n.xy / max(n.z, 0.2);   // triangle weights sum to 1
-	}
-	return s * 1.35;   // blending two copies flattens them a little; restore contrast
-}
+float hash1(float n) { return fract(sin(n * 91.3458) * 47453.5453); }
 
-vec2 rot(vec2 p, float a) {
-	return vec2(p.x * cos(a) - p.y * sin(a), p.x * sin(a) + p.y * cos(a));
+// Summed slope of the procedural detail waves at undisplaced position p.
+vec2 detail_slope_at(vec2 p, float footprint) {
+	vec2 grad = vec2(0.0);
+	float lambda = detail_longest;
+	float amp_slope = detail_slope;
+	for (int i = 0; i < detail_waves; i++) {
+		float resolve = lambda / (2.5 * footprint);   // < 1: too short for this pixel
+		if (resolve < 1.0)
+			break;                                      // the rest are shorter still
+		float fade = clamp(resolve - 1.0, 0.0, 1.0);
+		float fi = float(i);
+		float ang = wind_angle + (hash1(fi + 1.0) - 0.5) * detail_spread;
+		vec2 d = vec2(cos(ang), sin(ang));
+		float k = 6.2831853 / lambda;
+		float th = k * dot(d, p) - sqrt(9.81 * k) * time + hash1(fi + 17.0) * 6.2831853;
+		// exponentiated sine: sharper crests, broader troughs, like real ripples
+		float e = exp(sin(th) - 1.0);
+		vec2 g = d * (amp_slope * e * cos(th) * fade);
+		grad += g;
+		p += g * (lambda * detail_warp);
+		lambda *= detail_ratio;
+		amp_slope *= 0.985;
+	}
+	return grad;
 }
 
 float view_depth(vec2 uv, mat4 inv_proj) {
@@ -127,20 +138,9 @@ void fragment() {
 			/ (2.0 * e * ripple_rect.z) * rf;
 	float ripple_foam = texture(ripple_tex, ruv).g * rf;
 
-	// small waves: detail normal maps churning in place on the (orbiting) water.
-	// x0 is the undisplaced position, so they ride the swell like real ripples.
-	// A slow, large noise trades strength between the layers from place to
-	// place, so no single repeating pattern dominates the whole sea.
-	float patch = texture(foam_noise, x0 / patch_size + vec2(0.37, 0.61)).r;
-	float wa = mix(0.45, 1.4, smoothstep(0.25, 0.75, patch));
-	float wb = mix(1.4, 0.45, smoothstep(0.3, 0.7, patch));
-	slope += detail_strength * (wa * churn(detail_a, rot(x0, 0.83) / detail_tile, vec2(0.04, 0.02), time)
-			+ 0.6 * wb * churn(detail_b, rot(x0, 2.37) / (detail_tile * 1.618), vec2(-0.02, 0.035), time + 1.3));
-	// finest capillary ripples close up, so the near water isn't smooth blotches
-	float fine = fine_strength * (1.0 - smoothstep(fine_fade * 0.3, fine_fade, -VERTEX.z));
-	if (fine > 0.0) {
-		slope += fine * churn(detail_a, rot(x0, 4.11) / fine_tile, vec2(0.08, -0.05), time * 1.7 + 0.6);
-	}
+	// small waves: procedural, attached to the water (x0 rides the swell)
+	vec2 fw = fwidth(x0);
+	slope += detail_slope_at(x0, max(sqrt(fw.x * fw.y) * 1.4, 0.002));   // mean footprint: keeps cross-view detail at grazing angles
 
 	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
@@ -171,8 +171,8 @@ void fragment() {
 
 	// foam: crest compression + ripple foam, broken up by noise so it reads as foam
 	float f = smoothstep(0.72, 0.55, jac) * 0.6 + ripple_foam * 0.5;   // whitecaps only on the sharpest crests
-	float noise = texture(foam_noise, (x0 + vec2(0.2, 0.0) * time) * (2.5 / detail_tile)).r * 0.6
-			+ texture(foam_noise, (x0 - vec2(0.0, 0.15) * time) * (5.0 / detail_tile)).r * 0.4;
+	float noise = texture(foam_noise, (x0 + vec2(0.2, 0.0) * time) * (2.5 / 20.0)).r * 0.6
+			+ texture(foam_noise, (x0 - vec2(0.0, 0.15) * time) * (5.0 / 20.0)).r * 0.4;
 	float lo = 1.0 - 0.6 * clamp(f, 0.0, 1.0);
 	float foam = smoothstep(lo, lo + 0.25, noise) * sqrt(min(f, 1.0));
 

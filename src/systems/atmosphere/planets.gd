@@ -106,15 +106,26 @@ static func mean_sun_longitude(jd: float) -> float:
 	return deg_to_rad(EARTH[3] + EARTH[9] * t + 180.0)
 
 
+const MOON_RATE := 13.176   ## Degrees per day the moon moves against the stars.
+
+
 ## Planet positions at Julian date jd for a sky whose sun is frozen at sun_jd.
 ## The game repeats one calendar day for the sun but lets the days count on.
 ## Mercury and Venus never stray far from the sun, so they are turned about the
 ## ecliptic pole to keep their real angle from the frozen sun (otherwise they
-## could end up at midnight). The outer planets keep their true places among
-## the stars, creeping east and looping back (retrograde) at the real rate.
-static func positions_relative_to_sun(jd: float, sun_jd: float) -> Array:
+## could end up at midnight). The outer planets keep their places among the
+## stars, but run their orbits faster than real since epoch_jd: pace 0 is the
+## real rate, 1 is about the moon's 13 degrees a day. The Earth keeps the real
+## calendar, so their yearly retrograde loops stay gentle.
+static func positions_relative_to_sun(jd: float, sun_jd: float, epoch_jd := 0.0, pace := 0.0) -> Array:
 	var turn := sun_ecliptic_longitude(sun_jd) - sun_ecliptic_longitude(jd)
-	var out := positions(jd)
+	var body_jd := PackedFloat64Array()
+	if pace > 0.0:
+		for body: Array in BODIES:
+			var real_rate: float = body[14] / 36525.0   # mean longitude, degrees per day
+			var speed := lerpf(1.0, MOON_RATE / real_rate, pace) if body[5] >= 1.0 else 1.0
+			body_jd.append(epoch_jd + (jd - epoch_jd) * speed)
+	var out := positions(jd, body_jd)
 	for i in out.size():
 		if BODIES[i][5] < 1.0:   # inner planet (semi-major axis < 1 AU)
 			var e := _to_ecliptic(out[i][1]).rotated(Vector3(0, 0, 1), turn)
@@ -123,12 +134,14 @@ static func positions_relative_to_sun(jd: float, sun_jd: float) -> Array:
 
 
 ## For each planet: [name, equatorial unit vector, magnitude, colour, disc size px].
-static func positions(jd: float) -> Array:
+static func positions(jd: float, body_jd := PackedFloat64Array()) -> Array:
 	var t := (jd - 2451545.0) / 36525.0
 	var earth := _heliocentric(EARTH, 0, t)
 	var out := []
-	for body: Array in BODIES:
-		var helio := _heliocentric(body, 5, t)
+	for i in BODIES.size():
+		var body: Array = BODIES[i]
+		var tb := t if body_jd.is_empty() else (body_jd[i] - 2451545.0) / 36525.0
+		var helio := _heliocentric(body, 5, tb)
 		var geo := helio - earth
 		var phase_angle := rad_to_deg((-helio).angle_to(-geo))   # sun-planet-earth
 		var mag: float = body[3] + 5.0 * log(helio.length() * geo.length()) / log(10.0) + body[4] * phase_angle

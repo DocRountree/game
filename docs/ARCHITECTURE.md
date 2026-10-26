@@ -63,7 +63,7 @@ lower in fresh water.
 | `ocean.gd` / `ocean.tscn` | `Ocean extends WaterBody`: endless, the fallback everywhere. Owns the wave list, the wave time and `surface_height()`. Pushes uniforms to the water shader each frame. |
 | `ocean_wave.gd` | One Gerstner component (direction, wavelength, amplitude, phase), editable in the inspector. |
 | `ocean_surface.gd` | Builds the camera-centred polar mesh. Each vertex stores its local spacing so the shader can drop waves too short to resolve there (no far-field aliasing). |
-| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + two 1024² detail normal maps, plus a finer 3.5 m capillary layer that fades out by 40 m; layers use unrelated tile sizes and rotations, and a slow 140 m noise trades strength between them so no repeat dominates; the detail churns in place, two cross-fading copies that each drift only slightly before re-forming at a new offset, so it never reads as a film sliding over the waves), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
+| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + procedural small waves, see below), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
 | `ripple_sim.gd` / `ripple_sim.glsl` | Interactive ripples on the GPU (see below). |
 
 **Height queries.** `surface_height(x, z, footprint, ripple_radius)` returns the swell
@@ -71,6 +71,16 @@ height above a world point. Gerstner moves water sideways, so it first finds the
 undisplaced point that lands on `(x, z)` (three fixed-point iterations).
 `footprint` low-passes the swell so a large hull ignores short waves.
 `ripple_radius >= 0` adds the interactive ripples.
+
+**Small waves.** No normal-map textures: the fragment shader sums up to 28
+short travelling waves, from 7 m down to about 0.2 m (each 0.88x the last),
+with directions spread around the wind and true deep-water speeds, so the
+detail evolves like real ripples instead of sliding or tiling. Each wave uses
+an exponentiated sine (sharper crests) and is shifted by the slopes of the
+waves before it (domain warping), which breaks up the regularity of a plain
+sum. They are evaluated at the undisplaced position, so they ride the swell.
+The loop stops at the first wave shorter than ~2.5 pixels, so distant water
+costs only a few iterations and nothing aliases.
 
 **Ripples.** A damped 2D wave equation on a 256 x 256 grid (0.3 m cells, ~77 m)
 that scrolls with the player. Each physics frame:
@@ -165,8 +175,10 @@ stars, so they repeat exactly each day. The moon and planets move on:
 - **Planets** (`planet_layer.gd`, `planet_layer.gdshader`): small coloured
   discs on their own layer at 2,450 m, in front of the stars, behind the moon
   (which can pass over them) and behind the clouds. They wander from day to day.
-  The outer planets keep their true places among the stars for the advancing
-  date, so they creep east and loop back in retrograde at the real rate.
+  The outer planets run their orbits faster than real
+  (`WorldConfig.outer_planet_pace`: 1 = about the moon's 13 degrees a day, 0 =
+  real), so they visibly cross the constellations; the Earth keeps the real
+  calendar, so their yearly retrograde loops stay gentle.
   Mercury and Venus are turned to keep their real angle from the frozen sun,
   so they never stray from it.
 - **Orbits** (`planets.gd`): Keplerian orbits from JPL's approximate

@@ -11,6 +11,9 @@ extends Resource
 ## Julian date of the repeating day's midnight (default: 2026 winter solstice).
 @export var day_jd := 2461395.5
 @export var planet_radius_m := 6400000.0 ## For horizon distance, sky and atmosphere maths.
+## How fast Mars, Jupiter, Saturn and Uranus cross the stars: 0 = real (weeks
+## to see a change), 1 = about as fast as the moon (13 degrees a day).
+@export_range(0.0, 1.0) var outer_planet_pace := 1.0
 
 static var _default: WorldConfig
 
