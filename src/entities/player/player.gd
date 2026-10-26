@@ -3,22 +3,34 @@ extends CharacterBody3D
 ## Swimmer with one buoyancy probe at the chest. Slightly denser than water, so
 ## doing nothing means sinking; treading and swimming are force-limited kicks
 ## toward the surface. Can board and drive a Boat.
+##
+## Carries three inventories: one per hand and a knapsack. Equipment that
+## changes abilities (snorkel, scuba tank) is read through gear_stat(), so
+## breath, depth limits and the like stay data-driven.
 
 signal drowned
 
 const MASS := 75.0
 const HEIGHT := 1.7
 const CHEST := 1.3                          ## Feet are this far below the origin (chest).
-const VOLUME := 0.97 * MASS / Ocean.RHO     ## 3% denser than seawater.
+const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 
 @export var swim_force := 260.0             ## N
-@export var breath_seconds := 20.0
+@export var breath_seconds := 20.0          ## Breath-hold without gear.
 @export var board_range := 5.0
+@export var traits: CharacterTraits
 
 var state := &"TREADING"
 var breath := 1.0
-var water_height := 0.0   ## Surface height here, including ripples.
+var water_height := 0.0   ## Surface height here, including ripples (-INF on land).
+var water: WaterBody      ## The body the player is in or over (null on land).
 var boat: Boat            ## Set while driving.
+var head_under := false   ## Head below the surface (snorkels, scuba, the camera's underwater look).
+
+@onready var left_hand: Inventory = $LeftHand
+@onready var right_hand: Inventory = $RightHand
+@onready var knapsack: Inventory = $Knapsack
+@onready var stats: PlayerStats = $Stats
 
 var _swell := 0.0
 var _prev_h := NAN
@@ -31,6 +43,11 @@ var _facing := 0.0
 
 func _ready() -> void:
 	add_to_group(&"ripple_sources")
+	if traits:
+		traits.apply_to(model)
+	var game := WorldConfig._game()
+	if game:
+		game.player = self
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -45,12 +62,12 @@ func _physics_process(delta: float) -> void:
 	if boat:
 		_drive()
 		return
-	var ocean := Ocean.instance
-	if ocean == null:
-		return
 	var pos := global_position
-	_swell = ocean.height_at(pos.x, pos.z, 0.5)
-	water_height = _swell + ocean.ripples.sample_ring(pos.x, pos.z, 0.8)
+	_set_water(Water.body_at(pos.x, pos.z))
+	if water == null:
+		return   # dry land comes with terrain
+	_swell = water.surface_height(pos.x, pos.z, 0.5)
+	water_height = _swell + water.ripple_height(pos.x, pos.z, 0.8)
 	var water_vy := 0.0 if is_nan(_prev_h) else (water_height - _prev_h) / delta
 	_prev_h = water_height
 	var s := submerged(water_height)
@@ -68,13 +85,13 @@ func _physics_process(delta: float) -> void:
 	var treading := Input.is_action_pressed(&"tread")
 	var moving := move != Vector3.ZERO
 
-	var fy := -MASS * Ocean.G + Ocean.RHO * Ocean.G * VOLUME * s
+	var fy := -MASS * Water.G + water.density() * Water.G * VOLUME * s
 	if s > 0.0:
 		fy -= 40.0 * vrel + 60.0 * vrel * absf(vrel)
 		if treading or moving:
 			# kicking is a one-sided, force-limited spring toward the surface
 			var target := water_height + (0.15 if treading else -0.1)
-			var lift_max := (0.30 if treading else 0.22) * MASS * Ocean.G
+			var lift_max := (0.30 if treading else 0.22) * MASS * Water.G
 			fy += clampf(1500.0 * (target - pos.y) - 400.0 * vrel, 0.0, lift_max)
 
 	var fh := Vector3.ZERO
@@ -85,8 +102,8 @@ func _physics_process(delta: float) -> void:
 		var vh := Vector3(velocity.x, 0.0, velocity.z)
 		fh -= (30.0 + 70.0 * vh.length()) * vh
 		if pos.y + 0.4 > water_height - 0.5:   # near the surface: wakes shove you
-			var slope := ocean.ripples.slope(pos.x, pos.z)
-			fh -= Vector3(slope.x, 0.0, slope.y) * MASS * Ocean.G * 1.5
+			var slope := water.ripple_slope(pos.x, pos.z)
+			fh -= Vector3(slope.x, 0.0, slope.y) * MASS * Water.G * 1.5
 
 	velocity += (fh + Vector3.UP * fy) / MASS * delta
 	move_and_slide()
@@ -99,10 +116,12 @@ func _physics_process(delta: float) -> void:
 		state = &"TREADING"
 	else:
 		state = &"SINKING"
-	if pos.y + 0.4 < water_height:
-		breath -= delta / breath_seconds
+	_set_head_under(pos.y + 0.4 < water_height)
+	if head_under:
+		breath -= delta / breath_capacity()
 		if breath <= 0.0:
 			drowned.emit()
+			_emit_event(&"player_drowned")
 	else:
 		breath = minf(1.0, breath + delta / 3.0)
 
@@ -115,6 +134,26 @@ func _process(delta: float) -> void:
 		&"SINKING": lean_target = 0.35
 	_lean = lerpf(_lean, lean_target, minf(1.0, 4.0 * delta))
 	model.rotation = Vector3(-_lean, _facing, 0.0) if boat == null else Vector3.ZERO
+
+
+## Seconds of air: breath-hold plus whatever held or worn gear adds.
+func breath_capacity() -> float:
+	return breath_seconds + gear_stat(&"breath_seconds")
+
+
+## Sum of a stat over equipped gear (both hands for now; worn gear later).
+func gear_stat(stat: StringName) -> float:
+	var total := 0.0
+	for hand: Inventory in [left_hand, right_hand]:
+		for s in hand.items():
+			total += s.item.stat(stat)
+	return total
+
+
+## The stack in a hand (0 = left, 1 = right), or null.
+func held(hand: int) -> ItemStack:
+	var inv := left_hand if hand == 0 else right_hand
+	return inv.slots[0]
 
 
 ## Fraction of the body below the given water height.
@@ -156,6 +195,9 @@ func _try_board() -> void:
 				and head_depth() < 1.5:
 			boat = b
 			b.driver = self
+			b.helm.occupant = self
+			_set_head_under(false)
+			_emit_event(&"boat_boarded", [b, true])
 			_collision.disabled = true
 			velocity = Vector3.ZERO
 			return
@@ -165,6 +207,8 @@ func _leave_boat() -> void:
 	var b := boat
 	boat = null
 	b.driver = null
+	b.helm.occupant = null
+	_emit_event(&"boat_boarded", [b, false])
 	b.throttle = 0.0
 	b.steer = 0.0
 	var side := b.global_basis.x
@@ -177,8 +221,27 @@ func _leave_boat() -> void:
 func _drive() -> void:
 	boat.throttle = Input.get_axis(&"move_back", &"move_forward")
 	boat.steer = Input.get_axis(&"move_right", &"move_left")
-	global_transform = boat.seat.global_transform
+	global_transform = boat.helm.global_transform
 	velocity = boat.linear_velocity
 	state = &"ON BOAT"
 	breath = 1.0
-	water_height = Ocean.instance.height_at(global_position.x, global_position.z) if Ocean.instance else 0.0
+	_set_water(Water.body_at(global_position.x, global_position.z))
+	water_height = Water.surface_height(global_position.x, global_position.z)
+
+
+func _set_water(body: WaterBody) -> void:
+	if body != water:
+		water = body
+		_emit_event(&"player_water_changed", [body])
+
+
+func _set_head_under(under: bool) -> void:
+	if under != head_under:
+		head_under = under
+		_emit_event(&"player_submerged_changed", [under])
+
+
+func _emit_event(signal_name: StringName, args := []) -> void:
+	var events := get_node_or_null(^"/root/Events")
+	if events:
+		events.emit_signal.callv([signal_name] + args)

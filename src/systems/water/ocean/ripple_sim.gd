@@ -118,7 +118,7 @@ func _sample_channel(x: float, z: float, channel: int) -> float:
 # --- render thread -----------------------------------------------------------
 
 func _create() -> void:
-	var shader_file: RDShaderFile = load("res://src/systems/ocean/ripple_sim.glsl")
+	var shader_file: RDShaderFile = load("res://src/systems/water/ocean/ripple_sim.glsl")
 	_shader = _rd.shader_create_from_spirv(shader_file.get_spirv())
 	_pipeline = _rd.compute_pipeline_create(_shader)
 

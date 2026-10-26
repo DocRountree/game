@@ -26,9 +26,23 @@
 
 - **Call down, signal up.** A parent may call methods on its children; children
   emit signals and never reach up the tree by path.
-- Cross-cutting singletons are rare and deliberate: `Ocean.instance` exists
-  because every floating object needs it. New globals go in `src/autoload/`.
+- Global services live in `src/autoload/` and stay few. Prefer static query
+  APIs (`Water`, `Astronomy`) and `X.current()` lookups (`WorldConfig`,
+  `GameClock`, `QualitySettings`) over node references. `X.current()` must fall
+  back to a default in the editor, where `@tool` scripts can't see autoloads.
+- World happenings other systems care about go through `Events`. Emitters must
+  not assume anyone listens; add a signal only when something emits it.
 - Groups for "everything of a kind": `boats`, `ripple_sources`.
+
+## Data
+
+- Definitions are `Resource` scripts with `class_name` in `src/data/<kind>/`,
+  with their `.tres` instances next to them. Ids are `StringName`s.
+- Prefer tags and a `stats` dictionary over new fields for one-off properties;
+  promote a field when several systems read it.
+- Runtime state that should survive a save has `to_dict()` / `from_dict()`
+  (clock, inventories, player stats, exploration).
+- Procedural systems take their seed from `WorldConfig.seed_for("name")`.
 
 ## Shaders
 

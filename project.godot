@@ -16,6 +16,13 @@ run/main_scene="res://src/world/open_ocean/open_ocean.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
 
+[autoload]
+
+Events="*res://src/autoload/events.gd"
+Game="*res://src/autoload/game.gd"
+Settings="*res://src/autoload/settings.gd"
+Perf="*res://src/autoload/perf.gd"
+
 [display]
 
 window/size/viewport_width=1280

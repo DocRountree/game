@@ -1,7 +1,8 @@
 extends Node3D
 ## Open-ocean sandbox: wires player, boat, camera and HUD together and
-## scatters floating crates.
+## scatters floating crates. Registers itself with Game as the running world.
 
+@export var world_config: WorldConfig
 @export var crate_scene: PackedScene
 @export var crate_count := 30
 @export var crate_spread := 90.0
@@ -11,10 +12,22 @@ extends Node3D
 @onready var camera: PlayerCamera = $Camera
 @onready var hud: Hud = $HUD
 @onready var atmosphere: Atmosphere = $Atmosphere
+@onready var clock: GameClock = $Clock
+
+
+func _enter_tree() -> void:
+	# before any child's _ready, so systems see this world's config
+	Game.begin_world(self, world_config)
+
+
+func _exit_tree() -> void:
+	Game.end_world(self)
 
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	Settings.apply_to_viewport(get_viewport())
+	$Sun.directional_shadow_max_distance = QualitySettings.current().shadow_distance
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3
 	for i in crate_count:
@@ -35,7 +48,7 @@ func _process(_delta: float) -> void:
 	camera.follow_heading = driving
 	camera.distance = 9.0 if driving else 4.5
 	camera.target_offset = Vector3(0, 2.4, 0) if driving else Vector3(0, 0.5, 0)
-	hud.refresh(player, boat, atmosphere.time_text() + "\nmoon   " + atmosphere.moon_phase_text())
+	hud.refresh(player, boat, clock.time_text() + "\nmoon   " + atmosphere.moon_phase_text())
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -44,6 +57,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed(&"toggle_view"):
 		camera.first_person = not camera.first_person
 		player.model.visible = not camera.first_person   # don't look out through your own head
+		Events.view_mode_changed.emit(camera.first_person)
 	elif event.is_action_pressed(&"toggle_mouse"):
 		var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if captured else Input.MOUSE_MODE_CAPTURED

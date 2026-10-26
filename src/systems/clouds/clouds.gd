@@ -21,6 +21,9 @@ extends MultiMeshInstance3D
 
 
 func _ready() -> void:
+	if not Engine.is_editor_hint():   # in game, density follows the quality settings
+		cloud_count = QualitySettings.current().cloud_count
+		puffs_per_cloud = QualitySettings.current().puffs_per_cloud
 	_build()
 
 

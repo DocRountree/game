@@ -44,8 +44,11 @@ and gameplay still work, just without ripples.
 ```
 project.godot       engine settings, input map, physics layers
 src/                all game code and scenes, grouped by feature
-  autoload/         global singletons (registered in project settings)
-  systems/          reusable engine-level pieces: ocean, atmosphere, buoyancy, camera
+  autoload/         global services: Events (signal bus), Game, Settings, Perf
+  core/             world-wide basics: WorldConfig (seed, latitude, date), WorldGrid
+  data/             Resource schemas and instances: items, species, biomes, boats, characters
+  systems/          reusable pieces: water (ocean), time, atmosphere, clouds, buoyancy,
+                    camera, inventory, exploration, performance
   entities/         things in the world: player, boat, props
   world/            levels / playable spaces (open_ocean is the main scene)
   ui/               HUD and menus
@@ -55,7 +58,7 @@ addons/             third-party editor plugins
 native/             C++ GDExtension sources (not scanned by Godot)
 tests/              headless tests
 tools/              build, export and test scripts (not scanned by Godot)
-docs/               architecture notes and conventions (not scanned by Godot)
+docs/               architecture, conventions and the roadmap of planned systems (not scanned by Godot)
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the systems fit together

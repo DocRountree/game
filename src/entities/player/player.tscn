@@ -1,6 +1,9 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://src/entities/player/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://src/systems/inventory/inventory.gd" id="2_inventory"]
+[ext_resource type="Script" path="res://src/entities/player/player_stats.gd" id="3_stats"]
+[ext_resource type="Resource" path="res://src/data/characters/default_player.tres" id="4_traits"]
 
 [sub_resource type="CapsuleShape3D" id="Shape_body"]
 radius = 0.25
@@ -47,6 +50,7 @@ height = 0.26
 [node name="Player" type="CharacterBody3D"]
 collision_layer = 2
 script = ExtResource("1_player")
+traits = ExtResource("4_traits")
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.45, 0)
@@ -81,3 +85,20 @@ mesh = SubResource("Mesh_arm")
 [node name="Head" type="MeshInstance3D" parent="Model"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.29, -0.02)
 mesh = SubResource("Mesh_head")
+
+[node name="LeftHand" type="Node" parent="."]
+script = ExtResource("2_inventory")
+capacity = 1
+display_name = "Left hand"
+
+[node name="RightHand" type="Node" parent="."]
+script = ExtResource("2_inventory")
+capacity = 1
+display_name = "Right hand"
+
+[node name="Knapsack" type="Node" parent="."]
+script = ExtResource("2_inventory")
+display_name = "Knapsack"
+
+[node name="Stats" type="Node" parent="."]
+script = ExtResource("3_stats")

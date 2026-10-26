@@ -1,36 +1,27 @@
 @tool
 class_name Atmosphere
 extends Node
-## Sky, sun, stars and time of day.
+## Sky, sun, moon and stars: the visuals of the time of day.
 ##
 ## Drives the single-scattering sky shader (after Sebastian Lague's Solar
 ## System) and keeps the sun light consistent with it: the light points where
 ## the sky draws the sun, and its colour is the sunlight that survives the trip
 ## through the same air, so sunsets light the world orange.
 ##
-## Sun, stars and planets share one astronomical model on a fixed date: every
-## day is the same winter-solstice day, so the clock alone sets their sky and it
-## repeats exactly each day. Only the moon moves on from day to day. Latitude
-## tilts the sky. World axes: +X east, -Z north (Godot's forward), +Y up.
-##
-## The clock runs fast: daylight (sunrise to sunset) lasts day_minutes of real
-## time and the night night_minutes, with the speed easing between the two
-## through twilight so sunsets don't rush by.
+## Time comes from a GameClock and positions from Astronomy (sun, stars and
+## planets on the world's fixed date; the moon moves on daily). This node only
+## draws them, and answers sky questions for gameplay (is it night, how bright
+## is the moon). Without a clock it shows noon on day 0.
 
+@export var clock: GameClock
 @export var sun: DirectionalLight3D
 @export var world_environment: WorldEnvironment
 @export var starfield: Starfield
 @export var moon: Moon
 @export var moonlight: DirectionalLight3D
 @export var clouds: Clouds
-@export_range(0.0, 24.0) var time_of_day := 12.0    ## Local mean solar time, hours.
-@export_range(-89.0, 89.0) var latitude := 35.0     ## Degrees north.
-@export var day_minutes := 15.0                     ## Real minutes from sunrise to sunset (0 = frozen).
-@export var night_minutes := 5.0                    ## Real minutes from sunset to sunrise.
 @export var sun_energy := 1.4
 @export var moon_energy := 0.12                     ## Full moon light.
-
-var day := 0   ## Days since the start; the moon's orbit follows it.
 
 @export_group("Scattering")
 # Lague's model with Earth-like proportions: his planets' atmospheres are 32%
@@ -64,7 +55,6 @@ func _ready() -> void:
 	if world_environment and world_environment.environment and world_environment.environment.sky:
 		_material = world_environment.environment.sky.sky_material as ShaderMaterial
 	rebuild()
-	_setup_clock()
 
 
 ## Recompute coefficients and the optical-depth lookup after changing scattering settings.
@@ -90,136 +80,49 @@ func rebuild() -> void:
 	_update_sun()
 
 
-func _process(delta: float) -> void:
-	if not Engine.is_editor_hint():
-		var scrub := Input.get_axis(&"time_backward", &"time_forward") * 2.0   # hours per second
-		var rate := clock_rate(time_of_day) if day_minutes > 0.0 else 0.0
-		time_of_day += (rate + scrub) * delta
-		while time_of_day >= 24.0:
-			time_of_day -= 24.0
-			day += 1
-		while time_of_day < 0.0:
-			time_of_day += 24.0
-			day -= 1
+func _process(_delta: float) -> void:
 	_update_sun()
 
 
-# --- clock --------------------------------------------------------------------
-
-var _sunrise := 7.0
-var _sunset := 17.0
-var _day_rate := 0.0     # game hours per real second while the sun is up
-var _night_rate := 0.0   # ... in full night (sun 8+ degrees down)
-
-
-## Game hours per real second at clock time t.
-func clock_rate(t: float, night_rate := -1.0) -> float:
-	if _day_rate == 0.0:
-		_setup_clock()
-	var nr := _night_rate if night_rate < 0.0 else night_rate
-	return lerpf(_day_rate, nr, smoothstep(0.0, -0.14, sun_direction(t).y))
-
-
-func sunrise() -> float:
-	return _sunrise
-
-
-func sunset() -> float:
-	return _sunset
-
-
-func _setup_clock() -> void:
-	_sunrise = _horizon_crossing(-1.0)
-	_sunset = _horizon_crossing(1.0)
-	_day_rate = (_sunset - _sunrise) / (maxf(day_minutes, 0.01) * 60.0)
-	# night speed: whatever makes sunset-to-sunrise last night_minutes, given the twilight easing
-	var lo := _day_rate
-	var hi := _day_rate * 1000.0
-	for _i in 40:
-		var mid := sqrt(lo * hi)
-		if _night_seconds(mid) > night_minutes * 60.0:
-			lo = mid
-		else:
-			hi = mid
-	_night_rate = sqrt(lo * hi)
-
-
-## Real seconds from sunset to sunrise for a given full-night speed.
-func _night_seconds(night_rate: float) -> float:
-	var span := _sunrise + 24.0 - _sunset
-	var steps := 300
-	var total := 0.0
-	for i in steps:
-		var t := _sunset + span * (i + 0.5) / steps
-		total += span / steps / clock_rate(fmod(t, 24.0), night_rate)
-	return total
-
-
-## Clock time the sun crosses the horizon, searching from noon forward (1) or back (-1).
-func _horizon_crossing(direction: float) -> float:
-	var a := 12.0
-	var b := 12.0
-	while sun_direction(b).y > 0.0 and absf(b - 12.0) < 12.0:
-		a = b
-		b += 0.05 * direction
-	for _i in 30:
-		var m := (a + b) * 0.5
-		if sun_direction(m).y > 0.0:
-			a = m
-		else:
-			b = m
-	return (a + b) * 0.5
-
-
-## The one day that repeats forever: the 2026 winter solstice (Dec 21).
-const DAY_JD := 2461395.5   # Planets.julian_date(2026, 355, 0.0)
+# --- sky queries ---------------------------------------------------------------
 
 var _planets_placed := false
 
 
-## Julian date at clock time t (default now) on the fixed day (local mean time as UT).
-func julian_date(t := -1.0) -> float:
-	return DAY_JD + (time_of_day if t < 0.0 else t) / 24.0
+func time_of_day() -> float:
+	return clock.time_of_day if clock else 12.0
 
 
-## Local sidereal time (rad): the right ascension on the meridian at clock time t.
-func local_sidereal_time(t := -1.0) -> float:
-	# mean solar time: the mean sun crosses the meridian at noon
-	var clock := time_of_day if t < 0.0 else t
-	return Planets.mean_sun_longitude(julian_date(clock)) + (clock - 12.0) / 24.0 * TAU
+func day() -> int:
+	return clock.day if clock else 0
 
 
-## Rotation taking equatorial unit vectors (x to the March equinox, z to the
-## north celestial pole) into the world (+X east, +Y up, -Z north).
+## Equatorial-to-world rotation at clock time t (default now).
 func equatorial_to_world(t := -1.0) -> Basis:
-	var lst := local_sidereal_time(t)
-	var lat := deg_to_rad(latitude)
-	return Basis(Vector3(-sin(lst), cos(lat) * cos(lst), sin(lat) * cos(lst)),
-			Vector3(cos(lst), cos(lat) * sin(lst), sin(lat) * sin(lst)),
-			Vector3(0.0, sin(lat), -cos(lat)))
+	return Astronomy.equatorial_to_world(WorldConfig.current(), time_of_day() if t < 0.0 else t)
 
 
-## Unit vector toward the sun (true orbit, so noon drifts with the equation of time).
+## Unit vector toward the sun at clock time t (default now).
 func sun_direction(t := -1.0) -> Vector3:
-	return equatorial_to_world(t) * Planets.sun_direction(julian_date(t))
-
-
-## Equatorial unit vector toward the moon. Unlike the sun it moves on every day.
-func moon_equatorial() -> Vector3:
-	var days := DAY_JD - 2451545.0 + day + time_of_day / 24.0
-	return Planets.moon_direction(days, Planets.sun_ecliptic_longitude(julian_date()))
+	return Astronomy.sun_direction(WorldConfig.current(), time_of_day() if t < 0.0 else t)
 
 
 func moon_direction() -> Vector3:
-	return equatorial_to_world() * moon_equatorial()
+	return Astronomy.moon_direction(WorldConfig.current(), day(), time_of_day())
+
+
+## Lit fraction of the moon's disc, 0 (new) .. 1 (full).
+func moon_illumination() -> float:
+	return Astronomy.moon_illumination(WorldConfig.current(), day(), time_of_day())
 
 
 func moon_phase_text() -> String:
-	return Moon.phase_name(moon_equatorial(), Planets.sun_direction(julian_date()))
+	return Astronomy.moon_phase_name(WorldConfig.current(), day(), time_of_day())
 
 
-func time_text() -> String:
-	return "%02d:%02d  day %d" % [int(time_of_day), int(fmod(time_of_day, 1.0) * 60.0), day + 1]
+## 0 by day, 1 from nautical twilight (sun 9+ degrees down): stars, fish that feed at night.
+func night_amount() -> float:
+	return smoothstep(0.02, -0.16, sun_direction().y)
 
 
 func _update_sun() -> void:
@@ -236,12 +139,12 @@ func _update_sun() -> void:
 	sun.light_color = Color(t.x / peak, t.y / peak, t.z / peak) if peak > 0.0 else Color.BLACK
 	sun.light_energy = sun_energy * clampf(peak, 0.0, 1.0) * up
 	sun.shadow_enabled = up > 0.0
-	var night := smoothstep(0.02, -0.16, dir.y)   # 0 by day, 1 from nautical twilight
+	var night := night_amount()
 	if starfield:   # stars come out from civil twilight (sun 0-10 degrees below the horizon)
 		starfield.update_sky(equatorial_to_world(), night)
 		if not _planets_placed:   # same day every day: planets never move among the stars
 			_planets_placed = true
-			starfield.update_planets(DAY_JD)
+			starfield.update_planets(WorldConfig.current().day_jd)
 	var moon_dir := moon_direction()
 	var moon_up := smoothstep(-0.02, 0.05, moon_dir.y)
 	var illuminated := (1.0 - moon_dir.dot(dir)) * 0.5   # lit fraction from the sun-moon angle
@@ -301,8 +204,8 @@ func _lut_texture() -> ImageTexture:
 
 ## Sunlight transmittance from a point height_m above the sea toward dir,
 ## including the planet blocking a sun below that point's horizon.
-func _transmittance_from(height_m: float, dir: Vector3, planet_radius_m := 6400000.0) -> Vector3:
-	var origin := Vector2(0.0, 1.0 + height_m / planet_radius_m)
+func _transmittance_from(height_m: float, dir: Vector3) -> Vector3:
+	var origin := Vector2(0.0, 1.0 + height_m / WorldConfig.current().planet_radius_m)
 	var d := Vector2(sqrt(maxf(0.0, 1.0 - dir.y * dir.y)), dir.y)
 	var b := origin.dot(d)
 	var c := origin.length_squared() - 1.0

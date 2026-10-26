@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="BiomeDef" format=3]
+
+[ext_resource type="Script" path="res://src/data/biomes/biome_def.gd" id="1_biome"]
+
+[resource]
+script = ExtResource("1_biome")
+id = &"open_ocean"
+display_name = "Open ocean"
+depth_range = Vector2(200, 11000)
