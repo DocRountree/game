@@ -23,6 +23,9 @@ uniform sampler2D detail_a : hint_normal, filter_linear_mipmap_anisotropic, repe
 uniform sampler2D detail_b : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
 uniform float detail_tile = 20.0;          // meters per texture repeat
 uniform float detail_strength = 0.3;
+uniform float fine_tile = 3.5;             // meters per repeat of the finest ripple layer
+uniform float fine_strength = 0.18;
+uniform float fine_fade = 40.0;            // the fine layer fades out by this distance (no sparkle)
 uniform sampler2D foam_noise : filter_linear_mipmap, repeat_enable;
 
 group_uniforms water;
@@ -104,6 +107,12 @@ void fragment() {
 	vec3 na = texture(detail_a, (x0 - vec2(0.9, 0.4) * time) / detail_tile).xyz * 2.0 - 1.0;
 	vec3 nb = texture(detail_b, (x0 * 0.6 + vec2(0.3, -0.7) * time) / detail_tile).xyz * 2.0 - 1.0;
 	slope += detail_strength * (na.xy / max(na.z, 0.2) + 0.6 * nb.xy / max(nb.z, 0.2));
+	// finest capillary ripples close up, so the near water isn't smooth blotches
+	float fine = fine_strength * (1.0 - smoothstep(fine_fade * 0.3, fine_fade, -VERTEX.z));
+	if (fine > 0.0) {
+		vec3 nc = texture(detail_b, (x0.yx * vec2(1.0, -1.0) + vec2(-0.5, 0.8) * time) / fine_tile).xyz * 2.0 - 1.0;
+		slope += fine * nc.xy / max(nc.z, 0.2);
+	}
 
 	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);

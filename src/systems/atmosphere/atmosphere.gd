@@ -38,6 +38,23 @@ extends Node
 @export var mie_scattering := 2.5
 @export var mie_falloff := 28.0                     ## Haze hugs the surface (air uses density_falloff).
 @export_range(0.0, 0.99) var mie_g := 0.74         ## Forward-scattering strength.
+## High-altitude (stratospheric) aerosol layer. It still catches reddened
+## sunlight after the sun has set below, and that light reaches you through
+## blue sky: the pink and purple of twilight. Not in Lague's model.
+@export var strat_scattering := 4.0
+@export var strat_height := 0.15                    ## Layer centre, as a fraction of the atmosphere's thickness.
+@export var strat_width := 0.07
+@export_range(0.0, 0.99) var strat_g := 0.6
+## Stylised rose-violet band above the sunset point during twilight.
+@export var twilight_glow := 1.5
+@export var twilight_tint := Color(0.85, 0.42, 0.9)
+## How much the air changes from day to day (0 = every sunset identical).
+## Each day draws its own haze, high aerosol and ozone, so sunsets range from
+## clear golden ones to hazy orange or vivid pink-purple twilights.
+@export_range(0.0, 1.0) var sunset_variety := 1.0
+## Pull the clouds' sunset light toward grey (0 = fully saturated, cartoonish).
+@export_range(0.0, 1.0) var cloud_desaturate := 0.35
+const strat_reference := 4.0   # the high-aerosol amount the cloud twilight tint is tuned for
 @export var in_scattering_points := 16
 @export_group("Lookup bake")
 @export var lut_angles := 128                       ## Directions (most detail needed near the horizon).
@@ -77,11 +94,47 @@ func rebuild() -> void:
 		_material.set_shader_parameter("mie_scattering", mie_scattering)
 		_material.set_shader_parameter("mie_falloff", mie_falloff)
 		_material.set_shader_parameter("mie_g", mie_g)
+		_material.set_shader_parameter("strat_scattering", strat_scattering)
+		_material.set_shader_parameter("strat_height", strat_height)
+		_material.set_shader_parameter("strat_width", strat_width)
+		_material.set_shader_parameter("strat_g", strat_g)
+		_material.set_shader_parameter("twilight_glow", twilight_glow)
+		_material.set_shader_parameter("twilight_tint", Vector3(twilight_tint.r, twilight_tint.g, twilight_tint.b))
 	_update_sun()
 
 
 func _process(_delta: float) -> void:
+	if not Engine.is_editor_hint() and day() != _weather_day:
+		_vary_air(day())
 	_update_sun()
+
+
+# --- day-to-day variation --------------------------------------------------------
+
+var _weather_day := 0
+var _base := {}
+
+
+## Draw this day's air from the world seed: same day, same sunset.
+func _vary_air(for_day: int) -> void:
+	_weather_day = for_day
+	if _base.is_empty():
+		_base = {"mie_scattering": mie_scattering, "mie_g": mie_g, "strat_scattering": strat_scattering,
+				"ozone_strength": ozone_strength, "scattering_strength": scattering_strength,
+				"twilight_glow": twilight_glow, "twilight_tint": twilight_tint}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = WorldConfig.current().seed_for("sky:%d" % for_day)
+	var v := sunset_variety
+	mie_scattering = _base.mie_scattering * lerpf(1.0, rng.randf_range(0.45, 1.7), v)
+	mie_g = clampf(_base.mie_g + v * rng.randf_range(-0.08, 0.1), 0.5, 0.9)
+	# the high layer is usually faint, sometimes strong (after a far-off eruption)
+	strat_scattering = _base.strat_scattering * lerpf(1.0, 0.2 + 2.3 * pow(rng.randf(), 1.5), v)
+	ozone_strength = _base.ozone_strength * lerpf(1.0, rng.randf_range(0.8, 1.3), v)
+	scattering_strength = _base.scattering_strength * lerpf(1.0, rng.randf_range(0.9, 1.15), v)
+	twilight_glow = _base.twilight_glow * lerpf(1.0, rng.randf_range(0.3, 1.8), v)
+	var tint: Color = _base.twilight_tint
+	twilight_tint = Color.from_hsv(wrapf(tint.h + v * rng.randf_range(-0.06, 0.05), 0.0, 1.0), tint.s, tint.v)
+	rebuild()
 
 
 # --- sky queries ---------------------------------------------------------------
@@ -162,8 +215,13 @@ func _update_sun() -> void:
 		var at_clouds := _transmittance_from(clouds.altitude, dir) / _zenith_transmittance
 		var cloud_peak := maxf(at_clouds.x, maxf(at_clouds.y, at_clouds.z))
 		var cloud_sun := (at_clouds / cloud_peak * sqrt(minf(cloud_peak, 1.0)) * sun_energy) if cloud_peak > 0.0 else Vector3.ZERO
+		var grey := cloud_sun.dot(Vector3(0.3, 0.55, 0.15))
+		cloud_sun = cloud_sun.lerp(Vector3(grey, grey, grey), cloud_desaturate)
 		var day_amount := smoothstep(-0.12, 0.25, dir.y)
+		# twilight: the high aerosol glow lights the clouds' undersides rose-violet
+		var twilight := smoothstep(0.06, 0.0, dir.y) * smoothstep(-0.16, -0.03, dir.y)
 		var ambient := Vector3(0.20, 0.27, 0.40) * day_amount + Vector3(0.012, 0.014, 0.024) \
+				+ Vector3(0.13, 0.09, 0.13) * twilight * clampf(strat_scattering / strat_reference, 0.0, 2.0) \
 				+ Vector3(0.05, 0.055, 0.07) * illuminated * moon_up * night
 		clouds.update_sky(dir, cloud_sun, ambient)
 
@@ -171,34 +229,49 @@ func _update_sun() -> void:
 # --- optical-depth lookup (Lague's AtmosphereTexture.compute, on the CPU) -----
 # u: view direction, from straight up (0) to straight down (1); v: height 0..1.
 
-func _density(p: Vector2) -> Vector2:
+func _density(p: Vector2) -> Vector3:   # air, low haze, high aerosol layer
 	var h01 := (p.length() - 1.0) / atmosphere_scale
-	return Vector2(exp(-h01 * density_falloff), exp(-h01 * mie_falloff)) * (1.0 - h01)
+	var s := (h01 - strat_height) / strat_width
+	return Vector3(exp(-h01 * density_falloff), exp(-h01 * mie_falloff), exp(-s * s)) * (1.0 - h01)
 
 
-func _bake_lut() -> void:   # two channels: air, haze
+func _bake_lut() -> void:   # channels: air, haze, high aerosol
 	var top := 1.0 + atmosphere_scale
-	_lut.resize(lut_angles * lut_heights * 2)
+	_lut.resize(lut_angles * lut_heights * 4)
 	for j in lut_heights:
 		var origin := Vector2(0.0, lerpf(1.0, top, float(j) / (lut_heights - 1)))
 		for i in lut_angles:
 			var y := 1.0 - 2.0 * float(i) / (lut_angles - 1)
 			var dir := Vector2(sqrt(maxf(0.0, 1.0 - y * y)), y)
-			# distance to the outer edge of the atmosphere
-			var b := origin.dot(dir)
-			var far := -b + sqrt(maxf(0.0, b * b - (origin.length_squared() - top * top)))
-			var depth := Vector2.ZERO
-			for s in lut_steps:   # samples bunched toward the start, where the air is densest
-				var x := (s + 0.5) / lut_steps
-				depth += _density(origin + dir * (far * x * x)) * far * 2.0 * x / lut_steps
+			var depth := _optical_depth(origin, dir)
 			# rays into the planet overflow; cap them (1e5 already blocks all light) so
 			# texture filtering never multiplies infinity by zero
-			_lut[(j * lut_angles + i) * 2] = minf(depth.x, 1e5)
-			_lut[(j * lut_angles + i) * 2 + 1] = minf(depth.y, 1e5)
+			var o := (j * lut_angles + i) * 4
+			_lut[o] = minf(depth.x, 1e5)
+			_lut[o + 1] = minf(depth.y, 1e5)
+			_lut[o + 2] = minf(depth.z, 1e5)
+
+
+## Optical depths from origin to the edge of the atmosphere along dir.
+func _optical_depth(origin: Vector2, dir: Vector2) -> Vector3:
+	var top := 1.0 + atmosphere_scale
+	var b := origin.dot(dir)
+	var far := -b + sqrt(maxf(0.0, b * b - (origin.length_squared() - top * top)))
+	var depth := Vector3.ZERO
+	for s in lut_steps:   # samples bunched toward the start, where the air is densest
+		var x := (s + 0.5) / lut_steps
+		depth += _density(origin + dir * (far * x * x)) * far * 2.0 * x / lut_steps
+	return depth
+
+
+func _extinguish(depth: Vector3) -> Vector3:
+	var aerosol := depth.y * mie_scattering * 1.1 + depth.z * strat_scattering * 1.05
+	return Vector3(exp(-depth.x * _extinction.x - aerosol), exp(-depth.x * _extinction.y - aerosol),
+			exp(-depth.x * _extinction.z - aerosol))
 
 
 func _lut_texture() -> ImageTexture:
-	var img := Image.create_from_data(lut_angles, lut_heights, false, Image.FORMAT_RGF, _lut.to_byte_array())
+	var img := Image.create_from_data(lut_angles, lut_heights, false, Image.FORMAT_RGBAF, _lut.to_byte_array())
 	return ImageTexture.create_from_image(img)
 
 
@@ -211,15 +284,7 @@ func _transmittance_from(height_m: float, dir: Vector3) -> Vector3:
 	var c := origin.length_squared() - 1.0
 	if b < 0.0 and b * b - c > 0.0:
 		return Vector3.ZERO   # behind the planet
-	var top := 1.0 + atmosphere_scale
-	var far := -b + sqrt(maxf(0.0, b * b - (origin.length_squared() - top * top)))
-	var depth := Vector2.ZERO
-	for s in lut_steps:
-		var x := (s + 0.5) / lut_steps
-		depth += _density(origin + d * (far * x * x)) * far * 2.0 * x / lut_steps
-	var haze := depth.y * mie_scattering * 1.1
-	return Vector3(exp(-depth.x * _extinction.x - haze), exp(-depth.x * _extinction.y - haze),
-			exp(-depth.x * _extinction.z - haze))
+	return _extinguish(_optical_depth(origin, d))
 
 
 func _transmittance(dir: Vector3) -> Vector3:
@@ -227,6 +292,6 @@ func _transmittance(dir: Vector3) -> Vector3:
 		return Vector3.ONE
 	var u := clampf(1.0 - (dir.y * 0.5 + 0.5), 0.0, 1.0) * (lut_angles - 1)   # from ground level, v = 0
 	var i := mini(floori(u), lut_angles - 2)
-	var air := lerpf(_lut[i * 2], _lut[i * 2 + 2], u - i)
-	var haze := lerpf(_lut[i * 2 + 1], _lut[i * 2 + 3], u - i) * mie_scattering * 1.1
-	return Vector3(exp(-air * _extinction.x - haze), exp(-air * _extinction.y - haze), exp(-air * _extinction.z - haze))
+	var f := u - i
+	return _extinguish(Vector3(lerpf(_lut[i * 4], _lut[i * 4 + 4], f), lerpf(_lut[i * 4 + 1], _lut[i * 4 + 5], f),
+			lerpf(_lut[i * 4 + 2], _lut[i * 4 + 6], f)))

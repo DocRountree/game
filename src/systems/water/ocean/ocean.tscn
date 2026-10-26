@@ -50,28 +50,28 @@ phase = 2.5
 
 [sub_resource type="FastNoiseLite" id="Noise_detail_a"]
 seed = 1
-frequency = 0.02
-fractal_octaves = 4
+frequency = 0.03
+fractal_octaves = 5
 
 [sub_resource type="NoiseTexture2D" id="Tex_detail_a"]
-width = 512
-height = 512
+width = 1024
+height = 1024
 seamless = true
 as_normal_map = true
-bump_strength = 6.0
+bump_strength = 4.0
 noise = SubResource("Noise_detail_a")
 
 [sub_resource type="FastNoiseLite" id="Noise_detail_b"]
 seed = 2
-frequency = 0.012
-fractal_octaves = 3
+frequency = 0.022
+fractal_octaves = 5
 
 [sub_resource type="NoiseTexture2D" id="Tex_detail_b"]
-width = 512
-height = 512
+width = 1024
+height = 1024
 seamless = true
 as_normal_map = true
-bump_strength = 6.0
+bump_strength = 4.0
 noise = SubResource("Noise_detail_b")
 
 [sub_resource type="FastNoiseLite" id="Noise_foam"]

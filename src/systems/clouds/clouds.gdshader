@@ -16,6 +16,7 @@ uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_colour = vec3(1.0);   // sunlight as it reaches the clouds
 uniform vec3 ambient = vec3(0.2, 0.27, 0.4);
 uniform float brightness = 1.5;
+uniform float depth_squeeze = 2200.0;   // puffs end up within this distance (stars sit at 2500 m)
 
 varying vec2 q;
 varying float height;
@@ -48,6 +49,14 @@ void vertex() {
 	float radius = length(MODEL_MATRIX[0].xyz) * grow * edge;
 	vec3 centre = vec3(site.x, altitude, site.y) + MODEL_MATRIX[3].xyz;
 	vec3 view = (VIEW_MATRIX * vec4(centre, 1.0)).xyz;
+	// Most clouds lie beyond the camera's far plane (and behind the star and
+	// moon spheres). Pull each puff in along its line of sight, scaling it to
+	// match, so it looks identical but its depth fits: a monotonic squeeze
+	// that keeps puffs in the right order and in front of the night sky.
+	float d = length(view);
+	float k = depth_squeeze * d / (d + depth_squeeze) / d;
+	view *= k;
+	radius *= k;
 	POSITION = PROJECTION_MATRIX * vec4(view + vec3(VERTEX.xy * 2.0 * radius, 0.0), 1.0);
 	q = VERTEX.xy * 2.0;
 	height = COLOR.r;
