@@ -79,6 +79,15 @@ func _run() -> void:
 			"clock rolls over midnight, counts game hours and emits day_changed")
 	clock.time_of_day = 12.0
 
+	# sunsets: each day draws its own air, reproducibly
+	var atmosphere: Atmosphere = world.get_node("Atmosphere")
+	var air := []
+	for d in [1, 2, 1]:
+		atmosphere._vary_air(d)
+		air.append([atmosphere.mie_scattering, atmosphere.strat_scattering, atmosphere.twilight_glow])
+	atmosphere._vary_air(clock.day)
+	_check(air[0] != air[1] and air[0] == air[2], "sunset air varies by day and repeats for the same day")
+
 	# exploration: cells around the player are revealed, and survive a save/load
 	var explore: ExplorationTracker = world.get_node("Exploration")
 	var revealed := explore.explored.size()

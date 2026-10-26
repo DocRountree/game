@@ -98,7 +98,6 @@ func _physics_process(delta: float) -> void:
 	if s > 0.2:
 		if moving:
 			fh = move * swim_force
-			_facing = atan2(-move.x, -move.z)
 		var vh := Vector3(velocity.x, 0.0, velocity.z)
 		fh -= (30.0 + 70.0 * vh.length()) * vh
 		if pos.y + 0.4 > water_height - 0.5:   # near the surface: wakes shove you
@@ -127,13 +126,23 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	# face where the camera looks; aboard, only the body turns, not the boat
+	var cam := get_viewport().get_camera_3d()
+	if cam:
+		var look := -cam.global_basis.z
+		if Vector2(look.x, look.z).length() > 0.01:
+			_facing = atan2(-look.x, -look.z)
 	var lean_target := 0.0
 	match state:
 		&"SWIMMING": lean_target = 1.25
 		&"TREADING": lean_target = 0.15
 		&"SINKING": lean_target = 0.35
 	_lean = lerpf(_lean, lean_target, minf(1.0, 4.0 * delta))
-	model.rotation = Vector3(-_lean, _facing, 0.0) if boat == null else Vector3.ZERO
+	if boat:
+		var fwd := -boat.global_basis.z
+		model.rotation = Vector3(0.0, angle_difference(atan2(-fwd.x, -fwd.z), _facing), 0.0)
+	else:
+		model.rotation = Vector3(-_lean, _facing, 0.0)
 
 
 ## Seconds of air: breath-hold plus whatever held or worn gear adds.

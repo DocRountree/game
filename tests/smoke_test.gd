@@ -93,24 +93,34 @@ func _run() -> void:
 	clock.day = 0
 	var clouds: Clouds = world.get_node("Clouds")
 	_check(clouds.multimesh.instance_count == clouds.cloud_count * clouds.puffs_per_cloud, "cloud puffs laid out")
-	# F5 toggles first person: camera at the head, own model hidden; again to go back.
-	# (Headless runs don't route synthetic input, so the action goes straight to the handler.)
+	# starts in first person: camera at the head, own model hidden; F5 goes to third person and back
+	# (headless runs don't route synthetic input, so the action goes straight to the handler)
 	var f5_bound := InputMap.action_get_events(&"toggle_view").any(
 			func(e: InputEvent) -> bool: return e is InputEventKey and e.physical_keycode == KEY_F5)
 	var camera: PlayerCamera = world.get_node("Camera")
-	var press := InputEventAction.new()
-	press.action = &"toggle_view"
-	press.pressed = true
-	world._unhandled_input(press)
 	for i in 3:   # the camera moves in _process; physics frames can come in bursts before it runs
 		await process_frame
 	var head: Node3D = player.get_node("Model/Head")
 	_check(f5_bound and camera.first_person and not player.model.visible
-			and camera.global_position.distance_to(head.global_position) < 0.2, "F5 switches to first person at the head")
+			and camera.global_position.distance_to(head.global_position) < 0.2, "the game starts in first person at the head")
+	var press := InputEventAction.new()
+	press.action = &"toggle_view"
+	press.pressed = true
 	world._unhandled_input(press)
 	for i in 3:
 		await process_frame
-	_check(not camera.first_person and player.model.visible, "F5 again returns to third person")
+	_check(not camera.first_person and player.model.visible, "F5 switches to third person")
+	world._unhandled_input(press)
+	for i in 3:
+		await process_frame
+	_check(camera.first_person and not player.model.visible, "F5 again returns to first person")
+	# looking around turns the swimmer, and the view stays put when the mouse stops
+	camera.yaw = 1.0
+	for i in 60:
+		await process_frame
+	_check(absf(camera.yaw - 1.0) < 1e-4 and absf(angle_difference(player.model.rotation.y, 1.0)) < 0.05,
+			"the view holds where it's left and the body faces it")
+	camera.yaw = PI
 	clock.time_of_day = start_time
 
 	await _frames(300)
@@ -137,6 +147,14 @@ func _run() -> void:
 	await _frames(600)
 	Input.action_release(&"move_forward")
 	_check(boat.speed() > 6.0, "boat drives forward (%.1f m/s)" % boat.speed())
+	var heading := boat.global_rotation.y
+	var body := player.model.rotation.y
+	camera.yaw += 1.2
+	for i in 3:
+		await process_frame
+	var turned := angle_difference(heading, boat.global_rotation.y)
+	_check(absf(turned) < 0.05 and absf(angle_difference(body, player.model.rotation.y) - 1.2 + turned) < 0.1,
+			"looking around aboard turns the body, not the boat")
 
 	# regression: re-enabling the player's collision used to launch the boat
 	var before := boat.speed()

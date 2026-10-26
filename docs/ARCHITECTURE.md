@@ -63,7 +63,7 @@ lower in fresh water.
 | `ocean.gd` / `ocean.tscn` | `Ocean extends WaterBody`: endless, the fallback everywhere. Owns the wave list, the wave time and `surface_height()`. Pushes uniforms to the water shader each frame. |
 | `ocean_wave.gd` | One Gerstner component (direction, wavelength, amplitude, phase), editable in the inspector. |
 | `ocean_surface.gd` | Builds the camera-centred polar mesh. Each vertex stores its local spacing so the shader can drop waves too short to resolve there (no far-field aliasing). |
-| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + scrolling detail normal maps), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
+| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + two scrolling 1024² detail normal maps, plus a finer 3.5 m capillary layer that fades out by 40 m), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
 | `ripple_sim.gd` / `ripple_sim.glsl` | Interactive ripples on the GPU (see below). |
 
 **Height queries.** `surface_height(x, z, footprint, ripple_radius)` returns the swell
@@ -119,6 +119,19 @@ Changes from his version:
   channel for them. The sun disc is kept dim enough that its colour survives tone mapping.
 - **Tuned for vivid sunsets:** stronger scattering (30) for a redder horizon,
   more ozone (2.2x Earth's) for a deeper blue above it, and more haze (2.5).
+- **High aerosol layer:** a thin Gaussian layer of stratospheric aerosol (third
+  lookup channel). After the sun sets below, it still catches reddened light,
+  and that light comes to you through blue sky. On its own it mostly warms the
+  sky, so a **stylised twilight glow** (`twilight_glow`, `twilight_tint`) adds
+  the rose-violet band above the sunset point while the sun is 1-6 degrees down.
+  The clouds pick up a muted version of it; their sunset light is pulled 35%
+  toward grey (`cloud_desaturate`) so they don't look cartoonish.
+- **Every sunset differs:** each day draws its haze, haze phase, high aerosol,
+  ozone, scattering strength, and twilight glow strength and hue from `WorldConfig.seed_for("sky:<day>")`
+  (`sunset_variety` scales it, 0 = identical). The lookup is re-baked once a day
+  at midnight. Day 0 uses the tuned defaults.
+- The environment's colour adjustment adds saturation (1.3) on top of the
+  Filmic tone mapper, which otherwise greys out twilight colours.
 
 ### Astronomy and the night sky
 
@@ -173,9 +186,12 @@ The same component optionally registers the body as a ripple source.
 
 ### Camera (`src/systems/camera/player_camera.gd`)
 
-`PlayerCamera` has two modes, toggled with F5. Third person orbits the target,
-optionally swings back behind a vehicle's heading when the player stops looking
-around, and never dips below the water surface. First person sits at the
+`PlayerCamera` has two modes, toggled with F5; the game starts in first person.
+Third person orbits the target and never dips below the water surface. The view
+stays wherever you leave it; aboard a boat it turns with the boat
+(`turn_with_target`), so a look over the side stays a look over the side. The
+player's body faces where the camera looks; aboard, only the body turns, never
+the boat. First person sits at the
 player's head (the model is hidden so you don't see out through it) and looks
 along the same yaw and pitch; it follows the head down if you sink.
 
@@ -226,6 +242,12 @@ overall size stays put when the count changes. The CPU lays them out once; the v
   form (`coverage`). Base puffs condense first and the tower builds last, so
   clouds grow upward and evaporate from the top down. Puffs appear by growing,
   not fading, so they stay crisp opaque dots with correct overlap (alpha scissor).
+- **Depth squeeze.** Most clouds lie far beyond the camera's 4 km far plane.
+  The vertex shader pulls each puff in along its line of sight (scaled to
+  match, so it looks the same) with a monotonic squeeze into 2.2 km. That keeps
+  puffs ordered, unclipped and in front of the star and moon spheres. (Clipping
+  is by view depth, so puffs in the middle of the view were cut before ones
+  at the edges.)
 - **Lighting.** Three-band toon shading of each puff as a sphere, darker toward
   the cloud base. The sunlight colour is computed per frame for the cloud
   layer's height, which still sees the sun a little after sunset at sea level.

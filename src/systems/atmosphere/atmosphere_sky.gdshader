@@ -14,7 +14,7 @@ shader_type sky;
 // exact here and avoids banding with thin atmospheres).
 // Parameters are pushed by atmosphere.gd, which also bakes the lookup.
 
-uniform sampler2D optical_depth_lut : filter_linear, repeat_disable;  // r = air, g = aerosol optical depth to space
+uniform sampler2D optical_depth_lut : filter_linear, repeat_disable;  // optical depth to space: r air, g haze, b high aerosol
 uniform vec3 scattering_coefficients = vec3(3.2, 9.73, 20.49);
 // Ozone absorbs (mostly orange-green) without scattering: keeps twilight blue
 // instead of the olive a pure Rayleigh sky gives. Not in Lague's version.
@@ -24,6 +24,17 @@ uniform vec3 ozone_absorption = vec3(0.27, 0.78, 0.04);
 uniform float mie_scattering = 2.5;
 uniform float mie_falloff = 28.0;
 uniform float mie_g = 0.74;
+// A thin high aerosol layer (stratosphere). Lit by reddened light after the
+// sun has set below, seen through blue sky: the pink-purple twilight glow.
+uniform float strat_scattering = 0.06;
+uniform float strat_height = 0.2;
+uniform float strat_width = 0.07;
+uniform float strat_g = 0.6;
+// Stylised twilight glow (not physical): a rose-violet band above the sunset
+// point while the sun is just below the horizon, the "belt" of colour a
+// single-scattering model can't produce on its own.
+uniform vec3 twilight_tint = vec3(0.85, 0.42, 0.9);
+uniform float twilight_glow = 1.0;
 uniform float atmosphere_scale = 0.1;     // atmosphere thickness / planet radius
 uniform float density_falloff = 4.3;
 uniform float intensity = 1.0;
@@ -50,17 +61,23 @@ vec2 ray_sphere(float radius, vec3 origin, vec3 dir) {
 	return vec2(1e30, 0.0);
 }
 
-// air (Rayleigh) and aerosol (Mie) density
-vec2 density_at(vec3 p) {
+// air (Rayleigh), low haze and high aerosol (Mie) densities
+vec3 density_at(vec3 p) {
 	float h01 = (length(p) - 1.0) / atmosphere_scale;
-	return vec2(exp(-h01 * density_falloff), exp(-h01 * mie_falloff)) * (1.0 - h01);
+	float s = (h01 - strat_height) / strat_width;
+	return vec3(exp(-h01 * density_falloff), exp(-h01 * mie_falloff), exp(-s * s)) * (1.0 - h01);
 }
 
 // optical depths from p to the edge of the atmosphere along dir
-vec2 optical_depth_baked(vec3 p, vec3 dir) {
+vec3 optical_depth_baked(vec3 p, vec3 dir) {
 	float h01 = clamp((length(p) - 1.0) / atmosphere_scale, 0.0, 1.0);
 	float u = 1.0 - (dot(normalize(p), dir) * 0.5 + 0.5);
-	return texture(optical_depth_lut, vec2(u, h01)).rg;
+	return texture(optical_depth_lut, vec2(u, h01)).rgb;
+}
+
+float henyey_greenstein(float g, float mu) {
+	float g2 = g * g;
+	return (1.0 - g2) / pow(1.0 + g2 - 2.0 * g * mu, 1.5);
 }
 
 void sky() {
@@ -79,30 +96,44 @@ void sky() {
 	float n = float(in_scattering_points);
 	vec3 air_extinction = scattering_coefficients + ozone_absorption;
 	float haze_extinction = mie_scattering * 1.1;
+	float strat_extinction = strat_scattering * 1.05;
 	vec3 air_light = vec3(0.0);
 	vec3 haze_light = vec3(0.0);
-	vec2 view_depth = vec2(0.0);
+	vec3 strat_light = vec3(0.0);
+	vec3 view_depth = vec3(0.0);
 	for (int i = 0; i < in_scattering_points; i++) {
 		float x = (float(i) + 0.5 + (noise - 0.5) * dither_strength) / n;
 		float ds = through * 2.0 * x / n;                  // samples at t = through * x^2
 		vec3 p = origin + dir * (through * x * x);
-		vec2 density = density_at(p);
+		vec3 density = density_at(p);
 		view_depth += density * ds * 0.5;                  // midpoint rule
-		vec2 depth = optical_depth_baked(p, sun) + view_depth;
-		vec3 transmittance = exp(-(depth.x * air_extinction + depth.y * haze_extinction));
+		vec3 depth = optical_depth_baked(p, sun) + view_depth;
+		vec3 transmittance = exp(-(depth.x * air_extinction + depth.y * haze_extinction + depth.z * strat_extinction));
 		air_light += density.x * transmittance * ds;
 		haze_light += density.y * transmittance * ds;
+		strat_light += density.z * transmittance * ds;
 		view_depth += density * ds * 0.5;
 	}
 	// phase functions, normalised to average 1 so Lague's brightness calibration holds
 	float mu = dot(dir, sun);
 	float air_phase = 0.75 * (1.0 + mu * mu);
-	float g2 = mie_g * mie_g;
-	float haze_phase = (1.0 - g2) / pow(1.0 + g2 - 2.0 * mie_g * mu, 1.5);
-	vec3 light = (air_light * scattering_coefficients * air_phase + haze_light * mie_scattering * haze_phase) * intensity;
+	vec3 light = (air_light * scattering_coefficients * air_phase
+			+ haze_light * mie_scattering * henyey_greenstein(mie_g, mu)
+			+ strat_light * strat_scattering * henyey_greenstein(strat_g, mu)) * intensity;
+
+	// twilight glow: strongest with the sun 1-6 degrees down, highest above it
+	float sun_down = smoothstep(0.05, -0.01, sun.y) * smoothstep(-0.16, -0.05, sun.y);
+	if (twilight_glow > 0.0 && sun_down > 0.0) {
+		float elevation = asin(clamp(EYEDIR.y, 0.0, 1.0));
+		vec2 sun_h = normalize(sun.xz + vec2(1e-5));
+		vec2 dir_h = normalize(dir.xz + vec2(1e-5));
+		float toward = 0.35 + 0.65 * pow(max(dot(sun_h, dir_h), 0.0), 1.5);
+		float band = exp(-pow((elevation - 0.32) / 0.22, 2.0));
+		light += twilight_tint * (0.05 * twilight_glow * sun_down * band * toward);
+	}
 
 	// the sun itself, dimmed and reddened by the air in front of it
-	vec3 view_transmittance = exp(-(view_depth.x * air_extinction + view_depth.y * haze_extinction));
+	vec3 view_transmittance = exp(-(view_depth.x * air_extinction + view_depth.y * haze_extinction + view_depth.z * strat_extinction));
 	if (!AT_CUBEMAP_PASS && EYEDIR.y > -0.002) {
 		float disc = smoothstep(sun_disc_size - 0.00004, sun_disc_size + 0.00004, mu);
 		light += view_transmittance * disc * sun_disc_brightness;
