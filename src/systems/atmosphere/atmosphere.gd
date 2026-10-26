@@ -209,10 +209,13 @@ func _update_sun() -> void:
 		moonlight.visible = moonlight.light_energy > 0.001
 	if clouds:
 		# Sunlight as it reaches the cloud layer, which still sees the sun for a
-		# while after it sets at sea level. Stylised: keep the colour fully
-		# saturated and dim it only gently (the real grazing light is nearly
-		# black), so clouds glow orange and pink through the afterglow.
-		var at_clouds := _transmittance_from(clouds.altitude, dir) / _zenith_transmittance
+		# while after it sets at sea level. Stylised: keep the colour saturated
+		# and dim it only gently here (the real grazing light is nearly black);
+		# the cloud shader does the dimming, puff by puff.
+		# colour only: the shader fades each puff out as the planet's shadow climbs
+		# it, so sample just above the cloud layer's own horizon, never fully blocked
+		var lit_dir := Vector3(dir.x, maxf(dir.y, -0.017), dir.z).normalized()
+		var at_clouds := _transmittance_from(clouds.altitude, lit_dir) / _zenith_transmittance
 		var cloud_peak := maxf(at_clouds.x, maxf(at_clouds.y, at_clouds.z))
 		var cloud_sun := (at_clouds / cloud_peak * sqrt(minf(cloud_peak, 1.0)) * sun_energy) if cloud_peak > 0.0 else Vector3.ZERO
 		var grey := cloud_sun.dot(Vector3(0.3, 0.55, 0.15))

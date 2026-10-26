@@ -63,7 +63,7 @@ lower in fresh water.
 | `ocean.gd` / `ocean.tscn` | `Ocean extends WaterBody`: endless, the fallback everywhere. Owns the wave list, the wave time and `surface_height()`. Pushes uniforms to the water shader each frame. |
 | `ocean_wave.gd` | One Gerstner component (direction, wavelength, amplitude, phase), editable in the inspector. |
 | `ocean_surface.gd` | Builds the camera-centred polar mesh. Each vertex stores its local spacing so the shader can drop waves too short to resolve there (no far-field aliasing). |
-| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + two scrolling 1024² detail normal maps, plus a finer 3.5 m capillary layer that fades out by 40 m), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
+| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + two 1024² detail normal maps, plus a finer 3.5 m capillary layer that fades out by 40 m; the detail churns in place, two cross-fading copies that each drift only slightly before re-forming at a new offset, so it never reads as a film sliding over the waves), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
 | `ripple_sim.gd` / `ripple_sim.glsl` | Interactive ripples on the GPU (see below). |
 
 **Height queries.** `surface_height(x, z, footprint, ripple_radius)` returns the swell
@@ -251,6 +251,9 @@ overall size stays put when the count changes. The CPU lays them out once; the v
 - **Lighting.** Three-band toon shading of each puff as a sphere, darker toward
   the cloud base. The sunlight colour is computed per frame for the cloud
   layer's height, which still sees the sun a little after sunset at sea level.
+  Each puff's direct light fades smoothly from a sun about 7 degrees up until
+  the planet's shadow passes that puff (a puff h metres up sees the sun until
+  it is sqrt(2h/R) below the horizon), so bases darken first and tops glow last.
   That light is kept fully saturated (stylised), so clouds glow orange and pink
   through the afterglow, then go slate-grey.
 

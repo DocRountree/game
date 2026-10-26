@@ -17,6 +17,10 @@ uniform vec3 sun_colour = vec3(1.0);   // sunlight as it reaches the clouds
 uniform vec3 ambient = vec3(0.2, 0.27, 0.4);
 uniform float brightness = 1.5;
 uniform float depth_squeeze = 2200.0;   // puffs end up within this distance (stars sit at 2500 m)
+uniform float planet_radius = 6400000.0;
+uniform float dim_start = 0.12;          // sun height (sine) at which cloud light starts to wane
+
+varying float lit;
 
 varying vec2 q;
 varying float height;
@@ -59,6 +63,14 @@ void vertex() {
 	radius *= k;
 	POSITION = PROJECTION_MATRIX * vec4(view + vec3(VERTEX.xy * 2.0 * radius, 0.0), 1.0);
 	q = VERTEX.xy * 2.0;
+	// Light fades smoothly from a sun ~7 degrees up (longer, redder, dimmer path)
+	// until the planet's shadow passes this puff: a puff h metres up still sees
+	// the sun until it is sqrt(2h/R) below the horizon, so bases go dark first
+	// and tops glow last.
+	float dip = sqrt(2.0 * max(centre.y, 1.0) / planet_radius);
+	float sun_y = normalize(sun_direction).y;
+	float x = clamp((sun_y + dip) / (dim_start + dip), 0.0, 1.0);
+	lit = x * x * (3.0 - 2.0 * x);
 	height = COLOR.r;
 }
 
@@ -69,7 +81,7 @@ void fragment() {
 	float wrap = clamp(dot(n, normalize(sun_direction)) * 0.55 + 0.45, 0.0, 1.0);
 	float band = wrap < 0.35 ? 0.3 : (wrap < 0.7 ? 0.65 : 1.0);
 	float self_shadow = mix(0.5, 1.0, height);   // cloud bottoms sit in the cloud's own shadow
-	vec3 colour = sun_colour * band * self_shadow + ambient * (0.6 + 0.4 * n.y);
+	vec3 colour = sun_colour * band * self_shadow * lit + ambient * (0.6 + 0.4 * n.y);
 	ALBEDO = colour * brightness;
 	ALPHA = 1.0 - smoothstep(0.9, 1.0, r2);
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
