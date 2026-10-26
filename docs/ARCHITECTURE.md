@@ -192,11 +192,13 @@ stars, so they repeat exactly each day. The moon and planets move on:
   a thread to a round, bright head, racing 15-45 degrees across the sky in under
   a second. Random arrivals (about one every 25 s of night), only at night,
   drawn in front of the stars and behind the clouds. `launched` counts them.
-- **Aurora** (`aurora.gd`, `aurora.gdshader`): rippling curtains on an arc
-  over the northern horizon, green at the lower edge shading to violet, with
-  shimmering rays and slow folds. Each night independently has a 1-in-50
-  chance (`chance`), drawn from the world seed, so a given night always looks
-  the same; a night belongs to the day it began.
+- **Aurora** (`aurora.gd`, `aurora.gdshader`): on an arc over the northern
+  horizon, green at the lower edge shading to violet. Each night independently
+  has a 1-in-50 chance (`chance`), drawn from the world seed, so a given night
+  always looks the same; a night belongs to the day it began. Every display has
+  its own character from the seed: folding curtains (ripples), columns of rays
+  (pillars) or a mix, with 1-3 bands, its own height, folding and pace. Through
+  the night the mix, folding and activity keep wandering, with occasional surges.
 
 - **One rotation for everything.** `Astronomy.equatorial_to_world()` turns
   equatorial coordinates (right ascension, declination) into the local sky from

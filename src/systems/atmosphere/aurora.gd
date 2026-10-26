@@ -1,10 +1,12 @@
 @tool
 class_name Aurora
 extends MeshInstance3D
-## Northern lights: rippling curtains over the northern horizon, green at the
-## lower edge shading to violet above. Rare at this latitude: each night has an
-## independent `chance` (from the world seed, so a given night is always the
-## same) of an aurora, which then brightens and fades through the night.
+## Northern lights over the northern horizon, green at the lower edge shading
+## to violet above. Rare at this latitude: each night has an independent
+## `chance` (from the world seed, so a given night is always the same) of an
+## aurora. Every display has its own character: folding curtains (ripples),
+## columns of rays (pillars) or a mix, with its own number of bands, height,
+## folding and pace, and the shader keeps it evolving through the night.
 
 const RADIUS := 2300.0
 const ARC_DEGREES := 150.0      ## Width of the display, centred on north.
@@ -14,6 +16,7 @@ const HIGH_DEGREES := 40.0
 @export_range(0.0, 1.0) var chance := 0.02    ## About one night in fifty.
 
 var strength := 0.0             ## This night's display, 0 = none.
+var style := {}                 ## This night's character (see _style_for).
 var _night_id := -2147483648
 
 
@@ -34,6 +37,11 @@ func update_sky(night: float, night_id: int) -> void:
 	if night_id != _night_id:
 		_night_id = night_id
 		strength = strength_for(night_id)
+		style = _style_for(night_id)
+		var m := material_override as ShaderMaterial
+		if m:
+			for key: String in style:
+				m.set_shader_parameter(key, style[key])
 	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
 	if cam:
 		global_position = cam.global_position
@@ -41,6 +49,22 @@ func update_sky(night: float, night_id: int) -> void:
 	if mat:
 		mat.set_shader_parameter("strength", strength * smoothstep(0.5, 1.0, night))
 	visible = strength > 0.0 and night > 0.5
+
+
+# How a night's display looks: sometimes curtains, sometimes pillars, often both.
+func _style_for(night_id: int) -> Dictionary:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = WorldConfig.current().seed_for("aurora-style:%d" % night_id)
+	var kind := rng.randi_range(0, 2)    # 0 ripples, 1 pillars, 2 both
+	return {
+		"ripples": [1.0, rng.randf_range(0.0, 0.25), rng.randf_range(0.5, 1.0)][kind],
+		"pillars": [rng.randf_range(0.0, 0.25), 1.0, rng.randf_range(0.5, 1.0)][kind],
+		"bands": float(rng.randi_range(1, 3)),
+		"base_height": rng.randf_range(0.06, 0.2),
+		"fold_scale": rng.randf_range(0.6, 1.8),
+		"drift": rng.randf_range(0.5, 1.6),
+		"seed": rng.randf() * 100.0,
+	}
 
 
 # A curved band of quads around the north, UV.x along it, UV.y upward.
