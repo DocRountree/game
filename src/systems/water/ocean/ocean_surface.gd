@@ -12,6 +12,9 @@ extends MeshInstance3D
 
 
 func _ready() -> void:
+	if not Engine.is_editor_hint():
+		rings = QualitySettings.current().ocean_rings
+		segments = QualitySettings.current().ocean_segments
 	mesh = build_mesh()
 	# displacement moves vertices; never cull the ocean
 	custom_aabb = AABB(Vector3(-3000, -50, -3000), Vector3(6000, 100, 6000))

@@ -1,7 +1,7 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://src/world/open_ocean/open_ocean.gd" id="1_world"]
-[ext_resource type="PackedScene" path="res://src/systems/ocean/ocean.tscn" id="2_ocean"]
+[ext_resource type="PackedScene" path="res://src/systems/water/ocean/ocean.tscn" id="2_ocean"]
 [ext_resource type="PackedScene" path="res://src/entities/boat/boat.tscn" id="3_boat"]
 [ext_resource type="PackedScene" path="res://src/entities/player/player.tscn" id="4_player"]
 [ext_resource type="PackedScene" path="res://src/entities/props/crate.tscn" id="5_crate"]
@@ -16,6 +16,9 @@
 [ext_resource type="Shader" path="res://src/systems/atmosphere/moon.gdshader" id="14_moon_shader"]
 [ext_resource type="Script" path="res://src/systems/clouds/clouds.gd" id="15_clouds"]
 [ext_resource type="Shader" path="res://src/systems/clouds/clouds.gdshader" id="16_clouds_shader"]
+[ext_resource type="Script" path="res://src/systems/time/game_clock.gd" id="20_clock"]
+[ext_resource type="Script" path="res://src/systems/exploration/exploration_tracker.gd" id="21_explore"]
+[ext_resource type="Resource" path="res://src/world/open_ocean/open_ocean_world.tres" id="22_world"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -54,6 +57,7 @@ shader = ExtResource("16_clouds_shader")
 
 [node name="OpenOcean" type="Node3D"]
 script = ExtResource("1_world")
+world_config = ExtResource("22_world")
 crate_scene = ExtResource("5_crate")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
@@ -63,8 +67,12 @@ environment = SubResource("Environment")
 shadow_enabled = true
 directional_shadow_max_distance = 60.0
 
-[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("sun", "world_environment", "starfield", "moon", "moonlight", "clouds")]
+[node name="Clock" type="Node" parent="."]
+script = ExtResource("20_clock")
+
+[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "moonlight", "clouds")]
 script = ExtResource("9_atmosphere")
+clock = NodePath("../Clock")
 sun = NodePath("../Sun")
 world_environment = NodePath("../WorldEnvironment")
 starfield = NodePath("../Starfield")
@@ -101,6 +109,10 @@ sun = NodePath("../Sun")
 
 [node name="Player" parent="." instance=ExtResource("4_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.6, 0, 0)
+
+[node name="Exploration" type="Node" parent="." node_paths=PackedStringArray("target")]
+script = ExtResource("21_explore")
+target = NodePath("../Player")
 
 [node name="Crates" type="Node3D" parent="."]
 

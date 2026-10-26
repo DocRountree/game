@@ -17,6 +17,13 @@ extends Camera3D
 		first_person = value
 		pitch = clampf(pitch, _pitch_limits().x, _pitch_limits().y)
 @export var eyes: Node3D              ## Where the camera sits in first person.
+@export var base_fov := 65.0          ## Field of view at zoom 1.
+## Magnification (spyglass, telescope): divides the field of view. The
+## starfield's point size already follows the pixel angle, so stars stay sharp.
+@export_range(1.0, 200.0) var zoom := 1.0:
+	set(value):
+		zoom = maxf(value, 1.0)
+		fov = clampf(rad_to_deg(2.0 * atan(tan(deg_to_rad(base_fov) * 0.5) / zoom)), 0.05, 179.0)
 
 var yaw := 0.0
 var pitch := 0.25                     ## Third person: camera elevation. First person: looking down (+) or up (-).
@@ -27,9 +34,10 @@ var _idle := 10.0
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		yaw -= event.relative.x * mouse_sensitivity
+		var sens := mouse_sensitivity / zoom   # finer aim when magnified
+		yaw -= event.relative.x * sens
 		var limits := _pitch_limits()
-		pitch = clampf(pitch + event.relative.y * mouse_sensitivity, limits.x, limits.y)
+		pitch = clampf(pitch + event.relative.y * sens, limits.x, limits.y)
 		_idle = 0.0
 
 
@@ -57,8 +65,7 @@ func _process(delta: float) -> void:
 	_distance = lerpf(_distance, distance, minf(1.0, 3.0 * delta))
 	var focus := target.global_position + target_offset
 	var eye := focus + _distance * Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
-	if Ocean.instance:
-		eye.y = maxf(eye.y, Ocean.instance.height_at(eye.x, eye.z, 0.0, 0.0) + 0.4)   # stay above water
+	eye.y = maxf(eye.y, Water.surface_height(eye.x, eye.z, 0.0, 0.0) + 0.4)   # stay above water
 	global_position = global_position.lerp(eye, minf(1.0, 12.0 * delta))
 	look_at(focus)
 

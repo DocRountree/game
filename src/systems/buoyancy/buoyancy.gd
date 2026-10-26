@@ -7,6 +7,9 @@ extends Node3D
 ## against the water's own vertical motion damps the bobbing. Probes at the hull
 ## corners give pitch and roll for free.
 ##
+## Works on any WaterBody (each probe asks Water which body it is in), and
+## floats lower in fresh water than in the sea.
+##
 ## It can also make ripples: the hull's submerged depth is reported to the ocean
 ## as a displacement source, so moving it makes a wake.
 
@@ -27,6 +30,7 @@ extends Node3D
 @export var ripple_gain := 1.0           ## Scales the displaced depth (wake strength).
 
 var submerged := 0.0   ## 0..1, averaged over probes.
+var water: WaterBody   ## The body under the hull's centre (null on land).
 
 var _body: RigidBody3D
 var _probes: Array[Marker3D] = []
@@ -46,9 +50,9 @@ func _ready() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	var ocean := Ocean.instance
-	if ocean == null or _body == null or _probes.is_empty():
+	if _body == null or _probes.is_empty():
 		return
+	water = Water.body_at(_body.global_position.x, _body.global_position.z)
 	var n := _probes.size()
 	var area := waterplane_area / n
 	var total := 0.0
@@ -56,10 +60,14 @@ func _physics_process(delta: float) -> void:
 	var origin := _body.global_position
 	for i in n:
 		var p := _probes[i].global_position
-		var swell := ocean.height_at(p.x, p.z, footprint)
+		var body := Water.body_at(p.x, p.z)
+		if body == null:
+			_prev_h[i] = NAN
+			continue
+		var swell := body.surface_height(p.x, p.z, footprint)
 		var h := swell
 		if feels_ripples:
-			h += ocean.ripples.sample_ring(p.x, p.z, ripple_sample_radius)
+			h += body.ripple_height(p.x, p.z, ripple_sample_radius)
 		var water_vy := 0.0 if is_nan(_prev_h[i]) else (h - _prev_h[i]) / delta
 		_prev_h[i] = h
 		var depth := clampf(h - p.y, 0.0, max_depth)
@@ -70,11 +78,11 @@ func _physics_process(delta: float) -> void:
 		var offset := p - origin
 		var v := _body.linear_velocity + _body.angular_velocity.cross(offset)
 		var vrel := v.y - water_vy
-		var force := Vector3.UP * (Ocean.RHO * Ocean.G * area * depth
+		var force := Vector3.UP * (body.density() * Water.G * area * depth
 				- area * (drag_linear * vrel + drag_quadratic * vrel * absf(vrel)))
 		if feels_ripples and ripple_push > 0.0:
-			var s := ocean.ripples.slope(p.x, p.z)   # slide down ripple slopes
-			force += Vector3(-s.x, 0.0, -s.y) * _body.mass * Ocean.G * ripple_push / n
+			var s := body.ripple_slope(p.x, p.z)   # slide down ripple slopes
+			force += Vector3(-s.x, 0.0, -s.y) * _body.mass * Water.G * ripple_push / n
 		_body.apply_force(force, offset)
 	submerged = total / (n * max_depth)
 	_swell_depth = swell_total / n

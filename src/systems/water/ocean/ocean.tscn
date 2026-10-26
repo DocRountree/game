@@ -1,10 +1,11 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://src/systems/ocean/ocean.gd" id="1_ocean"]
-[ext_resource type="Script" path="res://src/systems/ocean/ocean_wave.gd" id="2_wave"]
-[ext_resource type="Script" path="res://src/systems/ocean/ocean_surface.gd" id="3_surface"]
-[ext_resource type="Script" path="res://src/systems/ocean/ripple_sim.gd" id="4_ripples"]
-[ext_resource type="Shader" path="res://src/systems/ocean/water.gdshader" id="5_water"]
+[ext_resource type="Script" path="res://src/systems/water/ocean/ocean.gd" id="1_ocean"]
+[ext_resource type="Script" path="res://src/systems/water/ocean/ocean_wave.gd" id="2_wave"]
+[ext_resource type="Script" path="res://src/systems/water/ocean/ocean_surface.gd" id="3_surface"]
+[ext_resource type="Script" path="res://src/systems/water/ocean/ripple_sim.gd" id="4_ripples"]
+[ext_resource type="Shader" path="res://src/systems/water/ocean/water.gdshader" id="5_water"]
+[ext_resource type="Resource" path="res://src/data/biomes/open_ocean.tres" id="6_biome"]
 
 [sub_resource type="Resource" id="Wave_1"]
 script = ExtResource("2_wave")
@@ -93,6 +94,7 @@ shader_parameter/foam_noise = SubResource("Tex_foam")
 
 [node name="Ocean" type="Node3D"]
 script = ExtResource("1_ocean")
+biome = ExtResource("6_biome")
 waves = Array[ExtResource("2_wave")]([SubResource("Wave_1"), SubResource("Wave_2"), SubResource("Wave_3"), SubResource("Wave_4"), SubResource("Wave_5"), SubResource("Wave_6")])
 
 [node name="Surface" type="MeshInstance3D" parent="."]

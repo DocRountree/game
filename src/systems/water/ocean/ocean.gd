@@ -1,15 +1,11 @@
 @tool
 class_name Ocean
-extends Node3D
+extends WaterBody
 ## Open ocean: analytic Gerstner swell plus an interactive ripple simulation.
+## Endless, so it is the fallback wherever no lake or river claims a point.
 ##
-## Physics asks height_at() and the water shader evaluates the same waves, so
-## floating things ride exactly the surface that is drawn.
-
-const RHO := 1025.0   ## Seawater density (kg/m^3).
-const G := 9.81
-
-static var instance: Ocean
+## Physics asks surface_height() (via Water) and the water shader evaluates the
+## same waves, so floating things ride exactly the surface that is drawn.
 
 @export var waves: Array[OceanWave] = []:
 	set(value):
@@ -36,16 +32,6 @@ var _sources := PackedFloat32Array()
 @onready var _material: ShaderMaterial = surface.material_override
 
 
-func _enter_tree() -> void:
-	if not Engine.is_editor_hint():
-		instance = self
-
-
-func _exit_tree() -> void:
-	if instance == self:
-		instance = null
-
-
 func _ready() -> void:
 	_rebuild_waves()
 
@@ -63,7 +49,7 @@ func _rebuild_waves() -> void:
 		_dz[i] = sin(a)
 		_k[i] = TAU / w.wavelength
 		_amp[i] = w.amplitude
-		_omega[i] = sqrt(G * _k[i])   # deep-water dispersion
+		_omega[i] = sqrt(Water.G * _k[i])   # deep-water dispersion
 		_phase[i] = w.phase
 		_wavelength[i] = w.wavelength
 		wave_vecs.append(Vector4(_dx[i], _dz[i], _k[i], _amp[i]))
@@ -102,7 +88,7 @@ func _process(delta: float) -> void:
 ## footprint > 0 low-passes the waves: a hull ignores wavelengths shorter than itself.
 ## ripple_radius >= 0 adds the interactive ripples, averaged on a ring of that
 ## radius (0 = at the point) so an object doesn't feel its own displacement trough.
-func height_at(x: float, z: float, footprint := 0.0, ripple_radius := -1.0) -> float:
+func surface_height(x: float, z: float, footprint := 0.0, ripple_radius := -1.0) -> float:
 	var amp := _amp
 	if footprint > 0.0:
 		amp = _amp.duplicate()
@@ -126,6 +112,14 @@ func height_at(x: float, z: float, footprint := 0.0, ripple_radius := -1.0) -> f
 	if ripple_radius >= 0.0:
 		h += ripples.sample_ring(x, z, ripple_radius)
 	return h
+
+
+func ripple_height(x: float, z: float, r := 0.0) -> float:
+	return ripples.sample_ring(x, z, r)
+
+
+func ripple_slope(x: float, z: float) -> Vector2:
+	return ripples.slope(x, z)
 
 
 func _gather_ripple_sources() -> void:

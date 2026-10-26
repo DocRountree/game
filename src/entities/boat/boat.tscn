@@ -3,6 +3,9 @@
 [ext_resource type="Script" path="res://src/entities/boat/boat.gd" id="1_boat"]
 [ext_resource type="Script" path="res://src/entities/boat/boat_hull_mesh.gd" id="2_hull"]
 [ext_resource type="Script" path="res://src/systems/buoyancy/buoyancy.gd" id="3_buoyancy"]
+[ext_resource type="Resource" path="res://src/data/boats/small_motorboat.tres" id="4_spec"]
+[ext_resource type="Script" path="res://src/entities/boat/boat_station.gd" id="5_station"]
+[ext_resource type="Script" path="res://src/systems/inventory/inventory.gd" id="6_inventory"]
 
 [sub_resource type="BoxShape3D" id="Shape_hull"]
 size = Vector3(2.6, 1, 7)
@@ -41,6 +44,7 @@ mass = 3000.0
 can_sleep = false
 angular_damp = 0.3
 script = ExtResource("1_boat")
+spec = ExtResource("4_spec")
 
 [node name="Collision" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
@@ -83,5 +87,24 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 2.8)
 [node name="ProbeSternStarboard" type="Marker3D" parent="Buoyancy"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 2.8)
 
-[node name="Seat" type="Marker3D" parent="."]
+[node name="Helm" type="Marker3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.8, 1.8)
+script = ExtResource("5_station")
+display_name = "Helm"
+
+[node name="Perch" type="Marker3D" parent="."]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 0.7, 1.4, 2.9)
+script = ExtResource("5_station")
+kind = 1
+display_name = "Stern perch"
+
+[node name="CargoHatch" type="Marker3D" parent="." node_paths=PackedStringArray("inventory")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, -2.2)
+script = ExtResource("5_station")
+kind = 2
+display_name = "Hold"
+inventory = NodePath("../Cargo")
+
+[node name="Cargo" type="Node" parent="."]
+script = ExtResource("6_inventory")
+display_name = "Hold"

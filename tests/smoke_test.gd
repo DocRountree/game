@@ -22,23 +22,26 @@ func _run() -> void:
 	var player: Player = world.get_node("Player")
 
 	_check(_shader_compiles(), "ripple compute shader compiles to SPIR-V")
-	_check(_lookup_consistent(ocean), "height_at() inverts the Gerstner displacement")
+	_check(_lookup_consistent(ocean), "surface_height() inverts the Gerstner displacement")
 	await _frames(2)   # let the scene enter the tree and run _ready()
 	var atmosphere: Atmosphere = world.get_node("Atmosphere")
+	var clock: GameClock = world.get_node("Clock")
 	var sun: DirectionalLight3D = world.get_node("Sun")
-	var start_time := atmosphere.time_of_day
+	_check(GameClock.current() == clock and root.get_node("Game").world == world
+			and root.get_node("Game").player == player, "level registers its world, clock and player with Game")
+	var start_time := clock.time_of_day
 	_check(absf(start_time - 12.0) < 0.1, "the day starts at noon")
-	atmosphere.time_of_day = 12.0
+	clock.time_of_day = 12.0
 	_check(absf(rad_to_deg(asin(atmosphere.sun_direction().y)) - 31.6) < 0.5,
 			"winter solstice noon sun at 31.6 deg for 35N")
 	atmosphere._update_sun()
 	var noon := sun.light_color
-	atmosphere.time_of_day = 16.6
+	clock.time_of_day = 16.6
 	atmosphere._update_sun()
 	var dusk := sun.light_color
 	_check(noon.b > 0.6 and dusk.r > dusk.b * 2.0 and sun.light_energy > 0.0,
 			"sunlight is white at noon and reddens at sunset")
-	atmosphere.time_of_day = 0.0
+	clock.time_of_day = 0.0
 	atmosphere._update_sun()
 	_check(sun.light_energy == 0.0, "no sunlight at night")
 	var sky := atmosphere.equatorial_to_world()
@@ -49,12 +52,12 @@ func _run() -> void:
 	_check(betelgeuse.y > 0.85 and betelgeuse.z > 0.0 and polaris.z < 0.0
 			and absf(rad_to_deg(asin(polaris.y)) - 35.0) < 1.0,
 			"Dec 21 midnight: Orion high in the south, Polaris 35 deg up in the north")
-	atmosphere.time_of_day = 22.0
+	clock.time_of_day = 22.0
 	sky = atmosphere.equatorial_to_world()
 	aldebaran = sky * Starfield._unit(deg_to_rad(68.98), deg_to_rad(16.51))
 	var rising := sky * Starfield._unit(deg_to_rad(88.79), deg_to_rad(7.41))
 	_check(aldebaran.x > 0.0 and rising.x > aldebaran.x, "22:00: Taurus and Orion still east of the meridian")
-	atmosphere.time_of_day = 16.6
+	clock.time_of_day = 16.6
 	_check(atmosphere.sun_direction().x < 0.0 and atmosphere.sun_direction().z > 0.0, "winter sun sets in the southwest")
 	var planets := Planets.positions(Planets.julian_date(2020, 356, 18.0))
 	_check((planets[3][1] as Vector3).angle_to(planets[4][1]) < deg_to_rad(0.5),
@@ -64,13 +67,13 @@ func _run() -> void:
 	# clock: 15 real minutes of daylight, 5 of night
 	var day_s := 0.0
 	var night_s := 0.0
-	var clock := 12.0
+	var t := 12.0
 	var wrapped := false
-	while not (wrapped and clock >= 12.0):
-		var up := atmosphere.sun_direction(clock).y > 0.0
-		clock += atmosphere.clock_rate(clock) / 30.0
-		if clock >= 24.0:
-			clock -= 24.0
+	while not (wrapped and t >= 12.0):
+		var up := atmosphere.sun_direction(t).y > 0.0
+		t += clock.rate(t) / 30.0
+		if t >= 24.0:
+			t -= 24.0
 			wrapped = true
 		if up: day_s += 1.0 / 30.0
 		else: night_s += 1.0 / 30.0
@@ -80,14 +83,14 @@ func _run() -> void:
 	var phases := []
 	var up_at_noon := 0
 	for d in 30:
-		atmosphere.day = d
-		atmosphere.time_of_day = 12.0
+		clock.day = d
+		clock.time_of_day = 12.0
 		phases.append((1.0 - atmosphere.moon_direction().dot(atmosphere.sun_direction())) * 0.5)
 		if atmosphere.moon_direction().y > 0.0:
 			up_at_noon += 1
 	_check(phases.max() > 0.97 and phases.min() < 0.03 and up_at_noon > 5 and up_at_noon < 25,
 			"moon runs through its phases in a month and is up by day on %d of 30 days" % up_at_noon)
-	atmosphere.day = 0
+	clock.day = 0
 	var clouds: Clouds = world.get_node("Clouds")
 	_check(clouds.multimesh.instance_count == clouds.cloud_count * clouds.puffs_per_cloud, "cloud puffs laid out")
 	# F5 toggles first person: camera at the head, own model hidden; again to go back.
@@ -108,13 +111,13 @@ func _run() -> void:
 	for i in 3:
 		await process_frame
 	_check(not camera.first_person and player.model.visible, "F5 again returns to third person")
-	atmosphere.time_of_day = start_time
+	clock.time_of_day = start_time
 
 	await _frames(300)
 	var boat_draft := boat.buoyancy.submerged * boat.buoyancy.max_depth   # mean probe depth
 	_check(boat_draft > 0.05 and boat_draft < 0.5, "boat floats (draft %.2f m)" % boat_draft)
 	var crate: RigidBody3D = world.get_node("Crates").get_child(0)
-	var crate_top := crate.global_position.y + 0.5 - ocean.height_at(crate.global_position.x, crate.global_position.z)
+	var crate_top := crate.global_position.y + 0.5 - ocean.surface_height(crate.global_position.x, crate.global_position.z)
 	_check(crate_top > 0.0 and crate_top < 1.0, "crate floats (%.2f m above water)" % crate_top)
 
 	await _frames(360)   # idle: should sink
@@ -157,7 +160,7 @@ func _check(ok: bool, what: String) -> void:
 
 
 func _shader_compiles() -> bool:
-	var file: RDShaderFile = load("res://src/systems/ocean/ripple_sim.glsl")
+	var file: RDShaderFile = load("res://src/systems/water/ocean/ripple_sim.glsl")
 	var spirv := file.get_spirv()
 	if spirv.compile_error_compute != "":
 		print(spirv.compile_error_compute)
@@ -165,13 +168,13 @@ func _shader_compiles() -> bool:
 
 
 func _lookup_consistent(ocean: Ocean) -> bool:
-	# displace a few rest points forward, then ask height_at() for the height above where they landed
+	# displace a few rest points forward, then ask surface_height() for the height above where they landed
 	for p: Vector2 in [Vector2(3, 7), Vector2(-20, 11), Vector2(42, -5)]:
 		var disp := Vector3.ZERO
 		for i in ocean._n:
 			var th := ocean._k[i] * (ocean._dx[i] * p.x + ocean._dz[i] * p.y) - ocean._omega[i] * ocean.time + ocean._phase[i]
 			disp += Vector3(ocean.steepness * ocean._amp[i] * ocean._dx[i] * cos(th), ocean._amp[i] * sin(th),
 					ocean.steepness * ocean._amp[i] * ocean._dz[i] * cos(th))
-		if absf(ocean.height_at(p.x + disp.x, p.y + disp.z) - disp.y) > 0.02:
+		if absf(ocean.surface_height(p.x + disp.x, p.y + disp.z) - disp.y) > 0.02:
 			return false
 	return true
