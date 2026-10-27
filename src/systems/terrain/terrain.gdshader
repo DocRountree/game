@@ -1,7 +1,7 @@
 shader_type spatial;
 render_mode cull_disabled;
 
-// Terrain patches (CDLOD): every patch is the same 32 x 32 grid, placed and
+// Terrain patches (CDLOD): every patch is the same 16 x 16 grid, placed and
 // scaled per instance by Terrain's quadtree. Heights come from the clipmap
 // levels (terrain_levels.glsl): a patch of LOD k reads level k. Near the far
 // edge of its range each vertex slides onto the next coarser grid and blends
@@ -14,7 +14,7 @@ render_mode cull_disabled;
 uniform sampler2DArray levels : filter_linear, repeat_disable;
 uniform vec4 level_rects[12];      // origin x, origin z, spacing, unused
 uniform int top_level = 10;
-uniform float grid_dim = 32.0;
+uniform float grid_dim = 16.0;
 uniform float level_size = 256.0;
 uniform sampler2D ground : filter_linear, repeat_disable;   // sand, dirt, rock, lakebed weights
 uniform float world_size = 61440.0;
@@ -23,6 +23,7 @@ uniform vec2 world_center = vec2(0.0);
 // light's camera there): patches must morph the same way in both, or shadows
 // shift as you look around.
 uniform vec3 view_pos;
+uniform float planet_radius = 6400000.0;
 
 uniform vec3 sand_color : source_color = vec3(0.78, 0.7, 0.52);
 uniform vec3 dirt_color : source_color = vec3(0.4, 0.3, 0.21);
@@ -53,7 +54,9 @@ void vertex() {
 	vec4 s = level_sample(lod, wp);
 	if (morph > 0.0)
 		s = mix(s, level_sample(lod + 1, wp), morph);
-	VERTEX = vec3(gp.x * cd.w, s.r - origin.y, gp.y * cd.w);
+	// the planet curves away: far land sinks toward the true horizon
+	float drop = dot(wp - view_pos.xz, wp - view_pos.xz) / (2.0 * planet_radius);
+	VERTEX = vec3(gp.x * cd.w, s.r - origin.y - drop, gp.y * cd.w);
 	NORMAL = normalize(vec3(-s.g, 1.0, -s.b));
 	world_pos = vec3(wp.x, s.r, wp.y);
 }

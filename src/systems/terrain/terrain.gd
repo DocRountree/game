@@ -5,7 +5,7 @@ extends Node3D
 ##
 ## Drawing: a compute shader (terrain_levels.glsl) keeps nested height levels
 ## centred on the camera, from the baked maps plus fractal detail, gullies and
-## river channels. A quadtree picks patches of a single 32 x 32 grid mesh, finer
+## river channels. A quadtree picks patches of a single 16 x 16 grid mesh, finer
 ## near the camera (CDLOD); terrain.gdshader places them on the levels.
 ##
 ## Physics: a heightfield collider follows the player, read back from level 1
@@ -19,8 +19,8 @@ signal maps_ready
 const LEVELS := 11                  ## Level k: 256 texels spaced S0 * 2^k (0.5 m .. 512 m).
 const LEVEL_SIZE := 256
 const S0 := 0.5
-const GRID := 32                    ## Quads per patch side.
-const MAX_PATCHES := 1500
+const GRID := 16                    ## Quads per patch side.
+const MAX_PATCHES := 5000
 const VIEW_RADIUS := 60000.0        ## Draw terrain out to here (m).
 const DEEP := -4000.0               ## Height reported before the world exists.
 
@@ -47,6 +47,10 @@ var _set: RID
 var _gpu_ok := false
 var _level_origin: Array[Vector2] = []
 var _levels_rd: Texture2DArrayRD
+var _water_tex: RID
+var _water_rd: Texture2DArrayRD
+var _river_material: ShaderMaterial
+var _river_instance: MultiMeshInstance3D
 
 # drawing
 var _multimesh: MultiMesh
@@ -148,6 +152,7 @@ func _process(_delta: float) -> void:
 			_update_levels(c)
 			_select_patches(c)
 			_material.set_shader_parameter("view_pos", cam.global_position)
+			_river_material.set_shader_parameter("view_pos", cam.global_position)
 	_update_collider()
 
 
@@ -178,6 +183,7 @@ func _spawn_water() -> void:
 		body.setup(lake, i, ocean)
 		add_child(body)
 	var rivers := RiverBody.new()
+	rivers.material = _river_material
 	if ocean:
 		rivers.set_sun(ocean.sun)
 	add_child(rivers)
@@ -247,6 +253,20 @@ func _build_drawing() -> void:
 	add_child(_mesh_instance)
 	_level_origin.resize(LEVELS)
 	_level_origin.fill(Vector2(INF, INF))
+	# river water: the same patches again, with the river shader
+	_river_material = ShaderMaterial.new()
+	_river_material.shader = preload("res://src/systems/water/river/river.gdshader")
+	_river_material.set_shader_parameter("top_level", LEVELS - 1)
+	_river_material.set_shader_parameter("grid_dim", float(GRID))
+	_river_material.set_shader_parameter("level_size", float(LEVEL_SIZE))
+	_river_instance = MultiMeshInstance3D.new()
+	_river_instance.name = "RiverWater"
+	_river_instance.multimesh = _multimesh
+	_river_instance.material_override = _river_material
+	_river_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_river_instance.custom_aabb = _mesh_instance.custom_aabb
+	_river_instance.top_level = true
+	add_child(_river_instance)
 
 
 func _patch_mesh() -> ArrayMesh:
@@ -282,8 +302,11 @@ static func _spacing(k: int) -> float:
 	return S0 * float(1 << k)
 
 
+# LOD k patches reach this far. Four patch widths: then the farthest LOD k - 1
+# patch ends (range(k-1) plus a patch diagonal, 0.85 of this) before LOD k
+# starts morphing toward k + 1 (at 0.87), which is what keeps seams closed.
 static func _range(k: int) -> float:
-	return 2.0 * GRID * _spacing(k)   # LOD k patches reach this far
+	return 4.0 * GRID * _spacing(k)
 
 
 var _patches: Array[Vector4] = []   # origin x, origin z, lod, size
@@ -306,7 +329,7 @@ func _select_patches(cam: Vector2) -> void:
 		var k := int(p.z)
 		_multimesh.set_instance_transform(i, Transform3D(Basis(), Vector3(p.x, 0.0, p.y)))
 		var r := _range(k)
-		_multimesh.set_instance_custom_data(i, Color(k, r * 0.72, r * 0.97, p.w))
+		_multimesh.set_instance_custom_data(i, Color(k, r * 0.87, r * 0.98, p.w))
 	_multimesh.visible_instance_count = count
 
 
@@ -374,6 +397,7 @@ func _create_gpu() -> void:
 	fmt.usage_bits = (RenderingDevice.TEXTURE_USAGE_STORAGE_BIT | RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT
 			| RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT)
 	_levels_tex = _rd.texture_create(fmt, RDTextureView.new())
+	_water_tex = _rd.texture_create(fmt, RDTextureView.new())
 	var uniforms: Array[RDUniform] = []
 	for b in _buffers.size():
 		var u := RDUniform.new()
@@ -386,6 +410,11 @@ func _create_gpu() -> void:
 	ui.binding = 5
 	ui.add_id(_levels_tex)
 	uniforms.append(ui)
+	var uw := RDUniform.new()
+	uw.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+	uw.binding = 6
+	uw.add_id(_water_tex)
+	uniforms.append(uw)
 	_set = _rd.uniform_set_create(uniforms, _shader, 0)
 	_set_gpu_ready.call_deferred()
 
@@ -394,6 +423,10 @@ func _set_gpu_ready() -> void:
 	_levels_rd = Texture2DArrayRD.new()
 	_levels_rd.texture_rd_rid = _levels_tex
 	_material.set_shader_parameter("levels", _levels_rd)
+	_water_rd = Texture2DArrayRD.new()
+	_water_rd.texture_rd_rid = _water_tex
+	_river_material.set_shader_parameter("levels", _levels_rd)
+	_river_material.set_shader_parameter("water_levels", _water_rd)
 	_gpu_ok = true
 
 
@@ -412,6 +445,7 @@ func _update_levels(cam: Vector2) -> void:
 	if changed.is_empty():
 		return
 	_material.set_shader_parameter("level_rects", rects)
+	_river_material.set_shader_parameter("level_rects", rects)
 	var origins := _level_origin.duplicate()
 	var physics_layer := -1
 	if changed.has(1) and _wants_collider() and not _readback_pending:
@@ -517,7 +551,9 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE and _rd and _shader.is_valid():
 		if _levels_rd:
 			_levels_rd.texture_rd_rid = RID()
-		var rids: Array[RID] = [_set, _levels_tex]
+		if _water_rd:
+			_water_rd.texture_rd_rid = RID()
+		var rids: Array[RID] = [_set, _levels_tex, _water_tex]
 		rids.append_array(_buffers)
 		rids.append_array([_pipeline, _shader])
 		var rd := _rd

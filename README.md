@@ -36,7 +36,7 @@ and gameplay still work, just without ripples.
 | | |
 |---|---|
 | Mouse | look around (Esc releases the cursor; arrow keys also orbit) |
-| Left Shift | swim down; get off the boat |
+| Left Shift | sneak on land; swim down; get off the boat |
 | F3 | performance overlay (fps, CPU, GPU, memory) |
 | F4 | world map (debug: the whole baked world, with you on it) |
 | F5 | toggle first-person (default) / third-person view |
@@ -44,7 +44,8 @@ and gameplay still work, just without ripples.
 | M | debug: meteor shower every night (toggle) |
 | W A S D | walk on land; swim, relative to the camera (look down while swimming to dive) |
 | Left Ctrl | sprint (hold with W) |
-| Space | jump; swim up / tread water (do nothing and you sink) |
+| Space | jump (hold to keep hopping); swim up / tread water (do nothing and you sink) |
+| Space Space | debug: fly (Space up, Shift down, Ctrl faster; double-tap again or land to stop) |
 | Right mouse | board the boat |
 | W / S, A / D | on the boat: throttle / reverse, steer |
 | [ / ] | scrub time of day backward / forward |

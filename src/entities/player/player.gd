@@ -18,9 +18,13 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 @export var swim_force := 260.0             ## N
 @export var breath_seconds := 20.0          ## Breath-hold without gear.
 @export var board_range := 5.0
-@export var sprint_factor := 1.6           ## Ctrl: faster walking and swimming
+@export var sprint_factor := 1.6           ## Ctrl: faster swimming
 @export var walk_speed := 20.0              ## m/s on land
-@export var jump_speed := 4.5
+@export var run_factor := 1.3               ## Ctrl on land (Minecraft's sprint)
+@export var jump_speed := 9.0               ## About a 1.25 m hop under land gravity
+@export var fly_speed := 120.0              ## Debug flight (double-tap Space)
+
+const LAND_GRAVITY := 32.0                  ## Minecraft-snappy, not real 9.8
 @export var traits: CharacterTraits
 
 var state := &"TREADING"
@@ -29,6 +33,7 @@ var water_height := 0.0   ## Surface height here, including ripples (-INF on lan
 var water: WaterBody      ## The body the player is in or over (null on land).
 var boat: Boat            ## Set while driving.
 var head_under := false   ## Head below the surface (snorkels, scuba, the camera's underwater look).
+var flying := false       ## Debug flight, toggled by double-tapping Space.
 
 @onready var left_hand: Inventory = $LeftHand
 @onready var right_hand: Inventory = $RightHand
@@ -39,6 +44,7 @@ var _swell := 0.0
 var _prev_h := NAN
 var _lean := 0.0
 var _facing := 0.0
+var _last_space := -10.0
 
 @onready var model: Node3D = $Model
 @onready var _collision: CollisionShape3D = $Collision
@@ -58,6 +64,14 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# double-tap Space: fly (debug), like Minecraft's creative mode
+	if event.is_action_pressed(&"tread") and not event.is_echo() and not boat:
+		var now := Time.get_ticks_msec() / 1000.0
+		if now - _last_space < 0.3:
+			flying = not flying
+			_last_space = -10.0
+		else:
+			_last_space = now
 	# Minecraft-style: right-click boards, Shift dismounts
 	if event.is_action_pressed(&"interact") and not boat:
 		_try_board()
@@ -70,6 +84,9 @@ func _physics_process(delta: float) -> void:
 		_drive()
 		return
 	var pos := global_position
+	if flying:
+		_fly(delta)
+		return
 	_set_water(Water.body_at(pos.x, pos.z))
 	if water == null:
 		_on_land(delta)
@@ -125,7 +142,7 @@ func _physics_process(delta: float) -> void:
 
 	velocity += (fh + Vector3.UP * fy) / MASS * delta
 	if s < 0.3 and is_on_floor():
-		_walk_input(delta)   # wading in the shallows
+		_walk(delta, true)   # wading in the shallows
 	move_and_slide()
 
 	if s < 0.3 and is_on_floor():
@@ -154,32 +171,61 @@ func _physics_process(delta: float) -> void:
 func _on_land(delta: float) -> void:
 	water_height = -INF
 	_prev_h = NAN
-	velocity.y -= Water.G * delta
-	if is_on_floor():
-		_walk_input(delta)
+	velocity.y -= LAND_GRAVITY * delta
+	_walk(delta, is_on_floor())
 	move_and_slide()
 	state = &"WALKING" if is_on_floor() else &"AIRBORNE"
 	_set_head_under(false)
 	breath = minf(1.0, breath + delta / 3.0)
 
 
-# WASD relative to the camera's heading; Space jumps, Ctrl sprints.
-func _walk_input(delta: float) -> void:
-	var cam := get_viewport().get_camera_3d()
-	var input := Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
-	var walk := Vector3.ZERO
-	if cam and input != Vector2.ZERO:
-		var fwd := -cam.global_basis.z
-		var right := cam.global_basis.x
-		fwd.y = 0.0
-		right.y = 0.0
-		walk = (fwd.normalized() * input.y + right.normalized() * input.x).limit_length(1.0)
-		var sprint := sprint_factor if Input.is_action_pressed(&"sprint") and input.y > 0.0 else 1.0
-		walk *= walk_speed * sprint
-	velocity.x = lerpf(velocity.x, walk.x, minf(1.0, 12.0 * delta))
-	velocity.z = lerpf(velocity.z, walk.z, minf(1.0, 12.0 * delta))
-	if Input.is_action_just_pressed(&"tread"):
+# Minecraft-style: WASD relative to the camera's heading, quick to start and
+# stop on the ground, little control in the air (momentum carries a jump).
+# Ctrl runs, Shift sneaks, holding Space jumps whenever your feet touch down.
+func _walk(delta: float, grounded: bool) -> void:
+	var wish := _camera_relative(Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward"))
+	var speed := walk_speed
+	if Input.is_action_pressed(&"sprint") and Input.get_axis(&"move_back", &"move_forward") > 0.0:
+		speed *= run_factor
+	if Input.is_action_pressed(&"dive"):
+		speed *= 0.3
+	var target := wish * speed
+	var vh := Vector2(velocity.x, velocity.z)
+	var rate := 18.0 if grounded else (2.0 if wish != Vector2.ZERO else 0.1)
+	vh = vh.lerp(target, 1.0 - exp(-rate * delta))
+	if grounded and Input.is_action_pressed(&"tread"):
 		velocity.y = jump_speed
+		vh += wish * speed * 0.2   # a running jump carries you a bit further
+	velocity.x = vh.x
+	velocity.z = vh.y
+
+
+# Debug flight: no gravity, Space up, Shift down, Ctrl faster. Touching the
+# ground while descending lands you.
+func _fly(delta: float) -> void:
+	var wish := _camera_relative(Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward"))
+	var up := Input.get_axis(&"dive", &"tread")
+	var speed := fly_speed * (3.0 if Input.is_action_pressed(&"sprint") else 1.0)
+	var target := Vector3(wish.x, up, wish.y) * speed
+	velocity = velocity.lerp(target, 1.0 - exp(-6.0 * delta))
+	move_and_slide()
+	if is_on_floor() and up < 0.0:
+		flying = false
+	state = &"FLYING"
+	water_height = -INF
+	_set_head_under(false)
+	breath = 1.0
+
+
+func _camera_relative(input: Vector2) -> Vector2:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null or input == Vector2.ZERO:
+		return Vector2.ZERO
+	var fwd := -cam.global_basis.z
+	var right := cam.global_basis.x
+	var f := Vector2(fwd.x, fwd.z).normalized()
+	var r := Vector2(right.x, right.z).normalized()
+	return (f * input.y + r * input.x).limit_length(1.0)
 
 
 func _process(delta: float) -> void:

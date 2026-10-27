@@ -284,6 +284,38 @@ func _run() -> void:
 		planted = planted and absf(f.y - Terrain.height_at(f.x, f.z)) < 0.15
 	_check(legs != null and planted and stepped, "procedural legs plant both feet on the ground and step while walking")
 
+	# Minecraft-style jump, and double-tap Space flight
+	var y0 := player.global_position.y
+	Input.action_press(&"tread")
+	var peak := y0
+	for _f in 20:
+		await physics_frame
+		peak = maxf(peak, player.global_position.y)
+	Input.action_release(&"tread")
+	await _frames(60)
+	_check(peak - y0 > 0.8 and peak - y0 < 2.5 and player.state == &"WALKING",
+			"holding Space jumps about a metre and lands (%.2f m)" % (peak - y0))
+	for _tap in 2:
+		var ev := InputEventAction.new()
+		ev.action = &"tread"
+		ev.pressed = true
+		Input.parse_input_event(ev)
+		await process_frame
+		var up := InputEventAction.new()
+		up.action = &"tread"
+		up.pressed = false
+		Input.parse_input_event(up)
+		await process_frame
+	var fly_y := player.global_position.y
+	Input.action_press(&"tread")
+	await _frames(60)
+	Input.action_release(&"tread")
+	_check(player.flying and player.state == &"FLYING" and player.global_position.y - fly_y > 20.0,
+			"double-tapping Space flies, fast (rose %.0f m in 1 s)" % (player.global_position.y - fly_y))
+	player.flying = false
+	player.respawn(spot + Vector3.UP * 3.0)
+	await _frames(30)
+
 	# lakes and rivers are water bodies
 	var lake_ok := true
 	var lakes_seen := 0

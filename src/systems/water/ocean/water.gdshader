@@ -14,6 +14,7 @@ uniform float steepness = 0.8;
 uniform float time;
 uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
 uniform vec3 sun_color = vec3(1.0);
+uniform float planet_radius = 6400000.0;
 
 uniform sampler2D ripple_tex : filter_linear, repeat_disable;  // r height, g foam
 uniform vec3 ripple_rect = vec3(0.0, 0.0, 1.0);                // origin x, origin z, size
@@ -103,6 +104,9 @@ void vertex() {
 	vec2 ruv = rip_uv(x0);
 	disp.y += texture(ripple_tex, ruv).r * rip_fade(ruv) * clamp(1.5 - spacing * 2.0, 0.0, 1.0);
 	crest = disp.y;
+	// the planet curves away: far water sinks toward the true horizon
+	vec2 rel = world.xz - CAMERA_POSITION_WORLD.xz;
+	disp.y -= dot(rel, rel) / (2.0 * planet_radius);
 	VERTEX += disp;   // the surface node is only ever translated
 }
 

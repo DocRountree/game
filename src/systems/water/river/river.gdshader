@@ -11,20 +11,36 @@ render_mode blend_mix, depth_draw_always, cull_disabled;
 // - foam where fast water runs shallow, broken up by a second flowing noise;
 // - clear, slightly brown water: the bed shows through, absorbed with depth.
 // The constants are rescaled from the original's toy units to metres.
+//
+// Drawn on the terrain's own CDLOD patches (see terrain.gdshader): the water
+// surface and current come from the river levels the terrain compute shader
+// writes alongside the heights, from the same river data that carves the
+// channels, so the water always sits exactly in its bed, at every distance.
 
 uniform float time;
 uniform vec3 sun_direction = vec3(0.0, 0.5, 0.8);
 uniform vec3 sun_color = vec3(1.0);
 uniform float ripple_scale = 1.6;     // ripples per metre (roughly)
 uniform float cycle = 1.4;            // seconds per flow-map cycle
-uniform vec3 extinction = vec3(0.42, 0.5, 0.75);   // per metre: browns and greens survive
-uniform vec3 body_color = vec3(0.05, 0.08, 0.06);
+uniform vec3 extinction = vec3(1.1, 0.9, 1.3);    // per metre: greens and browns survive longest
+uniform vec3 body_color = vec3(0.06, 0.1, 0.07);
+uniform float tint = 0.3;                          // how much the water's own colour shows even when shallow
+uniform float sky_reflect = 0.25;                  // extra sky sheen on top of the Fresnel reflection
 uniform float refraction = 0.04;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
+uniform sampler2DArray levels : filter_linear, repeat_disable;
+uniform sampler2DArray water_levels : filter_linear, repeat_disable;
+uniform vec4 level_rects[12];
+uniform int top_level = 10;
+uniform float grid_dim = 16.0;
+uniform float level_size = 256.0;
+uniform vec3 view_pos;
+uniform float planet_radius = 6400000.0;
+
 varying vec2 flow;        // m/s
-varying float across;     // -1..1 between the banks
+varying float valid;      // 1 on water
 varying float centre_depth;
 varying vec3 wpos;
 
@@ -95,18 +111,42 @@ float view_depth(vec2 uv, mat4 inv_proj) {
 	return -p.z / p.w;
 }
 
+vec2 level_uv(int k, vec2 p) {
+	vec4 r = level_rects[k];
+	return ((p - r.xy) / r.z + 0.5) / level_size;
+}
+
 void vertex() {
-	flow = CUSTOM0.xy * CUSTOM0.z;
-	centre_depth = CUSTOM0.w;
-	across = UV.x;
-	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	vec4 cd = INSTANCE_CUSTOM;   // lod, morph start, morph end, patch size
+	vec3 origin = MODEL_MATRIX[3].xyz;
+	vec2 gp = VERTEX.xz;
+	vec2 wp = origin.xz + gp * cd.w;
+	int lod = int(cd.x + 0.5);
+	float d = distance(wp, view_pos.xz);
+	float morph = lod < top_level ? clamp((d - cd.y) / (cd.z - cd.y), 0.0, 1.0) : 0.0;
+	gp -= fract(gp * grid_dim * 0.5) * 2.0 / grid_dim * morph;
+	wp = origin.xz + gp * cd.w;
+	vec4 w = textureLod(water_levels, vec3(level_uv(lod, wp), float(lod)), 0.0);
+	float ground = textureLod(levels, vec3(level_uv(lod, wp), float(lod)), 0.0).r;
+	if (morph > 0.0) {
+		w = mix(w, textureLod(water_levels, vec3(level_uv(lod + 1, wp), float(lod + 1)), 0.0), morph);
+		ground = mix(ground, textureLod(levels, vec3(level_uv(lod + 1, wp), float(lod + 1)), 0.0).r, morph);
+	}
+	valid = w.a;
+	flow = w.yz;
+	centre_depth = max(w.x - ground, 0.3);
+	float y = w.a > 0.5 ? w.x : ground - 3.0;   // no water here: tuck the sheet under the ground
+	float drop = dot(wp - view_pos.xz, wp - view_pos.xz) / (2.0 * planet_radius);   // the planet curves away
+	VERTEX = vec3(gp.x * cd.w, y - origin.y - drop, gp.y * cd.w);
+	NORMAL = vec3(0.0, 1.0, 0.0);
+	wpos = vec3(wp.x, y, wp.y);
 }
 
 void fragment() {
-	// slower near the banks
-	float bank = clamp(abs(across), 0.0, 1.0);
-	vec2 fl = flow * (1.0 - 0.7 * bank * bank);
-	vec2 rate = fl * 0.35;   // the original's units per second
+	if (valid < 0.5)
+		discard;
+	vec2 fl = flow;
+	vec2 rate = fl * 0.35;   // the original's units per second, for foam and ripple strength
 
 	// how deep the water is here, from the depth buffer
 	float surface_depth = -VERTEX.z;
@@ -128,8 +168,9 @@ void fragment() {
 	float t1 = fract(tm + 0.5);
 	vec2 uv0 = uv + hash2(floor(tm));
 	vec2 uv1 = uv + hash2(floor(tm + 0.5));
-	vec2 off0 = rate * (t0 - 0.5) * cycle * ripple_scale;
-	vec2 off1 = rate * (t1 - 0.5) * cycle * ripple_scale;
+	// the ripples drift at the real current
+	vec2 off0 = -fl * (t0 - 0.5) * cycle * ripple_scale;
+	vec2 off1 = -fl * (t1 - 0.5) * cycle * ripple_scale;
 	vec4 s0 = water_normal(uv0, off0, mag, foam, filter_w);
 	vec4 s1 = water_normal(uv1, off1, mag, foam, filter_w);
 	float w = abs(t0 - 0.5) * 2.0;
@@ -155,8 +196,10 @@ void fragment() {
 	float diffuse = max(dot(n_world, sun_direction), 0.0);
 	vec3 lit = body_color * (0.3 + 0.9 * diffuse) * (0.15 + 0.85 * sun_color);
 	vec3 below = bed * transmit + lit * (1.0 - transmit);
+	below = mix(below, lit, tint);
 
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
+	fresnel = mix(fresnel, 1.0, sky_reflect);   // rivers read mostly by the sky they mirror
 	float white = clamp(foam_blend, 0.0, 1.0);
 	ALBEDO = vec3(0.85) * white;
 	ROUGHNESS = mix(0.04, 0.8, white);

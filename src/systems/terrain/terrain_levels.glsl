@@ -24,6 +24,8 @@ layout(set = 0, binding = 2, std430) restrict readonly buffer RiverB { vec4 rive
 layout(set = 0, binding = 3, std430) restrict readonly buffer Ground { uint ground[]; };    // RGBA8 weights: sand, dirt, rock, lakebed
 layout(set = 0, binding = 4, std430) restrict readonly buffer Lake { float lake_level[]; };
 layout(set = 0, binding = 5, rgba32f) uniform restrict image2DArray levels;
+// River water per texel: surface height, current x, z (m/s), 1 where there is water.
+layout(set = 0, binding = 6, rgba32f) uniform restrict writeonly image2DArray water_levels;
 
 layout(push_constant, std430) uniform Params {
 	vec2 origin;        // world xz of texel (0, 0) in this level
@@ -244,6 +246,9 @@ void main() {
 
 	// river channels: a parabolic bed below the water surface, banks rising out
 	float water = 0.0;
+	vec4 river_water = vec4(-1000.0, 0.0, 0.0, 0.0);
+	float lake = lake_level[idx(ivec2(floor(grid_of(p) + 0.5)))];
+	bool in_lake = lake > NO_WATER * 0.5;
 	// rivers narrower than a few texels would only alias: fade them out far away
 	float resolvable = smoothstep(1.0, 3.0, ra.w / pc.spacing);
 	if (ra.w > 0.0 && resolvable > 0.0) {
@@ -251,15 +256,24 @@ void main() {
 		bool wet = rb.w > 0.01;
 		float depth = rb.z * (wet ? 1.0 : 0.6);
 		float carve = surface - depth * max(0.0, 1.0 - r * r) + max(0.0, r - 1.0) * hw * 0.55;
-		h = mix(h, smin(h, carve, 0.8), resolvable);
+		float carved = smin(h, carve, 0.8);
+		if (wet && r > 1.0)
+			// low natural levees: the banks never dip below the water beside them
+			carved = max(carved, surface + 0.3 - max(0.0, r - 1.3) * hw * 0.25);
+		h = mix(h, carved, resolvable);
+		river_water.x = surface;
 		if (wet && r < 3.0)
 			water = surface;
 		else if (!wet && r < 1.6)
 			water = 20000.0 + 1.0 - smoothstep(0.9, 1.6, r);
+		if (wet && !in_lake) {
+			vec2 current = rb.xy * rb.w * (1.0 - 0.6 * min(r * r, 1.0));
+			river_water = vec4(surface, current, (r < 1.05 && resolvable > 0.5) ? 1.0 : 0.0);
+		}
 	}
-	float lake = lake_level[idx(ivec2(floor(grid_of(p) + 0.5)))];
-	if (lake > NO_WATER * 0.5 && water < 15000.0)
+	if (in_lake && water < 15000.0)
 		water = max(water, lake);
 
 	imageStore(levels, at, vec4(h, 0.0, 0.0, water));
+	imageStore(water_levels, at, river_water);
 }

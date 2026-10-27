@@ -159,9 +159,12 @@ progress; until it finishes the world is open ocean.
 B-spline, read from a 2x2-averaged mip of the grid matching the level's
 spacing, so coarse levels never alias the grid and far mountains hold still),
 plus band-limited, derivative-damped fractal detail (a few metres) and the
-river channels carved from the nearest-river field. `terrain.gdshader` draws a CDLOD quadtree of 32 x 32
+river channels carved from the nearest-river field. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
 patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
-the edge of its range, so seams never crack. The morph uses the main camera's
+the edge of its range. Ranges are four patch widths per LOD, so the farthest
+patch of LOD k - 1 ends before LOD k starts morphing, which keeps seams closed.
+Far terrain and water sink by d^2 / 2R (the planet's curve), so from a height
+the sea meets the sky at the true horizon. The morph uses the main camera's
 position (a uniform), also in the shadow pass, so shadows hold still.
 
 The sky's moon, stars, planets, meteors and aurora are pushed to the far plane
@@ -177,12 +180,19 @@ the bake, so buoyancy, swimming, currents and sampling work in them unchanged.
 **Water on land.** The ocean shader shrinks each Gerstner wave where the water
 is shallower than a third of its length and adds surf near the shore (physics
 matches). Lakes reuse the ocean shader without swell, masked to their basin.
-Rivers are ribbons along wet reaches with `river.gdshader`, after P_Malin's
+Rivers are drawn on the terrain's own patches with `river.gdshader`: the
+compute pass writes a second level array (water surface, current, wet flag)
+from the same river data that carves the channels, so the water sits exactly
+in its bed at every distance (low natural levees keep the banks above it).
+The shading is after P_Malin's
 "Where the River Goes": flow-mapped, self-warping value-noise ripples whose
 octaves drift at different rates, foam where fast water runs shallow, and
 clear, slightly brown water. Currents push swimmers and boats.
 
-**Walking.** `ProceduralLegs` plants each foot on the collider (a ray down)
+**Moving on land** is Minecraft-like: quick to start and stop on the ground,
+little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
+holding Space hops whenever the feet touch down. Double-tapping Space toggles
+a fast debug flight. `ProceduralLegs` plants each foot on the collider (a ray down)
 and steps it in an arc when the body has moved on, alternating feet, with a
 two-bone solver bending the knees. No animation clips.
 

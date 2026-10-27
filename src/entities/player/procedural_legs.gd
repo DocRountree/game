@@ -47,7 +47,7 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	var on_land := player.boat == null and player.model.visible \
-			and (player.state == &"WALKING" or player.state == &"AIRBORNE")
+			and (player.state == &"WALKING" or player.state == &"AIRBORNE" or player.state == &"FLYING")
 	if on_land != _active:
 		_active = on_land
 		for leg in _plain_legs:
@@ -62,7 +62,7 @@ func _process(delta: float) -> void:
 		return
 	var vel := Vector3(player.velocity.x, 0.0, player.velocity.z)
 	var speed := vel.length()
-	var airborne := player.state == &"AIRBORNE"
+	var airborne := player.state != &"WALKING"
 	# strides lengthen up to what the legs can reach, then steps just quicken
 	var reach := minf(0.22 + speed * 0.11, 0.85)
 	var step_time := clampf(reach / maxf(speed, 0.01) * 0.9, 0.06, 0.32)
