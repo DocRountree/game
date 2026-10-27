@@ -26,6 +26,7 @@ var _omega := PackedFloat32Array()
 var _phase := PackedFloat32Array()
 var _wavelength := PackedFloat32Array()
 var _sources := PackedFloat32Array()
+var _shore_set := false
 
 @onready var surface: OceanSurface = $Surface
 @onready var ripples: RippleSim = $Ripples
@@ -84,6 +85,11 @@ func _process(delta: float) -> void:
 		_material.set_shader_parameter("fft_sizes", small_waves.sizes)
 	if not Engine.is_editor_hint():
 		_material.set_shader_parameter("ripple_rect", Vector3(ripples.origin.x, ripples.origin.y, ripples.size()))
+	if not _shore_set and not Engine.is_editor_hint() and Terrain.maps():
+		_shore_set = true
+		_material.set_shader_parameter("seabed", Terrain.current().seabed_texture())
+		_material.set_shader_parameter("world_size", Terrain.maps().size)
+		_material.set_shader_parameter("has_seabed", true)
 	if sun:
 		_material.set_shader_parameter("sun_direction", sun.global_basis.z)
 		_material.set_shader_parameter("sun_color", Vector3(sun.light_color.r, sun.light_color.g, sun.light_color.b) * sun.light_energy)
@@ -98,10 +104,13 @@ func _process(delta: float) -> void:
 ## radius (0 = at the point) so an object doesn't feel its own displacement trough.
 func surface_height(x: float, z: float, footprint := 0.0, ripple_radius := -1.0) -> float:
 	var amp := _amp
-	if footprint > 0.0:
+	var depth := -Terrain.height_at(x, z) if Terrain.maps() else INF
+	if footprint > 0.0 or depth < 60.0:
 		amp = _amp.duplicate()
 		for i in _n:
-			amp[i] *= exp(-2.0 * pow(footprint / _wavelength[i], 2.0))
+			if footprint > 0.0:
+				amp[i] *= exp(-2.0 * pow(footprint / _wavelength[i], 2.0))
+			amp[i] *= smoothstep(0.0, 0.35 * _wavelength[i], depth)   # waves shoal out (as the shader)
 	# Gerstner moves water sideways: find the undisplaced point that lands on (x, z)
 	var x0 := x
 	var z0 := z

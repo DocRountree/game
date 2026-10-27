@@ -32,12 +32,13 @@ var rainfall := PackedFloat32Array()     ## Precipitation (m / year).
 ## and the half width (0 = no river near this cell).
 var river_a := PackedFloat32Array()
 ## 4 floats per cell: flow direction x, z at that nearest point, the depth at
-## the centre of the channel, and 1 if water flows there now (0 = dry bed).
+## the centre of the channel, and the flow speed (m/s) if water flows there
+## now (0 = dry bed).
 var river_b := PackedFloat32Array()
 
 ## Rivers as centrelines: each a Dictionary with "points" (PackedVector3Array:
-## x, water surface height, z), "half_width", "depth", "flow" (m^3/s) and
-## "wet" (PackedByteArray) per point. Downstream order.
+## x, water surface height, z), "half_width", "depth", "flow" (m^3/s),
+## "speed" (m/s) and "wet" (PackedByteArray) per point. Downstream order.
 var rivers: Array[Dictionary] = []
 ## Lakes: Dictionaries with "center" (Vector2), "level" (current surface),
 ## "full_level", "endorheic" (no outlet), "dry", "area" (m^2), "rect" (Rect2
@@ -122,7 +123,8 @@ func river_at(x: float, z: float) -> Dictionary:
 	var cz := c.y + river_a[i * 4 + 1]
 	return {"distance": Vector2(x - cx, z - cz).length(), "half_width": hw,
 			"surface": river_a[i * 4 + 2], "depth": river_b[i * 4 + 2],
-			"flow_dir": Vector2(river_b[i * 4], river_b[i * 4 + 1]), "wet": river_b[i * 4 + 3] > 0.5}
+			"flow_dir": Vector2(river_b[i * 4], river_b[i * 4 + 1]), "speed": river_b[i * 4 + 3],
+			"wet": river_b[i * 4 + 3] > 0.01}
 
 
 # --- persistence -----------------------------------------------------------------
@@ -211,6 +213,6 @@ func to_image(px := 512) -> Image:
 			if hw > 0.0:
 				var off := Vector2(river_a[i * 4], river_a[i * 4 + 1]).length()
 				if off < maxf(hw, step * cell * 0.5):
-					c = Color(0.2, 0.45, 0.9) if river_b[i * 4 + 3] > 0.5 else Color(0.8, 0.68, 0.45)
+					c = Color(0.2, 0.45, 0.9) if river_b[i * 4 + 3] > 0.01 else Color(0.8, 0.68, 0.45)
 			img.set_pixel(qx, py, c)
 	return img

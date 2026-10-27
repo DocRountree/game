@@ -159,7 +159,27 @@ func _on_maps() -> void:
 	_rd = RenderingServer.get_rendering_device()
 	if _rd:
 		RenderingServer.call_on_render_thread(_create_gpu)
+	_spawn_water()
 	maps_ready.emit()
+
+
+# Lakes (those holding water today) and the rivers become water bodies.
+func _spawn_water() -> void:
+	var ocean: Ocean = null
+	for b in WaterBody.all():
+		if b is Ocean:
+			ocean = b
+	for i in _maps.lakes.size():
+		var lake: Dictionary = _maps.lakes[i]
+		if lake.dry:
+			continue
+		var body := LakeBody.new()
+		body.setup(lake, i, ocean)
+		add_child(body)
+	var rivers := RiverBody.new()
+	if ocean:
+		rivers.set_sun(ocean.sun)
+	add_child(rivers)
 
 
 # --- height queries -------------------------------------------------------------
@@ -178,6 +198,26 @@ func _height(x: float, z: float) -> float:
 			var b := lerpf(_patch_heights[i + _patch_size], _patch_heights[i + _patch_size + 1], fx)
 			return lerpf(a, b, fz)
 	return _maps.height_at(x, z)
+
+
+var _seabed: ImageTexture
+var _lake_mask: ImageTexture
+
+
+## Terrain height over the world grid as a float texture (for the water shaders).
+func seabed_texture() -> ImageTexture:
+	if _seabed == null and _maps:
+		var img := Image.create_from_data(_maps.n, _maps.n, false, Image.FORMAT_RF, _maps.height.to_byte_array())
+		_seabed = ImageTexture.create_from_image(img)
+	return _seabed
+
+
+## Lake surface height per cell (very low where there is no lake).
+func lake_mask_texture() -> ImageTexture:
+	if _lake_mask == null and _maps:
+		var img := Image.create_from_data(_maps.n, _maps.n, false, Image.FORMAT_RF, _maps.water_level.to_byte_array())
+		_lake_mask = ImageTexture.create_from_image(img)
+	return _lake_mask
 
 
 # --- drawing ------------------------------------------------------------------------

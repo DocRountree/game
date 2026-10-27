@@ -113,7 +113,7 @@ func _physics_process(delta: float) -> void:
 			fh = Vector3(move.x, 0.0, move.z) * swim_force * sprint
 			if deep or move.y < -0.3:
 				fy += move.y * swim_force * sprint   # pitch and Shift/Space steer depth
-		var vh := Vector3(velocity.x, 0.0, velocity.z)
+		var vh := Vector3(velocity.x, 0.0, velocity.z) - water.flow_at(pos.x, pos.z)   # rivers carry you along
 		fh -= (30.0 + 70.0 * vh.length()) * vh
 		if pos.y + 0.4 > water_height - 0.5:   # near the surface: wakes shove you
 			var slope := water.ripple_slope(pos.x, pos.z)

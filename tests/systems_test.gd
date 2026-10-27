@@ -13,7 +13,7 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	Terrain.bake_resolution = 128   # a small world: quick to bake
+	Terrain.bake_resolution = 256   # a small world: quick to bake
 	var world: Node3D = load("res://src/world/open_ocean/open_ocean.tscn").instantiate()
 	root.add_child(world)
 	await _frames(2)
@@ -263,6 +263,31 @@ func _run() -> void:
 	_check(player.state == &"WALKING" and absf(player.global_position.y - Player.CHEST - ground) < 0.6
 			and Water.body_at(spot.x, spot.z) == null,
 			"player stands on land (%s, feet %.2f m above the ground)" % [player.state, player.global_position.y - Player.CHEST - ground])
+
+	# lakes and rivers are water bodies
+	var lake_ok := true
+	var lakes_seen := 0
+	for i in maps.n * maps.n:
+		if maps.water_kind[i] == WorldMaps.WaterKind.LAKE and maps.height[i] < maps.water_level[i] - 2.0:
+			var c := maps.to_world(i % maps.n, i / maps.n)
+			var lb := Water.body_at(c.x, c.y)
+			lakes_seen += 1
+			lake_ok = lake_ok and lb is LakeBody and absf(lb.surface_height(c.x, c.y) - maps.water_level[i]) < 0.01
+			if lakes_seen > 20:
+				break
+	_check(lakes_seen == 0 or lake_ok, "lakes are water bodies at their level (%d cells checked)" % lakes_seen)
+	var river_ok := false
+	for i in maps.n * maps.n:
+		var r := maps.river_at(maps.to_world(i % maps.n, i / maps.n).x, maps.to_world(i % maps.n, i / maps.n).y)
+		if r.is_empty() or not r.wet:
+			continue
+		var c := maps.to_world(i % maps.n, i / maps.n) + Vector2(maps.river_a[i * 4], maps.river_a[i * 4 + 1])
+		var rb := Water.body_at(c.x, c.y)
+		if rb is RiverBody:
+			var f := rb.flow_at(c.x, c.y)
+			river_ok = f.length() > 0.2 and Vector2(f.x, f.z).dot(r.flow_dir) > 0.0
+			break
+	_check(river_ok, "rivers are water bodies whose current runs downstream")
 
 	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	quit(1 if _failures else 0)

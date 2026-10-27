@@ -36,6 +36,22 @@ uniform float refraction = 0.03;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
+group_uniforms shore;
+// Terrain height over the world grid: waves shrink as the water shoals and
+// break into foam at the shore.
+uniform sampler2D seabed : filter_linear, repeat_disable;
+uniform float world_size = 49152.0;
+uniform bool has_seabed = false;
+
+group_uniforms body;
+// Lakes reuse this shader: no swell, calmer small waves, a fixed surface
+// level, and a mask so the water only shows inside its own lake.
+uniform float swell_scale = 1.0;
+uniform float surface_level = 0.0;
+uniform float flat_spacing = 0.0;          // > 0: mesh spacing to assume (flat meshes)
+uniform sampler2D lake_mask : filter_nearest, repeat_disable;
+uniform bool masked = false;
+
 varying vec2 x0;          // undisplaced world xz of this vertex
 varying float spacing;    // mesh spacing here (m)
 varying float crest;      // height above rest
@@ -50,6 +66,18 @@ float lod(int i, float sp) {
 	return clamp((lambda - 3.0 * sp) / (3.0 * sp), 0.0, 1.0);
 }
 
+float water_depth(vec2 p) {
+	if (!has_seabed)
+		return 1000.0;
+	return surface_level - texture(seabed, (p + world_size * 0.5) / world_size).r;
+}
+
+// waves feel the bottom in water shallower than about a third of their length
+float shoal(int i, float depth) {
+	float lambda = 6.2831853 / waves[i].z;
+	return swell_scale * smoothstep(0.0, 0.35 * lambda, depth);
+}
+
 vec2 rip_uv(vec2 p) { return (p - ripple_rect.xy) / ripple_rect.z; }
 float rip_fade(vec2 uv) { vec2 e = min(uv, 1.0 - uv); return clamp(min(e.x, e.y) * 25.0, 0.0, 1.0); }
 
@@ -62,10 +90,11 @@ float view_depth(vec2 uv, mat4 inv_proj) {
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	x0 = world.xz;
-	spacing = UV.x;
+	spacing = flat_spacing > 0.0 ? flat_spacing : UV.x;
 	vec3 disp = vec3(0.0);
+	float depth = water_depth(x0);
 	for (int i = 0; i < NW; i++) {
-		float a = waves[i].w * lod(i, spacing);
+		float a = waves[i].w * lod(i, spacing) * shoal(i, depth);
 		float th = theta(i, x0);
 		disp.xz += steepness * a * waves[i].xy * cos(th);
 		disp.y += a * sin(th);
@@ -77,11 +106,15 @@ void vertex() {
 }
 
 void fragment() {
+	vec2 cell_uv = (x0 + world_size * 0.5) / world_size;
+	if (masked && texture(lake_mask, cell_uv).r < surface_level - 0.5)
+		discard;
+	float depth = water_depth(x0);
 	// analytic Gerstner normal and Jacobian (GPU Gems 1, ch. 1)
 	vec2 slope = vec2(0.0);
 	float nz = 1.0, jxx = 1.0, jzz = 1.0, jxz = 0.0;
 	for (int i = 0; i < NW; i++) {
-		float wa = waves[i].z * waves[i].w * lod(i, spacing);
+		float wa = waves[i].z * waves[i].w * lod(i, spacing) * shoal(i, depth);
 		float th = theta(i, x0);
 		float c = cos(th);
 		float s = sin(th);
@@ -104,7 +137,7 @@ void fragment() {
 	float ripple_foam = texture(ripple_tex, ruv).g * rf;
 
 	// small waves: FFT ocean slopes, attached to the water (x0 rides the swell)
-	slope += detail_strength * (texture(fft_0, x0 / fft_sizes.x).rg + texture(fft_1, x0 / fft_sizes.y).rg
+	slope += detail_strength * smoothstep(0.0, 0.5, depth) * (texture(fft_0, x0 / fft_sizes.x).rg + texture(fft_1, x0 / fft_sizes.y).rg
 			+ texture(fft_2, x0 / fft_sizes.z).rg);
 
 	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));
@@ -136,6 +169,8 @@ void fragment() {
 
 	// foam: crest compression + ripple foam, broken up by noise so it reads as foam
 	float f = (1.0 - smoothstep(0.55, 0.72, jac)) * 0.6 + ripple_foam * 0.9;   // whitecaps only on the sharpest crests; wakes churn white
+	// surf: waves break in the shallows
+	f += (1.0 - smoothstep(0.0, 1.6, depth)) * 0.85 * swell_scale;
 	float noise = texture(foam_noise, (x0 + vec2(0.2, 0.0) * time) * (2.5 / 20.0)).r * 0.6
 			+ texture(foam_noise, (x0 - vec2(0.0, 0.15) * time) * (5.0 / 20.0)).r * 0.4;
 	float lo = 1.0 - 0.6 * clamp(f, 0.0, 1.0);

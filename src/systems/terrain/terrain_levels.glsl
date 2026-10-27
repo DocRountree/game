@@ -20,7 +20,7 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer Base { float base_h[]; };
 layout(set = 0, binding = 1, std430) restrict readonly buffer RiverA { vec4 river_a[]; };   // offset xz to centreline, surface, half width
-layout(set = 0, binding = 2, std430) restrict readonly buffer RiverB { vec4 river_b[]; };   // flow dir xz, depth, wet
+layout(set = 0, binding = 2, std430) restrict readonly buffer RiverB { vec4 river_b[]; };   // flow dir xz, depth, speed (0 = dry)
 layout(set = 0, binding = 3, std430) restrict readonly buffer Ground { uint ground[]; };    // RGBA8 weights: sand, dirt, rock, lakebed
 layout(set = 0, binding = 4, std430) restrict readonly buffer Lake { float lake_level[]; };
 layout(set = 0, binding = 5, rgba32f) uniform restrict image2DArray levels;
@@ -260,7 +260,7 @@ void main() {
 	float water = 0.0;
 	if (ra.w > 0.0) {
 		float surface = ra.z;
-		bool wet = rb.w > 0.5;
+		bool wet = rb.w > 0.01;
 		float depth = rb.z * (wet ? 1.0 : 0.6);
 		float carve = surface - depth * max(0.0, 1.0 - r * r) + max(0.0, r - 1.0) * hw * 0.55;
 		h = smin(h, carve, 0.8);

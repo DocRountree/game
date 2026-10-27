@@ -21,7 +21,7 @@ extends RefCounted
 ##    Lakes fill to their sills or shrink until evaporation matches inflow.
 ## 7. Rivers become smooth centrelines and a nearest-river field for Terrain.
 
-const VERSION := 1
+const VERSION := 2
 const YEAR := 31557600.0          ## Seconds per year (rain is in m / year).
 
 var n: int
@@ -783,7 +783,8 @@ func _water_today() -> void:
 						continue
 					for k in 8:
 						var v := wl[i + _nb[k]]
-						if v > grow.get(i, WorldMaps.NO_WATER):
+						# only up the shore: never across a dam into a lower valley
+						if v > grow.get(i, WorldMaps.NO_WATER) and m.height[i] >= v - 1.0:
 							grow[i] = v
 			for i in grow:
 				wl[i] = grow[i]
@@ -877,7 +878,14 @@ func _smooth_river(pts: PackedVector3Array, flows: PackedFloat32Array, areas: Pa
 	var hw := PackedFloat32Array()
 	var depth := PackedFloat32Array()
 	var wet := PackedByteArray()
+	var speed := PackedFloat32Array()
 	for k in sp.size():
+		# flow speed from the slope of the water surface (faster down rapids)
+		var a := maxi(k - 2, 0)
+		var b := mini(k + 2, sp.size() - 1)
+		var run := Vector2(sp[b].x - sp[a].x, sp[b].z - sp[a].z).length()
+		var drop := sp[a].y - sp[b].y
+		speed.append(clampf(0.35 + 14.0 * sqrt(maxf(drop, 0.0) / maxf(run, 1.0)), 0.3, 4.5))
 		var q_past := sa[k] * past_runoff
 		var q := maxf(sq[k], 0.0)
 		var is_wet := q >= 0.08
@@ -885,7 +893,7 @@ func _smooth_river(pts: PackedVector3Array, flows: PackedFloat32Array, areas: Pa
 		hw.append(clampf(2.2 * sqrt(maxf(qw, q_past * 0.5)) + 1.5, 2.0, 60.0))
 		depth.append(clampf(0.35 * pow(maxf(qw, 0.05), 0.35) + 0.25, 0.3, 4.0))
 		wet.append(1 if is_wet else 0)
-	return {"points": sp, "half_width": hw, "depth": depth, "flow": sq, "wet": wet}
+	return {"points": sp, "half_width": hw, "depth": depth, "flow": sq, "wet": wet, "speed": speed}
 
 
 # The nearest-river field: for every cell near a river, where the nearest
@@ -902,6 +910,7 @@ func _rasterize_rivers() -> void:
 		var hw: PackedFloat32Array = river.half_width
 		var dep: PackedFloat32Array = river.depth
 		var wet: PackedByteArray = river.wet
+		var spd: PackedFloat32Array = river.speed
 		for k in pts.size() - 1:
 			var a := Vector2(pts[k].x, pts[k].z)
 			var b := Vector2(pts[k + 1].x, pts[k + 1].z)
@@ -930,7 +939,8 @@ func _rasterize_rivers() -> void:
 					rb[i * 4] = dir.x
 					rb[i * 4 + 1] = dir.y
 					rb[i * 4 + 2] = lerpf(dep[k], dep[k + 1], t)
-					rb[i * 4 + 3] = float(wet[k] if t < 0.5 else wet[k + 1])
+					var kk := k if t < 0.5 else k + 1
+					rb[i * 4 + 3] = spd[kk] if wet[kk] == 1 else 0.0
 
 
 # --- ground ------------------------------------------------------------------------------------------------
