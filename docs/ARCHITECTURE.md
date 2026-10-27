@@ -177,8 +177,11 @@ spacing, so coarse levels never alias the grid and far mountains hold still),
 plus band-limited, derivative-damped fractal detail (a few metres) and the
 river channels carved from the exact distance to the river segments (found
 through the tile index): a rounded bed, banks rounding onto a floodplain just
-above the water, steepening to meet the hillside, the lowest of all nearby
-channels so confluences merge. The bed still slopes where it meets the water
+above the water, rising gently (no walls) and blending smoothly back into the
+ground ten half widths out, the lowest of all nearby channels so confluences
+merge. Widths grow with flow; below a confluence the river eases out to wider
+than either tributary (the root of their squared widths) and never narrows
+downstream. The bed still slopes where it meets the water
 and the banks carry that slope on up before rounding over: a bed meeting the
 water flat would turn tiny mesh errors into a sawtooth shoreline. Detail is
 calm for several widths around rivers, levees rise gradually from the
@@ -212,9 +215,11 @@ ground meets the water; where a river meets a lake the higher surface wins
 (continuous, since the river ends at lake level), and at the sea the river
 water slips just under the ocean's surface. Per pixel, the water fades out by
 its true depth (water level minus the filtered terrain height), so shorelines
-are soft curves. The look is the ocean's (its FFT small waves, colours,
-refraction, absorption), with the small waves carried
-downstream by the current (two phases, crossfaded), choppier in fast water;
+are soft curves. The look is the ocean's (colours, refraction, absorption), but the small
+waves are a still ripple field (gradient noise) that only the current moves,
+so the water always visibly runs downstream (the ocean's own FFT waves travel
+by themselves and read as water running uphill): two phases, crossfaded,
+choppier in fast water;
 lakes are the same water with no current. There is no foam anywhere. Currents push swimmers
 and boats.
 

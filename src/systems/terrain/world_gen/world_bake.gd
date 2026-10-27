@@ -21,7 +21,7 @@ extends RefCounted
 ##    Lakes fill to their sills or shrink until evaporation matches inflow.
 ## 7. Rivers become smooth centrelines and a nearest-river field for Terrain.
 
-const VERSION := 12
+const VERSION := 14
 const YEAR := 31557600.0          ## Seconds per year (rain is in m / year).
 
 var n: int
@@ -968,6 +968,7 @@ func _rivers() -> void:
 				best = k
 		pts[pts.size() - 1] = Vector3(main[best].x, minf(main[best].y, pts[pts.size() - 2].y), main[best].z)
 		river.points = pts
+	_confluence_widths()
 	var scars: Array[Dictionary] = []
 	for k in m.rivers.size():
 		scars.append_array(_scars(m.rivers[k], k))
@@ -1046,10 +1047,64 @@ func _smooth_river(pts: PackedVector3Array, flows: PackedFloat32Array, areas: Pa
 		var q := maxf(sq[k], 0.0)
 		var is_wet := q >= 0.04
 		var qw := maxf(q if is_wet else q_past, q_past * 0.6)
-		hw.append(clampf(6.0 * sqrt(qw) + 4.0, 4.0, 120.0))
+		hw.append(clampf(9.0 * sqrt(qw) + 6.0, 6.0, 160.0))
 		depth.append(clampf(0.8 * pow(maxf(qw, 0.05), 0.35) + 0.8, 0.8, 8.0))
 		wet.append(1 if is_wet else 0)
 	return {"points": sp, "half_width": hw, "depth": depth, "flow": sq, "wet": wet, "speed": speed}
+
+
+# Downstream of a confluence a river is wider (and deeper) than either
+# stream above it: widths add as the square root of the summed flows, and a
+# river never narrows downstream. A tributary's last point (on the main
+# river) keeps the tributary's own size.
+func _confluence_widths() -> void:
+	for river in m.rivers:
+		var hw: PackedFloat32Array = river.half_width
+		var dep: PackedFloat32Array = river.depth
+		var c := hw.size()
+		if c >= 2:
+			hw[c - 1] = hw[c - 2]
+			dep[c - 1] = dep[c - 2]
+		river.half_width = hw
+		river.depth = dep
+	for _pass in 2:
+		for river in m.rivers:
+			var j: int = river.joins
+			if j < 0:
+				continue
+			var main: Dictionary = m.rivers[j]
+			var mp: PackedVector3Array = main.points
+			var end: Vector3 = river.points[river.points.size() - 1]
+			var kj := 0
+			var best := INF
+			for k in mp.size():
+				var d := Vector2(mp[k].x - end.x, mp[k].z - end.z).length_squared()
+				if d < best:
+					best = d
+					kj = k
+			var thw: PackedFloat32Array = river.half_width
+			var tdep: PackedFloat32Array = river.depth
+			var mhw: PackedFloat32Array = main.half_width
+			var mdep: PackedFloat32Array = main.depth
+			var t_hw := thw[thw.size() - 1]
+			var t_d := tdep[tdep.size() - 1]
+			var above_hw := mhw[maxi(kj - 1, 0)]
+			var above_d := mdep[maxi(kj - 1, 0)]
+			var w := sqrt(above_hw * above_hw + t_hw * t_hw)
+			var dd := sqrt(above_d * above_d + t_d * t_d) * 0.85
+			# eased in over ~170 m below the junction, so the channel flares
+			# smoothly instead of stepping out into a wedge
+			for k in range(kj, mhw.size()):
+				var e := smoothstep(0.0, 1.0, float(k - kj + 1) / 14.0)
+				mhw[k] = maxf(mhw[k], lerpf(above_hw, w, e))
+				mdep[k] = maxf(mdep[k], lerpf(above_d, dd, e))
+			main.half_width = mhw
+			main.depth = mdep
+	for river in m.rivers:
+		var hw: PackedFloat32Array = river.half_width
+		for k in range(1, hw.size()):
+			hw[k] = maxf(hw[k], hw[k - 1])
+		river.half_width = hw
 
 
 # Big rivers lay down wide flat valley floors (alluvial plains): within many

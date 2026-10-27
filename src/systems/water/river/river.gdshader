@@ -3,7 +3,7 @@ render_mode blend_mix, depth_draw_always, cull_disabled;
 
 // Inland water (rivers, oxbow lakes and lakes), in the same look as the
 // ocean (water.gdshader): the
-// ocean's FFT small waves for the surface detail, light from the bed refracted
+// still ripple field (only the current moves it) for the surface detail, light from the bed refracted
 // and absorbed with depth, the same body colour. What makes
 // a river: the small waves are carried downstream by the current (two
 // copies, half a cycle apart, crossfaded so the drift never resets visibly),
@@ -83,8 +83,40 @@ float view_depth(vec2 uv, mat4 inv_proj) {
 	return -p.z / p.w;
 }
 
+// Ripples that only move with the current. The ocean's FFT waves travel on
+// their own (with the wind, at their own speeds), which on a river reads as
+// water running uphill; so the river uses a still ripple field (gradient
+// noise with analytic slopes, several octaves) that only the current carries.
+vec2 hash22(vec2 p) {
+	vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+	p3 += dot(p3, p3.yzx + 33.33);
+	return fract((p3.xx + p3.yz) * p3.zy) * 2.0 - 1.0;
+}
+
+// gradient noise slope (d/dx, d/dy)
+vec2 noise_slope(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+	vec2 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+	vec2 ga = hash22(i), gb = hash22(i + vec2(1, 0)), gc = hash22(i + vec2(0, 1)), gd = hash22(i + vec2(1, 1));
+	float va = dot(ga, f), vb = dot(gb, f - vec2(1, 0)), vc = dot(gc, f - vec2(0, 1)), vd = dot(gd, f - vec2(1, 1));
+	return ga + u.x * (gb - ga) + u.y * (gc - ga) + u.x * u.y * (ga - gb - gc + gd)
+			+ du * (u.yx * (va - vb - vc + vd) + vec2(vb, vc) - va);
+}
+
 vec2 fft_slope(vec2 p) {
-	return texture(fft_0, p / fft_sizes.x).rg + texture(fft_1, p / fft_sizes.y).rg + texture(fft_2, p / fft_sizes.z).rg;
+	vec2 s = vec2(0.0);
+	float freq = 0.35;
+	float amp = 0.05;
+	mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
+	for (int o = 0; o < 5; o++) {
+		s += noise_slope(p * freq) * amp;
+		p = rot * p;
+		freq *= 2.1;
+		amp *= 0.6;
+	}
+	return s;
 }
 
 void fragment() {

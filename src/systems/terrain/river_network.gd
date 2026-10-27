@@ -9,7 +9,7 @@ extends RefCounted
 
 const TILE := 256.0          ## Tile side (m).
 const SEG_FLOATS := 16       ## p0.x, p0.z, p1.x, p1.z, s0, s1, hw0, hw1, d0, d1, v0, v1, f0, f1, 0, 0
-const REACH := 6.2           ## A segment is listed in tiles within this many half widths.
+const REACH := 10.2          ## A segment is listed in tiles within this many half widths.
 
 ## Per segment: ends, water surface (or dry bed's would-be surface) at each
 ## end, half width, depth, speed (m/s; -1 = dry bed) and fill (0..1: how

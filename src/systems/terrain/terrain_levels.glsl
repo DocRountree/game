@@ -195,7 +195,7 @@ float channels(vec2 p, out Channel best, out Channel water) {
 		float u = clamp(dot(p - a.xy, ab) / dot(ab, ab), 0.0, 1.0);
 		float hw = mix(b.z, b.w, u);
 		float r = distance(p, a.xy + ab * u) / hw;
-		if (r > 6.0)
+		if (r > 10.0)
 			continue;
 		float surface = mix(b.x, b.y, u);
 		float speed = mix(c.z, c.w, u);
@@ -204,13 +204,13 @@ float channels(vec2 p, out Channel best, out Channel water) {
 		// (a bed that met it flat would turn every tiny mesh error into a
 		// jagged shoreline metres wide); the banks carry on up at that slope,
 		// round over onto the floodplain a little above the water, which then
-		// rises gently, steepening to meet the hillside by r = 6. Every level
-		// carves every channel, so levels always agree.
-		float bank = 1.5 + 0.5 * depth;
+		// rises gently; far out the ground fades back to the natural terrain
+		// (see main), so there are no walls. Every level carves every channel,
+		// so levels always agree.
+		float bank = 0.6 + 0.2 * depth;
 		float rise = 2.0 * depth * (r - 1.0);   // the bed's slope carried on up, straight for a while
 		float profile = r < 1.0 ? surface - depth * (1.0 - r * r)
-				: surface + rise / (1.0 + rise / bank)
-				+ max(0.0, r - 2.5) * hw * 0.15 + pow(max(0.0, r - 3.5), 2.0) * hw * 0.3;
+				: surface + rise / (1.0 + rise / bank) + max(0.0, r - 2.0) * hw * 0.06;
 		carve = min(carve, profile);
 		Channel here;
 		here.r = r;
@@ -293,7 +293,7 @@ void main() {
 	float lake = lake_level[idx(ivec2(floor(grid_of(p) + 0.5)))];
 	bool in_lake = lake > NO_WATER * 0.5;
 	if (carve < 1e8)
-		h = smin(h, carve, 0.4);
+		h = mix(smin(h, carve, 0.4), h, smoothstep(5.0, 10.0, ch.r));   // blend out gently: no walls
 	bool wet = wc.speed >= 0.0 && wc.fill > 0.02 && wc.r < 4.0;
 	// where a river starts to flow it is a thin stream low in its bed
 	float level = wc.surface - wc.depth * (1.0 - wc.fill);
