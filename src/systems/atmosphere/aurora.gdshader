@@ -23,8 +23,7 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled, 
 // in closed form (error functions), with the light taken where the ray comes
 // closest to the sheet. So edge-on sheets glow brighter and neighbouring pixels
 // change smoothly: no stripes, grain, moire or dashes, even where rays graze
-// swirled sheets. Pillar detail
-// fades by its actual on-screen size (catching pillars seen end-on overhead).
+// swirled sheets. Pillar detail fades by a distance-based estimate of pixel size.
 //
 // Colour by altitude, per curtain and drifting along it: green (yellow-green to
 // cyan), red or violet-blue tops, optional magenta (N2) lower parts. Only
