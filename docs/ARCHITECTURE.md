@@ -350,8 +350,12 @@ storm days. F7 cycles a weather override.
 
 `Seafloor.height_at(x, z)` gives the bottom anywhere from the world seed:
 broad basins and rises (~16-60 m deep), sharp-crested ridges and fine ripples.
-A 768 m patch around the player is meshed (sand on flats, rock on slopes) and
-given heightmap collision. The next patch is generated on a worker thread once
+A 768 m patch around the player gets heightmap collision and is uploaded as a
+height texture. `seafloor.gdshader` draws it on a camera-centred polar grid
+(10 cm spacing underfoot, ~300 m out), adding ~0.5 m of fine fractal relief limited
+to what the local mesh spacing can hold, and shading octaves down to each pixel's
+footprint (value noise with analytic derivatives: one lookup set per octave), so
+detail never runs out. Collision stays on the coarse 4 m field. The next patch is generated on a worker thread once
 the player is 120 m from the centre (the edge is 384 m out) and swapped in when
 ready, so there is no hitch and no waiting. `Ocean.floor_depth_at`
 reads it. Underwater, the level swaps the fog for a dense blue-green murk.

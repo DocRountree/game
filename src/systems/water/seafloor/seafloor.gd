@@ -1,8 +1,9 @@
 class_name Seafloor
 extends Node3D
 ## Procedural ocean floor: a heightfield from the world seed (broad basins and
-## rises, ridges, and fine ripples), meshed and given collision in a square
-## patch around the focus that is rebuilt as it moves. Seafloor.height_at()
+## rises, ridges, and fine ripples) with collision in a square patch around the
+## focus that is rebuilt as it moves. It is drawn by seafloor.gdshader on a
+## camera-centred grid that adds fine fractal relief and endless shading detail. Seafloor.height_at()
 ## answers anywhere, so other systems (depth readouts, sampling, spawning) can
 ## ask for the bottom without the mesh.
 ##
@@ -15,14 +16,14 @@ const CELL := 4.0                  ## m per cell: the patch is ~768 m across.
 const REBUILD_DISTANCE := 120.0    ## Start the next patch this far from the current centre (edge is 384 m out).
 
 @export var focus: Node3D
-@export var material: Material
+@export var material: ShaderMaterial   ## seafloor.gdshader
 
 static var _noise_broad: FastNoiseLite
 static var _noise_ridge: FastNoiseLite
 static var _noise_fine: FastNoiseLite
 static var _seed := -1
 
-var _mesh := MeshInstance3D.new()
+var _mesh := OceanSurface.new()      # camera-centred polar grid
 var _body := StaticBody3D.new()
 var _shape := CollisionShape3D.new()
 var _centre := Vector2(INF, INF)
@@ -62,6 +63,13 @@ static func _ensure_noise() -> void:
 func _ready() -> void:
 	_mesh.material_override = material
 	add_child(_mesh)
+	# dense underfoot (10 cm), ~300 m out: stays inside the 384 m half-patch
+	_mesh.rings = 150
+	_mesh.segments = 192
+	_mesh.inner_spacing = 0.1
+	_mesh.growth = 0.03
+	_mesh.mesh = _mesh.build_mesh()
+	_mesh.custom_aabb = AABB(Vector3(-400, -200, -400), Vector3(800, 220, 800))
 	_body.collision_layer = 1   # world
 	_body.collision_mask = 0
 	_body.add_child(_shape)
@@ -71,6 +79,12 @@ func _ready() -> void:
 	_pending_centre = (at / CELL).round() * CELL
 	_generate()
 	_apply()
+
+
+func _process(_delta: float) -> void:
+	var cam := get_viewport().get_camera_3d()
+	if cam:
+		_mesh.global_position = Vector3(cam.global_position.x, 0.0, cam.global_position.z)
 
 
 func _physics_process(_delta: float) -> void:
@@ -105,52 +119,19 @@ func _generate() -> void:
 	for j in n:
 		for i in n:
 			heights[j * n + i] = height_at(c.x - half + i * CELL, c.y - half + j * CELL)
-	var verts := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var colours := PackedColorArray()
-	verts.resize(n * n)
-	normals.resize(n * n)
-	colours.resize(n * n)
-	for j in n:
-		for i in n:
-			var h := heights[j * n + i]
-			verts[j * n + i] = Vector3(-half + i * CELL, h, -half + j * CELL)
-			var hl := heights[j * n + maxi(i - 1, 0)]
-			var hr := heights[j * n + mini(i + 1, SIZE)]
-			var hd := heights[maxi(j - 1, 0) * n + i]
-			var hu := heights[mini(j + 1, SIZE) * n + i]
-			var nrm := Vector3(hl - hr, 2.0 * CELL, hd - hu).normalized()
-			normals[j * n + i] = nrm
-			# sand on the flats, darker rock on slopes, paler on the rises
-			var rock := smoothstep(0.85, 0.65, nrm.y)
-			var sand := Color(0.62, 0.56, 0.42).lerp(Color(0.72, 0.67, 0.52), clampf((h + 40.0) / 25.0, 0.0, 1.0))
-			colours[j * n + i] = sand.lerp(Color(0.3, 0.3, 0.28), rock)
-	var idx := PackedInt32Array()
-	idx.resize(SIZE * SIZE * 6)
-	var k := 0
-	for j in SIZE:
-		for i in SIZE:
-			var a := j * n + i
-			idx[k] = a; idx[k + 1] = a + 1; idx[k + 2] = a + n
-			idx[k + 3] = a + 1; idx[k + 4] = a + n + 1; idx[k + 5] = a + n
-			k += 6
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_COLOR] = colours
-	arrays[Mesh.ARRAY_INDEX] = idx
-	_result = {"centre": c, "arrays": arrays, "heights": heights}
+	_result = {"centre": c, "heights": heights}
 
 
 # Main thread: swap the finished patch in.
 func _apply() -> void:
 	var c: Vector2 = _result.centre
 	var n := SIZE + 1
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _result.arrays)
-	_mesh.mesh = mesh
-	_mesh.position = Vector3(c.x, 0.0, c.y)
+	var half := SIZE * CELL * 0.5
+	var img := Image.create_from_data(n, n, false, Image.FORMAT_RF, (_result.heights as PackedFloat32Array).to_byte_array())
+	if material:
+		material.set_shader_parameter("heights", ImageTexture.create_from_image(img))
+		# texel centres sit on the grid points: the rect spans half a cell beyond them
+		material.set_shader_parameter("patch_rect", Vector3(c.x - half - CELL * 0.5, c.y - half - CELL * 0.5, n * CELL))
 	var hm := HeightMapShape3D.new()
 	hm.map_width = n
 	hm.map_depth = n

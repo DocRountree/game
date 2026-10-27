@@ -27,6 +27,7 @@
 [ext_resource type="Shader" path="res://src/systems/atmosphere/aurora.gdshader" id="28_aurora_shader"]
 [ext_resource type="Script" path="res://src/systems/weather/weather.gd" id="29_weather"]
 [ext_resource type="Script" path="res://src/systems/water/seafloor/seafloor.gd" id="31_seafloor"]
+[ext_resource type="Shader" path="res://src/systems/water/seafloor/seafloor.gdshader" id="32_seafloor_shader"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -78,9 +79,8 @@ shader = ExtResource("24_planet_shader")
 render_priority = 2
 shader = ExtResource("16_clouds_shader")
 
-[sub_resource type="StandardMaterial3D" id="Seafloor_material"]
-vertex_color_use_as_albedo = true
-roughness = 0.95
+[sub_resource type="ShaderMaterial" id="Seafloor_material"]
+shader = ExtResource("32_seafloor_shader")
 
 [node name="OpenOcean" type="Node3D"]
 script = ExtResource("1_world")
