@@ -27,6 +27,7 @@ func _exit_tree() -> void:
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Settings.apply_to_viewport(get_viewport())
+	add_child(DebugOverlay.new())   # F3
 	$Sun.directional_shadow_max_distance = QualitySettings.current().shadow_distance
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3

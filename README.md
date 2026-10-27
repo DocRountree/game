@@ -31,6 +31,7 @@ and gameplay still work, just without ripples.
 |---|---|
 | Mouse | look around (Esc releases the cursor; arrow keys also orbit) |
 | Left Shift | swim down; get off the boat |
+| F3 | performance overlay (fps, CPU, GPU, memory) |
 | F5 | toggle first-person (default) / third-person view |
 | F6 | debug: aurora every night (toggle) |
 | M | debug: meteor shower every night (toggle) |
