@@ -17,7 +17,7 @@ extends Resource
 @export var ocean_segments := 256                     ## Vertices around each ring.
 
 @export_group("Sky")
-@export var cloud_count := 1000
+@export var cloud_count := 1600
 @export var puffs_per_cloud := 40
 
 @export_group("Distances")

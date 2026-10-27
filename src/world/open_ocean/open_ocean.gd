@@ -64,6 +64,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		var aurora: Aurora = $Aurora
 		aurora.set_forced(not aurora.forced)
 		hud.flash("Debug: aurora every night" if aurora.forced else "Debug: auroras by chance (1 in 50)", 2.5)
+	elif event.is_action_pressed(&"debug_weather"):
+		hud.flash("Debug: " + ($Weather as Weather).cycle_override(), 2.5)
 	elif event.is_action_pressed(&"respawn"):
 		_respawn_player()
 

@@ -44,7 +44,8 @@ uniform vec3 sun_direction = vec3(0.0, 0.5, -0.8);
 uniform float sun_disc_size = 0.9998;     // cos of the sun's angular radius
 uniform float sun_disc_brightness = 8.0;  // low enough that a setting sun can show its colour
 uniform vec3 night_sky = vec3(0.001, 0.002, 0.005);
-uniform float planet_radius = 6400000.0;  // metres; only places the camera above the surface
+uniform float planet_radius = 6400000.0;
+uniform float overcast = 0.0;   // 0..1: a cloud deck turns the sky a dull grey  // metres; only places the camera above the surface
 
 // (distance to sphere, distance through sphere); (1e30, 0) on a miss
 vec2 ray_sphere(float radius, vec3 origin, vec3 dir) {
@@ -140,4 +141,5 @@ void sky() {
 	}
 
 	COLOR = light + night_sky;
+	COLOR = mix(COLOR, vec3(dot(COLOR, vec3(0.3, 0.55, 0.15))) * 0.6, overcast);
 }

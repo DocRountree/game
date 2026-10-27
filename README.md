@@ -32,6 +32,7 @@ and gameplay still work, just without ripples.
 | Mouse | look around (Tab releases the cursor; arrow keys also orbit) |
 | F5 | toggle first-person (default) / third-person view |
 | F6 | debug: aurora every night (toggle) |
+| F7 | debug: cycle weather (schedule, clear, normal, overcast, storm) |
 | W A S D | swim, relative to the camera |
 | Space | tread water (do nothing and you sink) |
 | E | board the boat / jump off |

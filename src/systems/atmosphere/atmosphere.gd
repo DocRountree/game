@@ -23,6 +23,7 @@ extends Node
 @export var aurora: Aurora
 @export var moonlight: DirectionalLight3D
 @export var clouds: Clouds
+@export var weather: Weather
 @export var sun_energy := 1.4
 @export var moon_energy := 0.12                     ## Full moon light.
 
@@ -180,8 +181,10 @@ func night_amount() -> float:
 
 func _update_sun() -> void:
 	var dir := sun_direction()
+	var clear := weather.sunlight if weather and not Engine.is_editor_hint() else 1.0   # 1 clear .. low overcast
 	if _material:
 		_material.set_shader_parameter("sun_direction", dir)
+		_material.set_shader_parameter("overcast", weather.cloud_fill * 0.85 if weather and not Engine.is_editor_hint() else 0.0)
 	if sun == null or not sun.is_inside_tree():
 		return
 	sun.global_basis = Basis.looking_at(-dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
@@ -190,7 +193,7 @@ func _update_sun() -> void:
 	var peak := maxf(t.x, maxf(t.y, t.z))
 	var up := smoothstep(-0.03, 0.04, dir.y)    # the planet blocks the sun below the horizon
 	sun.light_color = Color(t.x / peak, t.y / peak, t.z / peak) if peak > 0.0 else Color.BLACK
-	sun.light_energy = sun_energy * clampf(peak, 0.0, 1.0) * up
+	sun.light_energy = sun_energy * clampf(peak, 0.0, 1.0) * up * clear
 	sun.shadow_enabled = up > 0.0
 	var night := night_amount()
 	if starfield:   # stars come out from civil twilight (sun 0-10 degrees below the horizon)
@@ -209,7 +212,7 @@ func _update_sun() -> void:
 		moon.update_sky(moon_dir, dir, night)
 	if moonlight:
 		moonlight.global_basis = Basis.looking_at(-moon_dir, Vector3.UP if absf(moon_dir.y) < 0.99 else Vector3.FORWARD)
-		moonlight.light_energy = moon_energy * illuminated * moon_up * night
+		moonlight.light_energy = moon_energy * illuminated * moon_up * night * clear
 		moonlight.visible = moonlight.light_energy > 0.001
 	if clouds:
 		# Sunlight as it reaches the cloud layer, which still sees the sun for a
@@ -229,7 +232,7 @@ func _update_sun() -> void:
 		var twilight := smoothstep(0.06, 0.0, dir.y) * smoothstep(-0.16, -0.03, dir.y)
 		var ambient := Vector3(0.20, 0.27, 0.40) * day_amount + Vector3(0.012, 0.014, 0.024) \
 				+ Vector3(0.13, 0.09, 0.13) * twilight * clampf(strat_scattering / strat_reference, 0.0, 2.0) \
-				+ Vector3(0.05, 0.055, 0.07) * illuminated * moon_up * night
+				+ Vector3(0.05, 0.055, 0.07) * illuminated * moon_up * night * clear
 		clouds.update_sky(dir, cloud_sun, ambient)
 
 

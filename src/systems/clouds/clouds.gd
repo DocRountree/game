@@ -10,9 +10,10 @@ extends MultiMeshInstance3D
 ## Atmosphere feeds in the sunlight as it reaches the cloud layer, so clouds
 ## catch sunset colours, and stay lit a little after the sun has set below.
 
-@export var area := 24000.0              ## Side of the square of sky wrapped around the camera (m); big enough to reach low over the horizon.
+@export var area := 30000.0              ## Side of the square of sky wrapped around the camera (m); its edge lies beyond the horizon.
+@export var curvature_radius := 38000.0  ## Exaggerated curvature: the layer sinks below the horizon ~10 km out.
 @export var altitude := 1300.0           ## Cloud base (m).
-@export var cloud_count := 1000
+@export var cloud_count := 1600
 @export var puffs_per_cloud := 40       ## More puffs means smaller ones: overall cloud size stays the same.
 @export var wind := Vector2(7.0, 2.5)    ## m/s.
 @export var life_seconds := 150.0        ## Real seconds for one form-live-evaporate cycle.
@@ -72,6 +73,7 @@ func _build() -> void:
 	var mat := material_override as ShaderMaterial
 	if mat:
 		mat.set_shader_parameter("area", area)
+		mat.set_shader_parameter("curvature_radius", curvature_radius)
 		mat.set_shader_parameter("altitude", altitude)
 		mat.set_shader_parameter("wind", wind)
 		mat.set_shader_parameter("life_seconds", life_seconds)
@@ -86,3 +88,20 @@ func update_sky(sun_direction: Vector3, sun_colour: Vector3, ambient: Vector3) -
 	mat.set_shader_parameter("sun_direction", sun_direction)
 	mat.set_shader_parameter("sun_colour", sun_colour)
 	mat.set_shader_parameter("ambient", ambient)
+
+
+## Weather: share of clouds that form, overcast fullness, and greyness (0..1).
+func set_weather(coverage: float, fill: float, grey: float) -> void:
+	var mat := material_override as ShaderMaterial
+	if mat:
+		mat.set_shader_parameter("coverage", coverage)
+		mat.set_shader_parameter("fill", fill)
+		mat.set_shader_parameter("grey", grey)
+
+
+## Lightning: light the clouds around a point (amount 0 = no flash).
+func set_flash(at: Vector3, amount: float) -> void:
+	var mat := material_override as ShaderMaterial
+	if mat:
+		mat.set_shader_parameter("flash_pos", at)
+		mat.set_shader_parameter("flash", amount)

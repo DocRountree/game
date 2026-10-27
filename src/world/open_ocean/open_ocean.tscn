@@ -25,6 +25,8 @@
 [ext_resource type="Shader" path="res://src/systems/atmosphere/meteors.gdshader" id="26_meteor_shader"]
 [ext_resource type="Script" path="res://src/systems/atmosphere/aurora.gd" id="27_aurora"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/aurora.gdshader" id="28_aurora_shader"]
+[ext_resource type="Script" path="res://src/systems/weather/weather.gd" id="29_weather"]
+[ext_resource type="Script" path="res://src/systems/weather/lightning.gd" id="30_lightning"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -90,7 +92,7 @@ directional_shadow_max_distance = 60.0
 [node name="Clock" type="Node" parent="."]
 script = ExtResource("20_clock")
 
-[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "planets", "meteors", "aurora", "moonlight", "clouds")]
+[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "planets", "meteors", "aurora", "moonlight", "clouds", "weather")]
 script = ExtResource("9_atmosphere")
 clock = NodePath("../Clock")
 sun = NodePath("../Sun")
@@ -102,6 +104,7 @@ meteors = NodePath("../Meteors")
 aurora = NodePath("../Aurora")
 moonlight = NodePath("../Moonlight")
 clouds = NodePath("../Clouds")
+weather = NodePath("../Weather")
 
 [node name="Starfield" type="MultiMeshInstance3D" parent="."]
 material_override = SubResource("Star_material")
@@ -138,6 +141,16 @@ light_energy = 0.0
 material_override = SubResource("Cloud_material")
 cast_shadow = 0
 script = ExtResource("15_clouds")
+
+[node name="Weather" type="Node" parent="." node_paths=PackedStringArray("clock", "clouds")]
+script = ExtResource("29_weather")
+clock = NodePath("../Clock")
+clouds = NodePath("../Clouds")
+
+[node name="Lightning" type="Node3D" parent="." node_paths=PackedStringArray("weather", "clouds")]
+script = ExtResource("30_lightning")
+weather = NodePath("../Weather")
+clouds = NodePath("../Clouds")
 
 [node name="Ocean" parent="." node_paths=PackedStringArray("focus", "sun") instance=ExtResource("2_ocean")]
 focus = NodePath("../Player")

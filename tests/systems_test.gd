@@ -163,6 +163,40 @@ func _run() -> void:
 	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
 			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
 
+	# weather: about 4 clear, 2 normal, 1 overcast in 7; overcast days flanked by normal
+	# ones; about 1 overcast day in 10 stormy; lightning at the requested rates
+	var weather: Weather = world.get_node("Weather")
+	var counts := [0, 0, 0]
+	var storms := 0
+	var flanked := true
+	for d in range(-3500, 3500):
+		var k: int = weather.schedule(d)[0]
+		counts[k] += 1
+		if k == Weather.Kind.OVERCAST:
+			storms += int(weather.schedule(d)[1])
+			flanked = flanked and weather.schedule(d - 1)[0] == Weather.Kind.NORMAL \
+					and weather.schedule(d + 1)[0] == Weather.Kind.NORMAL
+	var per7 := [counts[0] * 7.0 / 7000.0, counts[1] * 7.0 / 7000.0, counts[2] * 7.0 / 7000.0]
+	var storm_share: float = float(storms) / counts[2]
+	_check(flanked and absf(per7[0] - 4.0) < 0.3 and absf(per7[1] - 2.0) < 0.2 and absf(per7[2] - 1.0) < 0.1
+			and storm_share > 0.06 and storm_share < 0.14,
+			"weather per 7 days: %.1f clear, %.1f normal, %.1f overcast; %d%% of overcast days stormy" % [per7[0], per7[1], per7[2], roundi(storm_share * 100.0)])
+	var lightning: Lightning = world.get_node("Lightning")
+	weather.override = 3
+	var f0 := lightning.flashes
+	var b0 := lightning.bolts
+	for i in 18000:   # 10 minutes of storm
+		lightning._process(1.0 / 30.0)
+	var nf := lightning.flashes - f0 - (lightning.bolts - b0)   # bolts also flash
+	var nb := lightning.bolts - b0
+	weather.override = 0
+	for i in 3000:
+		lightning._process(1.0 / 30.0)
+	var quiet := lightning.flashes - f0 - nf - nb
+	weather.override = -1
+	_check(nf > 90 and nf < 160 and nb >= 6 and nb <= 25 and quiet == 0,
+			"storm: %d cloud flashes and %d ground strokes in 10 minutes, none when clear" % [nf, nb])
+
 	# exploration: cells around the player are revealed, and survive a save/load
 	var explore: ExplorationTracker = world.get_node("Exploration")
 	var revealed := explore.explored.size()

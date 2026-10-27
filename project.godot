@@ -94,6 +94,10 @@ debug_aurora={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":4194337)]
 }
+debug_weather={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":4194338)]
+}
 quit={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":4194305)]
