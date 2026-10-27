@@ -15,7 +15,7 @@ static func generate(config: WorldConfig) -> Array[Landmass]:
 
 	var continent := Landmass.new()
 	continent.kind = Landmass.Kind.CONTINENT
-	continent.radius = rng.randf_range(10000.0, 12500.0)
+	continent.radius = rng.randf_range(14000.0, 17000.0)
 	continent.peak = rng.randf_range(700.0, 1300.0)
 	continent.aridity = rng.randf_range(0.25, 0.75)
 	continent.coast_roughness = rng.randf_range(0.5, 0.9)

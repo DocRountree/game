@@ -8,11 +8,12 @@ extends RefCounted
 ## banks at any resolution.
 
 const TILE := 256.0          ## Tile side (m).
-const SEG_FLOATS := 12       ## p0.x, p0.z, p1.x, p1.z, s0, s1, hw0, hw1, d0, d1, v0, v1
+const SEG_FLOATS := 16       ## p0.x, p0.z, p1.x, p1.z, s0, s1, hw0, hw1, d0, d1, v0, v1, f0, f1, 0, 0
 const REACH := 6.2           ## A segment is listed in tiles within this many half widths.
 
 ## Per segment: ends, water surface (or dry bed's would-be surface) at each
-## end, half width, depth, and speed (m/s; -1 = dry bed).
+## end, half width, depth, speed (m/s; -1 = dry bed) and fill (0..1: how
+## much of the channel holds water, thinning in where a river starts).
 var segments := PackedFloat32Array()
 ## Tile index: tile_count + 1 offsets, then segment indices.
 var tiles := PackedInt32Array()
@@ -29,12 +30,14 @@ func _init(maps: WorldMaps) -> void:
 		var dep: PackedFloat32Array = river.depth
 		var spd: PackedFloat32Array = river.speed
 		var wet: PackedByteArray = river.wet
+		var fill: PackedFloat32Array = river.get("fill", PackedFloat32Array())
 		for k in pts.size() - 1:
 			if Vector2(pts[k].x - pts[k + 1].x, pts[k].z - pts[k + 1].z).length_squared() < 0.01:
 				continue
 			segments.append_array([pts[k].x, pts[k].z, pts[k + 1].x, pts[k + 1].z,
 					pts[k].y, pts[k + 1].y, hw[k], hw[k + 1], dep[k], dep[k + 1],
-					spd[k] if wet[k] == 1 else -1.0, spd[k + 1] if wet[k + 1] == 1 else -1.0])
+					spd[k] if wet[k] == 1 else -1.0, spd[k + 1] if wet[k + 1] == 1 else -1.0,
+					fill[k] if fill.size() > k else float(wet[k]), fill[k + 1] if fill.size() > k + 1 else float(wet[k + 1]), 0.0, 0.0])
 	_build_tiles()
 
 
@@ -106,7 +109,11 @@ func query(x: float, z: float) -> Dictionary:
 		if r < best_r:
 			best_r = r
 			var v := lerpf(segments[o + 10], segments[o + 11], u)
-			best = {"r": r, "distance": d, "half_width": hw, "surface": lerpf(segments[o + 4], segments[o + 5], u),
-					"depth": lerpf(segments[o + 8], segments[o + 9], u), "flow_dir": ab.normalized(),
-					"speed": maxf(v, 0.0), "wet": v > -0.5}
+			var fill := lerpf(segments[o + 12], segments[o + 13], u)
+			var depth := lerpf(segments[o + 8], segments[o + 9], u)
+			# a thin stream sits lower in its bed and is narrower
+			var surface := lerpf(segments[o + 4], segments[o + 5], u) - depth * (1.0 - fill)
+			best = {"r": r / sqrt(maxf(fill, 0.01)), "distance": d, "half_width": hw * sqrt(maxf(fill, 0.0)),
+					"surface": surface, "depth": depth * fill, "flow_dir": ab.normalized(),
+					"speed": maxf(v, 0.0), "wet": v > -0.5 and fill > 0.02}
 	return best

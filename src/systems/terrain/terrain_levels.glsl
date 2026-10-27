@@ -21,7 +21,8 @@
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(set = 0, binding = 0, std430) restrict readonly buffer Base { float base_h[]; };   // mip chain, finest first
-// Per segment, 3 vec4: (p0.xz, p1.xz), (surface 0, 1, half width 0, 1), (depth 0, 1, speed 0, 1; -1 = dry)
+// Per segment, 4 vec4: (p0.xz, p1.xz), (surface 0, 1, half width 0, 1),
+// (depth 0, 1, speed 0, 1; -1 = dry), (fill 0, 1, -, -)
 layout(set = 0, binding = 1, std430) restrict readonly buffer Segments { vec4 seg[]; };
 // tiles_per_side^2 + 1 offsets, then segment indices
 layout(set = 0, binding = 2, std430) restrict readonly buffer Tiles { int tiles[]; };
@@ -163,16 +164,21 @@ struct Channel {
 	float surface;
 	float depth;
 	float speed;    // < 0: dry bed
+	float fill;     // how much of the channel holds water (0..1)
 	vec2 dir;
 };
 
-float channels(vec2 p, out Channel best) {
+// best: the channel p is most inside of (any); water: the same among channels
+// holding water, so a dry bed joining a river never punches a hole in it.
+float channels(vec2 p, out Channel best, out Channel water) {
 	best.r = 1e9;
 	best.hw = 1.0;
 	best.surface = 0.0;
 	best.depth = 0.0;
 	best.speed = -1.0;
+	best.fill = 0.0;
 	best.dir = vec2(1.0, 0.0);
+	water = best;
 	float carve = 1e9;
 	ivec2 tile = ivec2(floor((p - (pc.center - 0.5 * pc.world_size)) / pc.tile_size));
 	if (any(lessThan(tile, ivec2(0))) || any(greaterThanEqual(tile, ivec2(pc.tiles_per_side))))
@@ -180,10 +186,11 @@ float channels(vec2 p, out Channel best) {
 	int t = tile.y * pc.tiles_per_side + tile.x;
 	int base = pc.tiles_per_side * pc.tiles_per_side + 1;
 	for (int k = tiles[t]; k < tiles[t + 1]; k++) {
-		int i = tiles[base + k] * 3;
+		int i = tiles[base + k] * 4;
 		vec4 a = seg[i];
 		vec4 b = seg[i + 1];
 		vec4 c = seg[i + 2];
+		vec4 e = seg[i + 3];
 		vec2 ab = a.zw - a.xy;
 		float u = clamp(dot(p - a.xy, ab) / dot(ab, ab), 0.0, 1.0);
 		float hw = mix(b.z, b.w, u);
@@ -193,23 +200,30 @@ float channels(vec2 p, out Channel best) {
 		float surface = mix(b.x, b.y, u);
 		float speed = mix(c.z, c.w, u);
 		float depth = mix(c.x, c.y, u) * (speed < 0.0 ? 0.7 : 1.0);
-		// a smooth, rounded bed below the surface (every level carves every
-		// channel, so levels always agree)
-		// banks round over onto a floodplain a little above the water, which
-		// then rises gently away from the river
-		float bank = 0.6 + 0.15 * depth;
-		float profile = r < 1.0 ? surface - depth * (1.0 - smoothstep(0.0, 1.0, r * r))
-				: surface + bank * smoothstep(1.0, 2.0, r) + max(0.0, r - 2.0) * hw * 0.25
-				+ pow(max(0.0, r - 2.5), 2.0) * hw * 0.35;   // steepening, to meet the hillside by r = 6
+		// A rounded bed whose sides still slope where they meet the water
+		// (a bed that met it flat would turn every tiny mesh error into a
+		// jagged shoreline metres wide); the banks carry on up at that slope,
+		// round over onto the floodplain a little above the water, which then
+		// rises gently, steepening to meet the hillside by r = 6. Every level
+		// carves every channel, so levels always agree.
+		float bank = 1.5 + 0.5 * depth;
+		float rise = 2.0 * depth * (r - 1.0);   // the bed's slope carried on up, straight for a while
+		float profile = r < 1.0 ? surface - depth * (1.0 - r * r)
+				: surface + rise / (1.0 + rise / bank)
+				+ max(0.0, r - 2.5) * hw * 0.15 + pow(max(0.0, r - 3.5), 2.0) * hw * 0.3;
 		carve = min(carve, profile);
-		if (r < best.r) {
-			best.r = r;
-			best.hw = hw;
-			best.surface = surface;
-			best.depth = depth;
-			best.speed = speed;
-			best.dir = normalize(ab);
-		}
+		Channel here;
+		here.r = r;
+		here.hw = hw;
+		here.surface = surface;
+		here.depth = depth;
+		here.speed = speed;
+		here.fill = mix(e.x, e.y, u);
+		here.dir = normalize(ab);
+		if (r < best.r)
+			best = here;
+		if (speed >= 0.0 && here.fill > 0.02 && r < water.r)
+			water = here;
 	}
 	return carve;
 }
@@ -250,9 +264,10 @@ void main() {
 	rough *= sea ? 0.25 : mix(0.25, 1.0, smoothstep(1.0, 40.0, h));
 
 	Channel ch;
-	float carve = channels(p, ch);
+	Channel wc;
+	float carve = channels(p, ch, wc);
 	// detail calms down in and right beside channels
-	float calm = smoothstep(1.5, 4.0, ch.r);
+	float calm = smoothstep(2.5, 6.0, ch.r);
 
 	// fractal detail, band-limited to what this level can show
 	float amp = 6.0 * rough * calm * pc.detail;
@@ -278,33 +293,42 @@ void main() {
 	float lake = lake_level[idx(ivec2(floor(grid_of(p) + 0.5)))];
 	bool in_lake = lake > NO_WATER * 0.5;
 	if (carve < 1e8)
-		h = smin(h, carve, 0.6);
-	bool wet = ch.speed >= 0.0 && ch.r < 4.0;
-	if (wet && ch.r > 1.0) {
+		h = smin(h, carve, 0.4);
+	bool wet = wc.speed >= 0.0 && wc.fill > 0.02 && wc.r < 4.0;
+	// where a river starts to flow it is a thin stream low in its bed
+	float level = wc.surface - wc.depth * (1.0 - wc.fill);
+	// at the mouth the river water slips under the sea's surface, so the two
+	// meet without a seam
+	level -= 0.8 * (1.0 - smoothstep(0.3, 1.6, level));
+	if (wet && wc.r > 1.0) {
 		// natural levees: the banks never dip below the water beside them,
 		// fading out into the floodplain well before the river's reach ends
-		float levee = max(h, ch.surface + 0.25 - max(0.0, ch.r - 2.2) * ch.hw * 0.25);
-		h = mix(levee, h, smoothstep(2.4, 3.6, ch.r));
+		// (rising gradually from the waterline: a step there would serrate it)
+		float levee = max(h, level + 0.5 * smoothstep(1.0, 1.8, wc.r) - max(0.0, wc.r - 2.2) * wc.hw * 0.25);
+		h = mix(levee, h, smoothstep(2.4, 3.6, wc.r));
 	}
-	// the water sheet: level across the channel and a little past the banks
-	// (the ground cuts the shoreline), then diving under the ground
-	vec4 river_water = vec4(h - 5.0, 0.0, 0.0, 0.0);
-	if (wet && !in_lake && ch.surface > 0.6) {
-		float y = ch.surface - max(0.0, ch.r - 2.0) * ch.hw;
-		vec2 current = ch.dir * ch.speed * (1.0 - 0.6 * min(ch.r * ch.r, 1.0));
-		float foam = smoothstep(1.8, 3.6, ch.speed);
-		river_water = vec4(max(y, h - 5.0), current, foam);
+	// One water sheet for rivers, oxbow lakes and lakes: level across the
+	// water and a little past its edge (the ground cuts the shoreline, exactly),
+	// then diving under the ground. Where a river meets a lake the higher of
+	// the two wins, which is continuous because the river ends at lake level.
+	vec4 sheet = vec4(h - 5.0, 0.0, 0.0, 0.0);
+	if (wet) {
+		float y = level - max(0.0, wc.r - 1.8) * wc.hw * 1.5;
+		vec2 current = wc.dir * wc.speed * (1.0 - 0.6 * min(wc.r * wc.r, 1.0));
+		sheet = vec4(max(y, h - 5.0), current, smoothstep(2.2, 4.0, wc.speed) * wc.fill);
 	}
+	if (in_lake && lake >= sheet.x)
+		sheet = vec4(lake, 0.0, 0.0, 0.0);
 	// damp ground just above the water (or under it); dry beds pale instead
 	float surface = 0.0;   // sea level
 	if (in_lake)
 		surface = max(surface, lake);
-	if (wet && ch.r < 4.0)
-		surface = max(surface, ch.surface);
-	water = 1.0 - smoothstep(0.0, 0.6, h - surface);
-	if (ch.speed < 0.0 && ch.r < 1.3)
+	if (wet)
+		surface = max(surface, level);
+	water = 1.0 - smoothstep(0.0, 0.3, h - surface);
+	if (ch.speed < 0.0 && ch.r < 1.3 && !(wet && wc.r < 1.2))
 		water = -0.7 * (1.0 - smoothstep(0.7, 1.3, ch.r));
 
 	imageStore(levels, at, vec4(h, 0.0, 0.0, water));
-	imageStore(water_levels, at, river_water);
+	imageStore(water_levels, at, sheet);
 }

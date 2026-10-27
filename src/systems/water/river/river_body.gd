@@ -37,7 +37,10 @@ func _process(delta: float) -> void:
 		material.set_shader_parameter("sun_color", Vector3(_sun.light_color.r, _sun.light_color.g, _sun.light_color.b) * _sun.light_energy)
 	if ocean and ocean.has_node("Surface"):
 		var src: ShaderMaterial = (ocean.get_node("Surface") as MeshInstance3D).material_override
-		for p: StringName in [&"fft_0", &"fft_1", &"fft_2", &"fft_sizes", &"foam_noise"]:
+		# the ocean's own colours too, so where the sea runs up a river mouth
+		# the hand-off doesn't show
+		for p: StringName in [&"fft_0", &"fft_1", &"fft_2", &"fft_sizes", &"foam_noise",
+				&"deep_color", &"scatter_color", &"absorption"]:
 			material.set_shader_parameter(p, src.get_shader_parameter(p))
 
 

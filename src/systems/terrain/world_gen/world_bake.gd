@@ -21,7 +21,7 @@ extends RefCounted
 ##    Lakes fill to their sills or shrink until evaporation matches inflow.
 ## 7. Rivers become smooth centrelines and a nearest-river field for Terrain.
 
-const VERSION := 7
+const VERSION := 12
 const YEAR := 31557600.0          ## Seconds per year (rain is in m / year).
 
 var n: int
@@ -936,9 +936,21 @@ func _rivers() -> void:
 		var river := _smooth_river(pts, flows, areas, mean_runoff)
 		river.joins = joins
 		river.kind = RIVER
-		_floodplain(river)
-		_meander(river, m.rivers.size())
 		m.rivers.append(river)
+	# every floodplain at once (each cell takes the nearest river's water),
+	# then no river runs above the ground under it, then the meanders
+	for river in m.rivers:
+		_floodplain(river)
+	_apply_floodplains()
+	for k in m.rivers.size():
+		var river: Dictionary = m.rivers[k]
+		var pts: PackedVector3Array = river.points
+		for q in pts.size():
+			pts[q].y = minf(pts[q].y, m.height_at(pts[q].x, pts[q].z))
+			if q > 0:
+				pts[q].y = minf(pts[q].y, pts[q - 1].y)
+		river.points = pts
+		_meander(river, k)
 	# tributaries end exactly on the (now meandering) river they join
 	for river in m.rivers:
 		var j: int = river.joins
@@ -961,7 +973,14 @@ func _rivers() -> void:
 		scars.append_array(_scars(m.rivers[k], k))
 	m.rivers.append_array(scars)
 	for river in m.rivers:
-		river.erase("offsets")
+		river.erase("loops")
+		if river.kind == OXBOW:
+			var f := PackedFloat32Array()
+			f.resize(river.points.size())
+			f.fill(1.0)
+			river.fill = f
+		else:
+			_fill(river)
 
 
 enum { RIVER, OXBOW, SCAR }   ## River kinds: flowing (or dry) river, oxbow lake, meander scar.
@@ -998,6 +1017,20 @@ func _smooth_river(pts: PackedVector3Array, flows: PackedFloat32Array, areas: Pa
 			sp[k] = Vector3(avg.x, prev[k].y, avg.z)
 	for k in range(1, count):
 		sp[k].y = minf(sp[k].y, sp[k - 1].y)
+	# the profile falls in steps (cell to cell): ease each step into a ramp
+	# that starts upstream of it, only ever lowering the water (never perching it)
+	var heights := PackedFloat32Array()
+	for k in count:
+		heights.append(sp[k].y)
+	for k in count:
+		var sum := 0.0
+		var cnt := 0
+		for q in range(maxi(k - 8, 0), mini(k + 8, count - 1) + 1):
+			sum += heights[q]
+			cnt += 1
+		sp[k].y = minf(heights[k], sum / cnt)
+	for k in range(1, count):
+		sp[k].y = minf(sp[k].y, sp[k - 1].y)
 	var hw := PackedFloat32Array()
 	var depth := PackedFloat32Array()
 	var wet := PackedByteArray()
@@ -1019,33 +1052,97 @@ func _smooth_river(pts: PackedVector3Array, flows: PackedFloat32Array, areas: Pa
 	return {"points": sp, "half_width": hw, "depth": depth, "flow": sq, "wet": wet, "speed": speed}
 
 
-# Big rivers lay down flat valley floors: within a few channel widths of the
-# river (more for bigger rivers) the ground is brought down to just above the
-# water, rising gently toward the valley sides. This is where meanders, oxbow
-# lakes and scars have room.
+# Big rivers lay down wide flat valley floors (alluvial plains): within many
+# channel widths of the river (more for bigger rivers) the ground is brought
+# down to just above the water, curving up to meet the valley sides. This is
+# where meanders, oxbow lakes and scars have room.
 func _floodplain(river: Dictionary) -> void:
 	var pts: PackedVector3Array = river.points
 	var hw: PackedFloat32Array = river.half_width
 	var h := m.height
+	if _lake_guard.is_empty():
+		_build_lake_guard()
+	# each cell takes its floor from the nearest river point of all rivers,
+	# so no river's floodplain drops the ground beside another river (or its
+	# own reach upstream) below that river's water
+	if _fp_dist.is_empty():
+		_fp_dist.resize(n * n)
+		_fp_dist.fill(INF)
+		_fp_level.resize(n * n)
+		_fp_width.resize(n * n)
+	var touched := PackedInt32Array()
 	for k in range(0, pts.size(), 2):
-		if hw[k] < 7.0 or _lake_at(pts[k]) :
+		if hw[k] < 6.0 or _lake_at(pts[k]):
 			continue
-		var width := clampf(hw[k] * 14.0, 150.0, 1500.0)
+		var width := clampf(hw[k] * 28.0, 250.0, 3000.0)
 		var g := m.to_grid(pts[k].x, pts[k].z)
-		var reach := ceili(width * 2.2 / cell)
+		var reach := ceili(width * 2.0 / cell)
 		var cx := roundi(g.x)
 		var cy := roundi(g.y)
+		var px := pts[k].x
+		var pz := pts[k].z
 		for y in range(maxi(cy - reach, 1), mini(cy + reach, n - 2) + 1):
+			var dz := (y + 0.5) * cell - size * 0.5 - pz
 			for x in range(maxi(cx - reach, 1), mini(cx + reach, n - 2) + 1):
 				var i := y * n + x
-				if not _land(i) or _lake_id[i] != 0:
+				if _is_land[i] == 0 or _lake_id[i] != 0:
 					continue
-				var d := Vector2(_cx(i) - pts[k].x, _cz(i) - pts[k].z).length() / width
-				if d > 2.2:
+				var dx := (x + 0.5) * cell - size * 0.5 - px
+				var dist := sqrt(dx * dx + dz * dz)
+				if dist > width * 2.0 or dist >= _fp_dist[i]:
 					continue
-				# flat near the river, curving up to meet the valley sides (by 2.2
-				# widths the curve is well above most hills, so no edge shows)
-				h[i] = minf(h[i], pts[k].y + 1.0 + width * (0.01 * d + 0.12 * d * d * d))
+				if _fp_dist[i] == INF:
+					touched.append(i)
+				_fp_dist[i] = dist
+				_fp_level[i] = pts[k].y
+				_fp_width[i] = width
+	_fp_touched.append_array(touched)
+
+
+var _fp_touched := PackedInt32Array()
+
+
+func _apply_floodplains() -> void:
+	var h := m.height
+	for i in _fp_touched:
+		if _fp_dist[i] == INF:
+			continue   # listed twice
+		var d := _fp_dist[i] / _fp_width[i]
+		# flat out to about one width, then curving up to meet the valley
+		# sides (by two widths the curve is above most hills: no edge)
+		var floor_h := _fp_level[i] + 1.0 + _fp_width[i] * (0.004 * d + 0.08 * pow(d, 4.0))
+		# never below a nearby lake's level: lakes keep their shores
+		if h[i] > _lake_guard[i]:
+			floor_h = maxf(floor_h, _lake_guard[i])
+		h[i] = minf(h[i], floor_h)
+		_fp_dist[i] = INF
+
+
+var _fp_dist := PackedFloat32Array()
+var _fp_level := PackedFloat32Array()
+var _fp_width := PackedFloat32Array()
+
+
+var _lake_guard := PackedFloat32Array()
+
+
+# Each lake's level plus a little, spread about 600 m around it.
+func _build_lake_guard() -> void:
+	_lake_guard.resize(n * n)
+	_lake_guard.fill(-INF)
+	for li in m.lakes.size():
+		var lake: Dictionary = m.lakes[li]
+		if lake.dry:
+			continue
+		var r: Rect2 = Rect2(lake.rect).grow(600.0)
+		var g0 := m.to_grid(r.position.x, r.position.y)
+		var g1 := m.to_grid(r.end.x, r.end.y)
+		var lvl := float(lake.level) + 0.6
+		for y in range(clampi(floori(g0.y), 0, n - 1), clampi(ceili(g1.y), 0, n - 1) + 1):
+			for x in range(clampi(floori(g0.x), 0, n - 1), clampi(ceili(g1.x), 0, n - 1) + 1):
+				var i := y * n + x
+				if _lake_id[i] == 0:
+					_lake_guard[i] = maxf(_lake_guard[i], lvl)
 
 
 func _lake_at(p: Vector3) -> bool:
@@ -1053,128 +1150,262 @@ func _lake_at(p: Vector3) -> bool:
 	return _lake_id[clampi(roundi(g.y), 0, n - 1) * n + clampi(roundi(g.x), 0, n - 1)] != 0
 
 
-# Rivers wind: the centreline swings side to side in loops, a wavelength of
-# about eleven channel widths and an amplitude near a third of that, but only
-# as far as the valley floor is flat and wide: the swing is limited to where
-# the ground on both sides stays within a few metres of the water. So rivers
-# meander across floodplains and run straight in narrow valleys. The offsets
-# are kept for _scars().
+const MEANDER_STEP := 12.0  ## Spacing of meandering centrelines (m).
+
+
+# Rivers meander as sine-generated curves (Langbein & Leopold; Kinoshita):
+# the channel's direction swings as omega * sin(phase), plus a little skew and
+# fattening (the third harmonic) so bends lean downstream and bulge like real
+# ones. With omega up to 1.4 radians the loops swing round into horseshoes. The
+# curve is traced in small steps, so it is smooth, and steered gently back
+# toward the valley's line so it never wanders off. How wild the swing gets is
+# limited by how much flat floor the valley has on both sides, so rivers loop
+# across floodplains and run straight in narrow valleys. The apex of every big
+# loop is kept for _scars().
 func _meander(river: Dictionary, index: int) -> void:
 	var pts: PackedVector3Array = river.points
 	var hw: PackedFloat32Array = river.half_width
 	var count := pts.size()
-	var offsets := PackedFloat32Array()
-	offsets.resize(count)
-	river.offsets = offsets
+	river.loops = []
 	if count < 8:
 		return
 	var total := STEP * (count - 1)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = config.seed_for("meander:%d" % index)
-	var phase := rng.randf() * TAU
-	var phase2 := rng.randf() * TAU
-	var theta := 0.0
-	var out := pts.duplicate()
-	var amps := PackedFloat32Array()
-	var thetas := PackedFloat32Array()
+	# room on both sides, as a lateral swing (m), changing slowly downstream
+	var room := PackedFloat32Array()
 	var normals := PackedVector2Array()
+	var dirs := PackedVector2Array()
 	for k in count:
-		var lam := clampf(hw[k] * 22.0, 140.0, 1400.0)
-		theta += STEP / lam * TAU
-		thetas.append(theta)
-		var a := maxi(k - 4, 0)
-		var b := mini(k + 4, count - 1)
+		var a := maxi(k - 3, 0)
+		var b := mini(k + 3, count - 1)
 		var t := Vector2(pts[b].x - pts[a].x, pts[b].z - pts[a].z).normalized()
+		dirs.append(t)
 		var nrm := Vector2(-t.y, t.x)
 		normals.append(nrm)
+		var lam := clampf(hw[k] * 26.0, 160.0, 1800.0)
 		var s := STEP * k
-		var taper := smoothstep(0.0, lam * 0.6, s) * smoothstep(0.0, lam * 0.6, total - s)
-		var want := 0.4 * lam * taper
-		# how far the floor stays flat on both sides
-		var room := 0.0
-		while room < want:
-			var d := room + STEP * 0.5
+		var want := 0.45 * lam * smoothstep(0.0, lam * 0.7, s) * smoothstep(0.0, lam * 0.7, total - s)
+		var free := 0.0
+		while free < want:
+			var d := free + STEP * 0.5
 			var p0 := Vector2(pts[k].x, pts[k].z)
-			var limit := pts[k].y + 4.0 + 0.04 * d
-			if m.height_at(p0.x + nrm.x * (d + hw[k]), p0.y + nrm.y * (d + hw[k])) > limit \
-					or m.height_at(p0.x - nrm.x * (d + hw[k]), p0.y - nrm.y * (d + hw[k])) > limit:
+			var limit := pts[k].y + 3.0 + 0.02 * d
+			var ga := m.height_at(p0.x + nrm.x * (d + hw[k] * 2.0), p0.y + nrm.y * (d + hw[k] * 2.0))
+			var gb := m.height_at(p0.x - nrm.x * (d + hw[k] * 2.0), p0.y - nrm.y * (d + hw[k] * 2.0))
+			# flat floor: not rising into hills, and not falling away below the water
+			if ga > limit or gb > limit or ga < pts[k].y - 0.5 or gb < pts[k].y - 0.5:
 				break
-			room = d
-		amps.append(minf(want, room))
-	# the swing changes slowly along the river: a running minimum, then a blur
-	var env := amps.duplicate()
-	var win := 6
+			free = d
+		room.append(minf(want, free))
+	var env := room.duplicate()
 	for k in count:
-		var lo := amps[k]
-		for j in range(maxi(k - win, 0), mini(k + win, count - 1) + 1):
-			lo = minf(lo, amps[j])
+		var lo := room[k]
+		for j in range(maxi(k - 8, 0), mini(k + 8, count - 1) + 1):
+			lo = minf(lo, room[j])
 		env[k] = lo
-	for _it in 4:
+	for _it in 6:
 		var prev := env.duplicate()
 		for k in range(1, count - 1):
 			env[k] = (prev[k - 1] + prev[k] * 2.0 + prev[k + 1]) * 0.25
+	var any := false
 	for k in count:
-		var off := env[k] * (sin(thetas[k] + phase) + 0.25 * sin(2.3 * thetas[k] + phase2))
-		offsets[k] = off
-		out[k] = pts[k] + Vector3(normals[k].x * off, 0.0, normals[k].y * off)
-	river.points = out
-	river.offsets = offsets
+		if env[k] > hw[k]:
+			any = true
+			break
+	if not any:
+		return
+
+	var rng := RandomNumberGenerator.new()
+	rng.seed = config.seed_for("meander:%d" % index)
+	var fields := ["half_width", "depth", "flow", "speed"]
+	var out_pts := PackedVector3Array()
+	var out := {}
+	for f in fields:
+		out[f] = PackedFloat32Array()
+	var out_wet := PackedByteArray()
+	var p := Vector2(pts[0].x, pts[0].z)
+	var u := 0.0
+	var u_max := 0.0
+	var phase := rng.randf() * TAU
+	var drift := 0.0
+	var js := rng.randf_range(0.01, 0.04)   # skew: bends lean downstream
+	var jf := rng.randf_range(0.0, 0.03)    # fattening
+	# no two bends alike: the wavelength and the swing wander slowly
+	var w1 := rng.randf() * TAU
+	var w2 := rng.randf() * TAU
+	var w3 := rng.randf() * TAU
+	var s_prev := pts[0].y
+	var last_apex := -1
+	var guard := int(total / MEANDER_STEP) * 6 + 100
+	while u_max < total - MEANDER_STEP and guard > 0:
+		guard -= 1
+		var kf := clampf(u / STEP, 0.0, count - 1.001)
+		var k := int(kf)
+		var f := kf - k
+		var base := Vector2(lerpf(pts[k].x, pts[k + 1].x, f), lerpf(pts[k].z, pts[k + 1].z, f))
+		var dir := dirs[k].lerp(dirs[k + 1], f).normalized()
+		var nrm := Vector2(-dir.y, dir.x)
+		var h_w := lerpf(hw[k], hw[k + 1], f)
+		var vary := sin(u / 1300.0 + w1) * 0.6 + sin(u / 470.0 + w2) * 0.4
+		var lam := clampf(h_w * 26.0, 160.0, 1800.0) * (1.0 + 0.3 * vary)
+		var amp := lerpf(env[k], env[k + 1], f)
+		var omega := clampf(amp / lam * 3.2 * (0.85 + 0.3 * sin(u / 830.0 + w3)), 0.0, 1.4)
+		var theta := omega * sin(phase) + pow(omega, 3.0) * (js * cos(3.0 * phase) - jf * sin(3.0 * phase))
+		# steer back toward the valley line: only the slow drift, not the swing
+		var e := (p - base).dot(nrm)
+		drift = lerpf(drift, e, MEANDER_STEP / lam)
+		var steer := -clampf((drift + e * (1.0 - omega / 1.4) * 0.5) / (lam * 0.5), -0.6, 0.6)
+		var heading := dir.angle() + theta + steer
+		var step := Vector2.from_angle(heading) * MEANDER_STEP
+		p += step
+		u = clampf(u + step.dot(dir), 0.0, total)
+		u_max = maxf(u_max, u)
+		phase += TAU * maxf(step.dot(dir), MEANDER_STEP * 0.3) / lam
+		# record where each loop's apex is (phase at a quarter turn)
+		var apex := int(floor((phase - PI * 0.5) / PI))
+		if apex != last_apex and omega > 0.8:
+			river.loops.append(out_pts.size())
+		last_apex = apex
+		var km := clampf(u_max / STEP, 0.0, count - 1.001)
+		var k2 := int(km)
+		var f2 := km - k2
+		s_prev = minf(s_prev, lerpf(pts[k2].y, pts[k2 + 1].y, f2))
+		out_pts.append(Vector3(p.x, s_prev, p.y))
+		for fname in fields:
+			var src: PackedFloat32Array = river[fname]
+			out[fname].append(lerpf(src[k2], src[k2 + 1], f2))
+		out_wet.append(river.wet[k2 + (1 if f2 > 0.5 else 0)])
+	# finish exactly at the original end (a junction, the sea, a lake)
+	var last := pts[count - 1]
+	out_pts.append(Vector3(last.x, minf(last.y, s_prev), last.z))
+	for fname in fields:
+		var src: PackedFloat32Array = river[fname]
+		out[fname].append(src[count - 1])
+	out_wet.append(river.wet[count - 1])
+	# the water never runs above the ground it crosses
+	for q in out_pts.size():
+		out_pts[q].y = minf(out_pts[q].y, m.height_at(out_pts[q].x, out_pts[q].z))
+		if q > 0:
+			out_pts[q].y = minf(out_pts[q].y, out_pts[q - 1].y)
+	river.points = out_pts
+	for fname in fields:
+		river[fname] = out[fname]
+	river.wet = out_wet
 
 
-# Where a river's bends are biggest, the bends it used to have: arcs beside
-# each big bend, further out, where the channel ran before it migrated.
-# Usually a shallow dry scar (sometimes two or three, like scroll bars); the
-# outermost is sometimes still holding water, an oxbow lake.
+# Where a river loops widely, the loops it used to have: copies of a loop,
+# moved out and downstream (meanders migrate) onto open floodplain, clear of
+# today's channel. Usually shallow dry meander scars, sometimes two or three
+# (scroll bars); the outermost sometimes still holds water, an oxbow lake.
 func _scars(river: Dictionary, index: int) -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
+	var loops: Array = river.get("loops", [])
+	if loops.is_empty():
+		return out
 	var pts: PackedVector3Array = river.points
-	var offsets: PackedFloat32Array = river.offsets
 	var hw: PackedFloat32Array = river.half_width
 	var dep: PackedFloat32Array = river.depth
 	var wet: PackedByteArray = river.wet
 	var count := pts.size()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = config.seed_for("scars:%d" % index)
-	for k in range(2, count - 2):
-		var o := offsets[k]
-		if absf(o) < 30.0 or absf(o) < absf(offsets[k - 1]) or absf(o) < absf(offsets[k + 1]):
-			continue   # only at the apex of a large bend
-		if rng.randf() > 0.6:
+	for apex: int in loops:
+		if apex < 4 or apex > count - 5 or rng.randf() > 0.8:
 			continue
-		var lam := clampf(hw[k] * 22.0, 140.0, 1400.0)
-		var half := maxi(int(lam * 0.22 / STEP), 2)
-		var side := signf(o)
-		var g := m.to_grid(pts[k].x, pts[k].z)
+		var lam := clampf(hw[apex] * 26.0, 160.0, 1800.0)
+		var span := int(lam * 0.6 / MEANDER_STEP)   # half a loop each way: a horseshoe
+		var a := maxi(apex - span, 1)
+		var b := mini(apex + span, count - 2)
+		if b - a < 6:
+			continue
+		var chord := Vector2(pts[b].x - pts[a].x, pts[b].z - pts[a].z)
+		var mid := Vector2(pts[a].x + pts[b].x, pts[a].z + pts[b].z) * 0.5
+		var bulge := (Vector2(pts[apex].x, pts[apex].z) - mid)
+		if bulge.length() < hw[apex] * 2.0:
+			continue
+		var out_dir := bulge.normalized()
+		var down := chord.normalized()
+		var g := m.to_grid(pts[apex].x, pts[apex].z)
 		var arid := _arid[clampi(roundi(g.y), 0, n - 1) * n + clampi(roundi(g.x), 0, n - 1)]
 		var rings := rng.randi_range(1, 3)
 		for ring in rings:
-			var shift := absf(o) * (0.55 + 0.45 * ring) + hw[k] * 1.5
-			var oxbow := ring == rings - 1 and wet[k] == 1 and rng.randf() < 0.6 * (1.0 - arid)
-			var sp := PackedVector3Array()
-			var shw := PackedFloat32Array()
-			var sd := PackedFloat32Array()
-			var level := pts[k].y - (0.3 if oxbow else 0.0)
-			for q in range(maxi(k - half, 1), mini(k + half, count - 2) + 1):
-				var a := pts[q - 1]
-				var b := pts[q + 1]
-				var t := Vector2(b.x - a.x, b.z - a.z).normalized()
-				var nrm := Vector2(-t.y, t.x) * side
-				# the old channel: the bend pushed further out, rounding off at its ends
-				var u := float(q - (k - half)) / float(2 * half)
-				var bulge := sin(PI * u)
-				sp.append(Vector3(pts[q].x + nrm.x * shift * bulge, level, pts[q].z + nrm.y * shift * bulge))
-				shw.append(hw[k] * (0.8 if oxbow else 0.7) * sqrt(bulge) + 0.5)
-				sd.append(dep[k] * (0.8 if oxbow else 0.35) * sqrt(bulge))
-			if sp.size() < 3:
-				continue
-			var spd := PackedFloat32Array()
-			spd.resize(sp.size())
-			var w := PackedByteArray()
-			w.resize(sp.size())
-			w.fill(1 if oxbow else 0)
-			out.append({"points": sp, "half_width": shw, "depth": sd, "speed": spd, "wet": w,
-					"flow": spd, "kind": OXBOW if oxbow else SCAR, "joins": -1})
+			var oxbow := ring == rings - 1 and wet[apex] == 1 and rng.randf() < 0.65 * (1.0 - arid)
+			for _try in 8:
+				var shift := out_dir * bulge.length() * rng.randf_range(0.5, 1.2) * (ring + 1) \
+						+ down * lam * rng.randf_range(0.1, 0.6)
+				var level := pts[apex].y - (0.4 if oxbow else 0.0)
+				var sp := PackedVector3Array()
+				var ok := true
+				for q in range(a, b + 1):
+					var c := Vector2(pts[q].x, pts[q].z) + shift
+					# clear of today's river, and on flat floor (no cutting into hills)
+					var ground := m.height_at(c.x, c.y)
+					if ground > level + 2.5 or ground < level - 0.3 or _near_river(pts, c, hw[apex] * 2.5, apex, span * 4):
+						ok = false
+						break
+					sp.append(Vector3(c.x, level, c.y))
+				if not ok:
+					continue
+				var shw := PackedFloat32Array()
+				var sd := PackedFloat32Array()
+				for q in sp.size():
+					var t := float(q) / float(sp.size() - 1)
+					var taper := sqrt(sin(PI * t))
+					shw.append(hw[apex] * (0.85 if oxbow else 0.7) * taper + 0.5)
+					sd.append(dep[apex] * (0.8 if oxbow else 0.35) * taper)
+				var spd := PackedFloat32Array()
+				spd.resize(sp.size())
+				var w := PackedByteArray()
+				w.resize(sp.size())
+				w.fill(1 if oxbow else 0)
+				out.append({"points": sp, "half_width": shw, "depth": sd, "speed": spd, "wet": w,
+						"flow": spd, "kind": OXBOW if oxbow else SCAR, "joins": -1})
+				break
 	return out
+
+
+func _near_river(pts: PackedVector3Array, c: Vector2, clear: float, around: int, window: int) -> bool:
+	var c2 := clear * clear
+	for q in range(maxi(around - window, 0), mini(around + window, pts.size() - 1) + 1):
+		if Vector2(pts[q].x - c.x, pts[q].z - c.y).length_squared() < c2:
+			return true
+	return false
+
+
+# Water thins in where a river starts to flow (a spring, or a dry bed coming
+# alive) and out where it dries up, instead of appearing at full width; and
+# every channel narrows toward its head.
+func _fill(river: Dictionary) -> void:
+	var pts: PackedVector3Array = river.points
+	var wet: PackedByteArray = river.wet
+	var hw: PackedFloat32Array = river.half_width
+	var count := pts.size()
+	var arc := PackedFloat32Array([0.0])
+	for k in range(1, count):
+		arc.append(arc[k - 1] + Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length())
+	var fill := PackedFloat32Array()
+	fill.resize(count)
+	var since_on := INF
+	for k in count:
+		if wet[k] == 0:
+			since_on = INF
+			fill[k] = 0.0
+			continue
+		if since_on == INF:
+			since_on = arc[k]
+		fill[k] = smoothstep(0.0, 350.0, arc[k] - since_on) if k > 0 or river.kind == RIVER else 1.0
+	# and fade out before drying up
+	var until_off := INF
+	for k in range(count - 1, -1, -1):
+		if wet[k] == 0:
+			until_off = arc[k]
+			continue
+		if until_off < INF:
+			fill[k] = minf(fill[k], smoothstep(0.0, 200.0, until_off - arc[k]))
+	if river.kind == RIVER:
+		for k in count:
+			hw[k] *= lerpf(0.4, 1.0, smoothstep(0.0, 300.0, arc[k]))
+	river.fill = fill
+	river.half_width = hw
 
 
 # --- ground ------------------------------------------------------------------------------------------------

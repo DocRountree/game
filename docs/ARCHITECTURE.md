@@ -122,7 +122,7 @@ an object would sink into its own displacement trough.
 **The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
 `(seed, WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
 `user://worlds/`. `Terrain` runs it on a worker thread at start (about 12 s for
-the default 1280 x 1280 grid of 48 m cells, a 61 km world), and the HUD shows
+the default 1600 x 1600 grid of 51 m cells, an 82 km world), and the HUD shows
 progress; until it finishes the world is open ocean.
 
 1. `WorldLayout` lays the land out around a main continent (mountain belts
@@ -150,13 +150,22 @@ progress; until it finishes the world is open ocean.
 8. Rivers: every channel draining more than about 0.3 km^2 is traced, so
    rivers have many tributaries. Each path is resampled every 24 m and
    smoothed; width and depth come from today's flow (past flow for dry beds).
-   Big rivers lay down floodplains (the ground brought down to just above the
-   water within ~14 widths, curving up to the valley sides). Then the
-   centreline meanders: loops ~11 widths long and up to 0.4 of that across,
-   limited to where the valley floor is flat on both sides. Beside the largest
-   bends sit the bends the river used to have: shallow dry meander scars
-   (sometimes a few, like scroll bars), the outermost sometimes still holding
-   water as an oxbow lake. `RiverNetwork` turns all of it into straight
+   Big rivers lay down alluvial plains: every cell within ~28 widths of a
+   river takes its floor from the nearest river point of any river (just
+   above that water, curving up to the valley sides), never below a nearby
+   lake. No river then runs above the ground beneath it (its water is clamped
+   to the ground, only ever lowered, and steps eased into ramps). The
+   centreline then meanders as a sine-generated (Kinoshita) curve traced in
+   12 m steps: direction swings by omega sin(phase) plus a skewing third
+   harmonic, wavelength ~13 widths, with wavelength and swing wandering so no
+   two bends match; omega (up to 1.4 rad: horseshoes) is limited by how much
+   flat floor there is on both sides, and the curve is steered back toward
+   the valley line so it never drifts. Beside big loops sit copies of loops
+   the river used to have, moved out and downstream onto open floor clear of
+   today's channel: shallow dry meander scars (sometimes several, like scroll
+   bars), the outermost sometimes still water, an oxbow lake. Water thins in
+   from a trickle where a river starts to flow and out where it dries up, and
+   channels narrow toward their heads. `RiverNetwork` turns all of it into straight
    segments with a 256 m tile index, for the GPU and for physics alike.
 9. Ground: sand on archipelagos, beaches and the seafloor, rock on volcanoes,
    dirt on continents, lake beds.
@@ -169,7 +178,11 @@ plus band-limited, derivative-damped fractal detail (a few metres) and the
 river channels carved from the exact distance to the river segments (found
 through the tile index): a rounded bed, banks rounding onto a floodplain just
 above the water, steepening to meet the hillside, the lowest of all nearby
-channels so confluences merge. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
+channels so confluences merge. The bed still slopes where it meets the water
+and the banks carry that slope on up before rounding over: a bed meeting the
+water flat would turn tiny mesh errors into a sawtooth shoreline. Detail is
+calm for several widths around rivers, levees rise gradually from the
+waterline, and the terrain mesh alternates its quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
 patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
 the edge of its range. Ranges are four patch widths per LOD, so the farthest
 patch of LOD k - 1 ends before LOD k starts morphing, which keeps seams closed.
@@ -190,15 +203,21 @@ the bake, so buoyancy, swimming, currents and sampling work in them unchanged.
 **Water on land.** The ocean shader shrinks each Gerstner wave where the water
 is shallower than a third of its length and adds surf near the shore (physics
 matches). Lakes reuse the ocean shader without swell, masked to their basin.
-Rivers and oxbow lakes are drawn on the terrain's own patches with
-`river.gdshader`: the compute pass writes a second level array (water sheet
-height, current, rapids) from the same segments that carve the channels. The
-sheet runs level a little past each bank, then dives under the ground, so the
-shoreline is wherever the ground meets the water, exactly, as for the sea. The
-look is the ocean's (its FFT small waves, refraction, absorption, foam
-texture), with the small waves carried downstream by the current (two phases,
-crossfaded), choppier in fast water, and froth on rapids. Currents push
-swimmers and boats.
+Rivers, oxbow lakes and lakes are one water sheet drawn on the terrain's own
+patches with `river.gdshader`: the compute pass writes a second level array
+(sheet height, current, rapids) from the same segments that carve the
+channels and the baked lake levels. The sheet runs level a little past the
+water's edge, then dives under the ground, so shorelines are wherever the
+ground meets the water; where a river meets a lake the higher surface wins
+(continuous, since the river ends at lake level), and at the sea the river
+water slips just under the ocean's surface. Per pixel, the water fades out by
+its true depth (water level minus the filtered terrain height), so shorelines
+are soft curves. The look is the ocean's (its FFT small waves, colours,
+refraction, absorption, foam texture), with the small waves carried
+downstream by the current (two phases, crossfaded), choppier in fast water,
+and soft whitening on rapids; lakes are the same water with no current. The
+ocean's surf is a soft wash on real shallow sea only. Currents push swimmers
+and boats.
 
 **Moving on land** is Minecraft-like: quick to start and stop on the ground,
 little air control so momentum carries a jump, Ctrl runs, Shift sneaks,

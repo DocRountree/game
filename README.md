@@ -10,8 +10,9 @@ A moon goes through its phases day by day. Days last 15 real minutes, nights 10.
 
 Every world is generated from its seed, like Minecraft: a continent, volcanic
 island chains and sandy archipelagos, carved by erosion into ridges and valleys,
-with rivers (some dried up), lakes fed by them, and a sandy seafloor. The first
-start of a world bakes it (about 12 s, in the background) and caches it.
+with meandering rivers (some dried up) across wide floodplains, oxbow lakes and
+meander scars, lakes fed by rivers, and a sandy seafloor. The first
+start of a world bakes it (about 20 s, in the background) and caches it.
 
 The water: a Gerstner-wave ocean that physics and rendering agree on exactly,
 waves that shoal and break at the shore, calm lakes, flowing rivers whose

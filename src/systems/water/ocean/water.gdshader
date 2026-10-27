@@ -46,13 +46,8 @@ uniform vec2 world_center = vec2(0.0);
 uniform bool has_seabed = false;
 
 group_uniforms body;
-// Lakes reuse this shader: no swell, calmer small waves, a fixed surface
-// level, and a mask so the water only shows inside its own lake.
 uniform float swell_scale = 1.0;
 uniform float surface_level = 0.0;
-uniform float flat_spacing = 0.0;          // > 0: mesh spacing to assume (flat meshes)
-uniform sampler2D lake_mask : filter_nearest, repeat_disable;
-uniform bool masked = false;
 
 varying vec2 x0;          // undisplaced world xz of this vertex
 varying float spacing;    // mesh spacing here (m)
@@ -92,7 +87,7 @@ float view_depth(vec2 uv, mat4 inv_proj) {
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	x0 = world.xz;
-	spacing = flat_spacing > 0.0 ? flat_spacing : UV.x;
+	spacing = UV.x;
 	vec3 disp = vec3(0.0);
 	float depth = water_depth(x0);
 	for (int i = 0; i < NW; i++) {
@@ -111,9 +106,6 @@ void vertex() {
 }
 
 void fragment() {
-	vec2 cell_uv = (x0 - world_center + world_size * 0.5) / world_size;
-	if (masked && texture(lake_mask, cell_uv).r < surface_level - 0.5)
-		discard;
 	float depth = water_depth(x0);
 	// analytic Gerstner normal and Jacobian (GPU Gems 1, ch. 1)
 	vec2 slope = vec2(0.0);
@@ -174,12 +166,16 @@ void fragment() {
 
 	// foam: crest compression + ripple foam, broken up by noise so it reads as foam
 	float f = (1.0 - smoothstep(0.55, 0.72, jac)) * 0.6 + ripple_foam * 0.9;   // whitecaps only on the sharpest crests; wakes churn white
-	// surf: waves break in the shallows
-	f += (1.0 - smoothstep(0.0, 1.6, depth)) * 0.85 * swell_scale;
+
 	float noise = texture(foam_noise, (x0 + vec2(0.2, 0.0) * time) * (2.5 / 20.0)).r * 0.6
 			+ texture(foam_noise, (x0 - vec2(0.0, 0.15) * time) * (5.0 / 20.0)).r * 0.4;
 	float lo = 1.0 - 0.6 * clamp(f, 0.0, 1.0);
 	float foam = smoothstep(lo, lo + 0.25, noise) * sqrt(min(f, 1.0));
+	// surf: a soft wash where the waves run up the shore, no speckles
+	float wash = texture(foam_noise, (x0 + vec2(0.15, 0.1) * time) * 0.05).r;
+	// (only on real shallow sea: not in river mouths cut below sea level inland)
+	float shallow = smoothstep(0.0, 0.1, depth) * (1.0 - smoothstep(0.1, 0.8, depth));
+	foam = max(foam, shallow * smoothstep(0.3, 0.8, wash) * 0.45 * swell_scale);
 
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
 	ALBEDO = vec3(0.9) * foam;

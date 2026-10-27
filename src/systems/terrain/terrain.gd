@@ -25,8 +25,8 @@ const VIEW_RADIUS := 60000.0        ## Draw terrain out to here (m).
 const DEEP := -4000.0               ## Height reported before the world exists.
 
 ## Grid cells per side for the bake (fixed per world version; tests use fewer).
-static var bake_resolution := 1280
-static var world_size := 61440.0
+static var bake_resolution := 1600
+static var world_size := 81920.0
 static var _current: Terrain
 
 @export var focus: Node3D           ## The collider follows this (the player).
@@ -182,7 +182,7 @@ func _spawn_water() -> void:
 		if lake.dry:
 			continue
 		var body := LakeBody.new()
-		body.setup(lake, i, ocean)
+		body.setup(lake, i)
 		add_child(body)
 	var rivers := RiverBody.new()
 	rivers.material = _river_material
@@ -211,7 +211,6 @@ func _height(x: float, z: float) -> float:
 
 
 var _seabed: ImageTexture
-var _lake_mask: ImageTexture
 
 
 ## Terrain height over the world grid as a float texture (for the water shaders).
@@ -220,14 +219,6 @@ func seabed_texture() -> ImageTexture:
 		var img := Image.create_from_data(_maps.n, _maps.n, false, Image.FORMAT_RF, _maps.height.to_byte_array())
 		_seabed = ImageTexture.create_from_image(img)
 	return _seabed
-
-
-## Lake surface height per cell (very low where there is no lake).
-func lake_mask_texture() -> ImageTexture:
-	if _lake_mask == null and _maps:
-		var img := Image.create_from_data(_maps.n, _maps.n, false, Image.FORMAT_RF, _maps.water_level.to_byte_array())
-		_lake_mask = ImageTexture.create_from_image(img)
-	return _lake_mask
 
 
 # --- drawing ------------------------------------------------------------------------
@@ -281,7 +272,12 @@ func _patch_mesh() -> ArrayMesh:
 	for j in GRID:
 		for i in GRID:
 			var a := j * (GRID + 1) + i
-			idx.append_array([a, a + 1, a + GRID + 1, a + 1, a + GRID + 2, a + GRID + 1])
+			# alternate the diagonal quad by quad: with every quad split the same
+			# way, smooth shapes pick up a sawtooth along that diagonal
+			if (i + j) % 2 == 0:
+				idx.append_array([a, a + 1, a + GRID + 1, a + 1, a + GRID + 2, a + GRID + 1])
+			else:
+				idx.append_array([a, a + 1, a + GRID + 2, a, a + GRID + 2, a + GRID + 1])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
@@ -389,7 +385,7 @@ func _create_gpu() -> void:
 	for i in n * n:
 		ground[i * 4 + mini(_maps.material[i], 3)] = 255
 	var net := _maps.network()
-	var segs := net.segments if net.segments.size() > 0 else PackedFloat32Array([0, 0, 1, 0, 0, 0, 1, 1, 0, 0, -1, -1])
+	var segs := net.segments if net.segments.size() > 0 else PackedFloat32Array([0, 0, 1, 0, 0, 0, 1, 1, 0, 0, -1, -1, 0, 0, 0, 0])
 	for data: PackedByteArray in [_height_mips().to_byte_array(), segs.to_byte_array(),
 			net.tiles.to_byte_array(), ground, _maps.water_level.to_byte_array()]:
 		_buffers.append(_rd.storage_buffer_create(data.size(), data))
