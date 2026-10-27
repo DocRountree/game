@@ -18,7 +18,9 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 @export var swim_force := 260.0             ## N
 @export var breath_seconds := 20.0          ## Breath-hold without gear.
 @export var board_range := 5.0
-@export var sprint_factor := 1.6           ## Ctrl: faster swimming
+@export var sprint_factor := 1.6           ## Ctrl: faster walking and swimming
+@export var walk_speed := 4.0               ## m/s on land
+@export var jump_speed := 4.5
 @export var traits: CharacterTraits
 
 var state := &"TREADING"
@@ -66,7 +68,8 @@ func _physics_process(delta: float) -> void:
 	var pos := global_position
 	_set_water(Water.body_at(pos.x, pos.z))
 	if water == null:
-		return   # dry land comes with terrain
+		_on_land(delta)
+		return
 	_swell = water.surface_height(pos.x, pos.z, 0.5)
 	water_height = _swell + water.ripple_height(pos.x, pos.z, 0.8)
 	var water_vy := 0.0 if is_nan(_prev_h) else (water_height - _prev_h) / delta
@@ -117,9 +120,13 @@ func _physics_process(delta: float) -> void:
 			fh -= Vector3(slope.x, 0.0, slope.y) * MASS * Water.G * 1.5
 
 	velocity += (fh + Vector3.UP * fy) / MASS * delta
+	if s < 0.3 and is_on_floor():
+		_walk_input(delta)   # wading in the shallows
 	move_and_slide()
 
-	if s == 0.0:
+	if s < 0.3 and is_on_floor():
+		state = &"WALKING"
+	elif s == 0.0:
 		state = &"AIRBORNE"
 	elif moving and deep:
 		state = &"DIVING"
@@ -137,6 +144,38 @@ func _physics_process(delta: float) -> void:
 			_emit_event(&"player_drowned")
 	else:
 		breath = minf(1.0, breath + delta / 3.0)
+
+
+# Dry land: gravity, walking and jumping.
+func _on_land(delta: float) -> void:
+	water_height = -INF
+	_prev_h = NAN
+	velocity.y -= Water.G * delta
+	if is_on_floor():
+		_walk_input(delta)
+	move_and_slide()
+	state = &"WALKING" if is_on_floor() else &"AIRBORNE"
+	_set_head_under(false)
+	breath = minf(1.0, breath + delta / 3.0)
+
+
+# WASD relative to the camera's heading; Space jumps, Ctrl sprints.
+func _walk_input(delta: float) -> void:
+	var cam := get_viewport().get_camera_3d()
+	var input := Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
+	var walk := Vector3.ZERO
+	if cam and input != Vector2.ZERO:
+		var fwd := -cam.global_basis.z
+		var right := cam.global_basis.x
+		fwd.y = 0.0
+		right.y = 0.0
+		walk = (fwd.normalized() * input.y + right.normalized() * input.x).limit_length(1.0)
+		var sprint := sprint_factor if Input.is_action_pressed(&"sprint") and input.y > 0.0 else 1.0
+		walk *= walk_speed * sprint
+	velocity.x = lerpf(velocity.x, walk.x, minf(1.0, 12.0 * delta))
+	velocity.z = lerpf(velocity.z, walk.z, minf(1.0, 12.0 * delta))
+	if Input.is_action_just_pressed(&"tread"):
+		velocity.y = jump_speed
 
 
 func _process(delta: float) -> void:

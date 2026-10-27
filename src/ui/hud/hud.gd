@@ -16,8 +16,9 @@ func refresh(player: Player, boat: Boat, time_text: String) -> void:
 		player.state, ("%.1f m under" % depth) if depth > 0.0 else "above water", boat.speed() * 1.944, time_text]
 	_breath.value = player.breath
 	_help.text = ("W/S throttle   A/D steer   SHIFT jump off" if player.boat else
-			"WASD swim (look down to dive)   CTRL sprint   SPACE up   SHIFT down   RIGHT-CLICK board") \
-			+ "\nmouse look (ESC frees)   F3 perf   F5 view   F6 aurora   M meteors   [ ] time of day   R respawn"
+			("WASD walk   CTRL sprint   SPACE jump   RIGHT-CLICK board" if player.state in [&"WALKING", &"AIRBORNE"] else
+			"WASD swim (look down to dive)   CTRL sprint   SPACE up   SHIFT down   RIGHT-CLICK board")) \
+			+ "\nmouse look (ESC frees)   F3 perf   F4 map   F5 view   F6 aurora   M meteors   [ ] time of day   R respawn"
 
 
 func flash(text: String, seconds := 2.5) -> void:

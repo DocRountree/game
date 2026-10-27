@@ -122,6 +122,16 @@ func surface_height(x: float, z: float, footprint := 0.0, ripple_radius := -1.0)
 	return h
 
 
+## The sea is wherever the ground is below sea level (open water everywhere
+## until the world has generated).
+func contains_point(x: float, z: float) -> bool:
+	return Terrain.height_at(x, z) < 0.0
+
+
+func floor_depth_at(x: float, z: float) -> float:
+	return maxf(0.0, -Terrain.height_at(x, z)) if Terrain.maps() else floor_depth
+
+
 func ripple_height(x: float, z: float, r := 0.0) -> float:
 	return ripples.sample_ring(x, z, r)
 

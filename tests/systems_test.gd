@@ -13,6 +13,7 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	Terrain.bake_resolution = 128   # a small world: quick to bake
 	var world: Node3D = load("res://src/world/open_ocean/open_ocean.tscn").instantiate()
 	root.add_child(world)
 	await _frames(2)
@@ -239,6 +240,29 @@ func _run() -> void:
 			and player.stats.waters_visited.has(WaterBody.Kind.LAKE),
 			"player stats track time in and under water, and both waters visited (%.1f s in, %.1f s under, %.1f m, %s)" % [player.stats.seconds_in_water,
 			player.stats.seconds_submerged, player.stats.max_depth_m, player.stats.waters_visited])
+
+	# land: walk on the baked ground
+	var terrain: Terrain = world.get_node("Terrain")
+	terrain.generate_now()
+	var maps := Terrain.maps()
+	var spot := Vector3.INF
+	for i in maps.n * maps.n:
+		var h := maps.height[i]
+		if h > 5.0 and h < 200.0 and maps.water_level[i] <= WorldMaps.NO_WATER and maps.river_a[i * 4 + 3] == 0.0:
+			var c := maps.to_world(i % maps.n, i / maps.n)
+			if absf(maps.height_at(c.x + 20.0, c.y) - h) < 3.0 and absf(maps.height_at(c.x, c.y + 20.0) - h) < 3.0:
+				spot = Vector3(c.x, h, c.y)
+				break
+	_check(spot != Vector3.INF, "found gentle dry land to stand on")
+	if player.boat:
+		player._leave_boat()
+	player.respawn(spot + Vector3.UP * 3.0)
+	player.global_position = spot + Vector3.UP * 3.0
+	await _frames(120)
+	var ground := Terrain.height_at(player.global_position.x, player.global_position.z)
+	_check(player.state == &"WALKING" and absf(player.global_position.y - Player.CHEST - ground) < 0.6
+			and Water.body_at(spot.x, spot.z) == null,
+			"player stands on land (%s, feet %.2f m above the ground)" % [player.state, player.global_position.y - Player.CHEST - ground])
 
 	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	quit(1 if _failures else 0)
