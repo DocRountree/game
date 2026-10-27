@@ -39,7 +39,7 @@ void fragment() {
 	float maria = noise(n * 2.6 + 3.1) * 0.65 + noise(n * 6.0) * 0.35;
 	float albedo = mix(0.58, 1.0, smoothstep(0.42, 0.6, maria));
 	float limb = mix(0.78, 1.0, n.z);
-	float edge = smoothstep(1.0, 0.94, r2);
+	float edge = 1.0 - smoothstep(0.94, 1.0, r2);
 	float brightness = mix(day_brightness, night_brightness, night);
 	vec3 colour = vec3(1.0, 0.97, 0.92) * albedo * limb * (lit * brightness + 0.012 * night);
 	ALBEDO = colour * edge;

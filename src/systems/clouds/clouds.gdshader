@@ -29,7 +29,7 @@ uniform float map_scale = 26000.0;    // m: size of the coverage pattern
 uniform float extinction = 0.045;     // per metre at density 1
 uniform int steps = 56;
 uniform int light_steps = 5;
-uniform float max_distance = 70000.0;
+uniform float max_distance = 160000.0;   // a layer 1.5 km up is visible ~140 km away, so the deck reaches the horizon
 uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
 uniform vec3 sun_colour = vec3(1.0);
 uniform vec3 ambient = vec3(0.2, 0.27, 0.4);
@@ -79,7 +79,7 @@ float density(vec3 p, float h, bool cheap) {
 	if (cover <= 0.0)
 		return 0.0;
 	// height profile: flat base, rounded top that rises where clouds are dense
-	float profile = smoothstep(0.0, 0.08, hf) * smoothstep(1.0, mix(0.35, 0.75, fill), hf / max(cover, 0.2));
+	float profile = smoothstep(0.0, 0.08, hf) * (1.0 - smoothstep(mix(0.35, 0.75, fill), 1.0, hf / max(cover, 0.2)));
 	vec3 q = (p + drift) / shape_scale;
 	float shape = texture(shape_noise, q).r;
 	float d = clamp(remap(shape * profile, 1.0 - cover, 1.0, 0.0, 1.0), 0.0, 1.0) * cover;

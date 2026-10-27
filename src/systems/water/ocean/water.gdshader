@@ -135,7 +135,7 @@ void fragment() {
 	vec3 refracted = background * transmit + body * (1.0 - transmit);
 
 	// foam: crest compression + ripple foam, broken up by noise so it reads as foam
-	float f = smoothstep(0.72, 0.55, jac) * 0.6 + ripple_foam * 0.9;   // whitecaps only on the sharpest crests; wakes churn white
+	float f = (1.0 - smoothstep(0.55, 0.72, jac)) * 0.6 + ripple_foam * 0.9;   // whitecaps only on the sharpest crests; wakes churn white
 	float noise = texture(foam_noise, (x0 + vec2(0.2, 0.0) * time) * (2.5 / 20.0)).r * 0.6
 			+ texture(foam_noise, (x0 - vec2(0.0, 0.15) * time) * (5.0 / 20.0)).r * 0.4;
 	float lo = 1.0 - 0.6 * clamp(f, 0.0, 1.0);

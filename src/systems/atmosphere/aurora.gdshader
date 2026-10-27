@@ -153,7 +153,7 @@ vec3 curtain_light(int k, float t, vec2 track, float ey, float pa, float dx_px) 
 	float x = unwarp(foot_point(t, track, ey)).x;   // along the curtain's own material
 	float s = c_style[k].y;
 	float pace = c_style[k].z;
-	float ends = smoothstep(c_extent[k].x, c_extent[k].x + 400.0, x) * smoothstep(c_extent[k].y, c_extent[k].y - 400.0, x);
+	float ends = smoothstep(c_extent[k].x, c_extent[k].x + 400.0, x) * (1.0 - smoothstep(c_extent[k].y - 400.0, c_extent[k].y, x));
 	// pillars at two scales, each flickering; where they crowd, a sheet appears
 	float sp = c_glow[k].w;
 	float big = noise(x / sp + s * 11.0 + clock * 0.05 * pace);
@@ -174,7 +174,7 @@ vec3 curtain_light(int k, float t, vec2 track, float ey, float pa, float dx_px) 
 	float above = h - base;
 	// soft bottom; raggedness too fine to show (far away) widens the fade instead
 	// of vanishing, so distant curtains don't get a crisp, uniform base line
-	float softness = c_shape[k].w * (1.0 + 0.6 * blur) + 0.8 * c_extent[k].w * (1.0 - far);
+	float softness = 2.0 * c_shape[k].w * (1.0 + 0.6 * blur) + 0.8 * c_extent[k].w * (1.0 - far);
 	float lower = 1.0 / (1.0 + exp(-above / softness));
 	// fade out with height, and well before the top of the shell (450 km),
 	// so no curtain is cut off abruptly

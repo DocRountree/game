@@ -123,7 +123,7 @@ void sky() {
 			+ strat_light * strat_scattering * henyey_greenstein(strat_g, mu)) * intensity;
 
 	// twilight glow: strongest with the sun 1-6 degrees down, highest above it
-	float sun_down = smoothstep(0.05, -0.01, sun.y) * smoothstep(-0.16, -0.05, sun.y);
+	float sun_down = (1.0 - smoothstep(-0.01, 0.05, sun.y)) * smoothstep(-0.16, -0.05, sun.y);
 	if (twilight_glow > 0.0 && sun_down > 0.0) {
 		float elevation = asin(clamp(EYEDIR.y, 0.0, 1.0));
 		vec2 sun_h = normalize(sun.xz + vec2(1e-5));

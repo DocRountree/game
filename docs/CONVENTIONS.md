@@ -46,6 +46,10 @@
 
 ## Shaders
 
+- Never call `smoothstep` with its edges reversed (`smoothstep(1.0, 0.0, x)`)
+  in a shader: it is undefined in GLSL/SPIR-V and some GPUs return 0. Write
+  `1.0 - smoothstep(0.0, 1.0, x)`. (GDScript's smoothstep is fine either way.)
+
 - Spatial and canvas shaders: `.gdshader` next to the feature.
 - Compute shaders: `.glsl` with a `#[compute]` header, run through
   `RenderingDevice`. Always provide a fallback when no `RenderingDevice` exists

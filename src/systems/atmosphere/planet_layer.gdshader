@@ -23,5 +23,5 @@ void vertex() {
 void fragment() {
 	float r = length(quad) * 2.0;   // 0 at the centre, 1 at the quad's edge
 	ALBEDO = colour;
-	ALPHA = smoothstep(1.0, 0.6, r);
+	ALPHA = 1.0 - smoothstep(0.6, 1.0, r);
 }
