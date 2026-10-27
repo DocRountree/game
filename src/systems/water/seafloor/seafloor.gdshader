@@ -3,15 +3,12 @@ render_mode cull_disabled;   // the shared polar grid is wound for viewing from 
 
 // The sea floor on a camera-centred polar grid (dense underfoot, coarse far
 // away). Vertices take the coarse height from the CPU heightfield texture (the
-// same one collision uses) plus fine fractal relief limited to what the local
-// mesh spacing can hold. The fragment shader keeps adding octaves to the
-// shading normal down to the pixel's footprint, using value noise with analytic
-// derivatives, so detail never runs out and costs one lookup set per octave.
+// same one collision uses) plus fine detail limited to what the local
+// mesh spacing can hold: sand ripples and sand waves, displaced where the mesh
+// is fine enough to carry them, and shaded to match.
 
 uniform sampler2D heights : filter_linear, repeat_disable;   // r: height (m)
 uniform vec3 patch_rect = vec3(0.0, 0.0, 768.0);             // corner x, corner z, size (m)
-uniform float relief = 0.0;           // m of fine fractal relief on top of the coarse field (off: ripples instead)
-uniform float relief_wavelength = 9.0; // m: longest fine octave
 uniform float ripple_height = 0.06;     // m: small sand ripples
 uniform float ripple_wavelength = 1.0;  // m
 uniform float wave_height = 0.2;        // m: larger sand waves (megaripples)
@@ -45,25 +42,6 @@ vec3 noised(vec2 x) {
 	float k4 = a - b - c + d;
 	return vec3(a + k1 * u.x + k2 * u.y + k4 * u.x * u.y,
 			du * vec2(k1 + k4 * u.y, k2 + k4 * u.x));
-}
-
-// fine relief: height and gradient, octaves down to min_wavelength
-vec3 relief_at(vec2 p, float min_wavelength) {
-	vec3 sum = vec3(0.0);
-	float wl = relief_wavelength;
-	float amp = relief;
-	mat2 turn = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
-	for (int o = 0; o < 9; o++) {
-		if (wl < min_wavelength)
-			break;
-		float fade = clamp(wl / min_wavelength - 1.0, 0.0, 1.0);   // no popping as octaves come in
-		vec3 n = noised(p / wl);
-		sum += vec3(n.x - 0.5, n.yz / wl) * amp * fade;
-		wl *= 0.5;
-		amp *= 0.5;
-		p = turn * p;   // rotate octaves so their grids don't line up
-	}
-	return sum;
 }
 
 // Sand ripples: crests across the current, gently curving and forking (the phase
@@ -107,7 +85,7 @@ float coarse(vec2 xz) {
 void vertex() {
 	vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	spacing = UV.x;
-	w.y = coarse(w.xz) + relief_at(w.xz, spacing * 3.0).x + ripples_at(w.xz, spacing * 3.0).x * flatness(w.xz);
+	w.y = coarse(w.xz) + ripples_at(w.xz, spacing * 3.0).x * flatness(w.xz);
 	VERTEX = (inverse(MODEL_MATRIX) * vec4(w, 1.0)).xyz;
 	wpos = w;
 }
@@ -117,12 +95,10 @@ void fragment() {
 	float e = patch_rect.z / float(textureSize(heights, 0).x);
 	vec2 g = vec2(coarse(wpos.xz + vec2(e, 0.0)) - coarse(wpos.xz - vec2(e, 0.0)),
 			coarse(wpos.xz + vec2(0.0, e)) - coarse(wpos.xz - vec2(0.0, e))) / (2.0 * e);
-	float footprint = max(length(fwidth(wpos.xz)), 0.003);
-	vec3 r = relief_at(wpos.xz, footprint * 2.0);
 	float sandy = flatness(wpos.xz);
 	// ripples shade only where they are real geometry (same limit as the vertex
 	// shader), so they never turn into drawn-on lines beyond the mesh's reach
-	g += r.yz + ripples_at(wpos.xz, spacing * 3.0).yz * sandy;
+	g += ripples_at(wpos.xz, spacing * 3.0).yz * sandy;
 	vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
 	float rocky = 1.0 - smoothstep(0.65, 0.85, n.y);
