@@ -150,19 +150,22 @@ progress; until it finishes the world is open ocean.
 8. Rivers: every channel draining more than about 0.3 km^2 is traced, so
    rivers have many tributaries. Each path is resampled every 24 m and
    smoothed; width and depth come from today's flow (past flow for dry beds).
-   Big rivers lay down alluvial plains: every cell within ~28 widths of a
-   river takes its floor from the nearest river point of any river (just
+   Big rivers lay down alluvial plains: every cell within ~32 widths of a
+   river takes its floor from the nearby river points of any river, blended
+   steeply toward the nearest so the floor never steps between reaches (just
    above that water, curving up to the valley sides), never below a nearby
    lake. No river then runs above the ground beneath it (its water is clamped
    to the ground, only ever lowered, and steps eased into ramps). The
    centreline then meanders as a sine-generated (Kinoshita) curve traced in
    12 m steps: direction swings by omega sin(phase) plus a skewing third
-   harmonic, wavelength ~13 widths, with wavelength and swing wandering so no
-   two bends match; omega (up to 1.4 rad: horseshoes) is limited by how much
-   flat floor there is on both sides, and the curve is steered back toward
+   harmonic, wavelength ~16 widths at every size (big rivers make big, open loops),
+   with wavelength and swing wandering so no two bends match; omega (up to
+   1.35 rad: horseshoes, less where a bend is short for its width, so a
+   loop's limbs never crowd together) is limited by how much flat floor
+   there is on both sides, and the curve is steered back toward
    the valley line so it never drifts. Beside big loops sit copies of loops
    the river used to have, moved out and downstream onto open floor clear of
-   today's channel: shallow dry meander scars (sometimes several, like scroll
+   today's channel and its levees: shallow dry meander scars (sometimes several, like scroll
    bars), the outermost sometimes still water, an oxbow lake. Water thins in
    from a trickle where a river starts to flow and out where it dries up, and
    channels narrow toward their heads. `RiverNetwork` turns all of it into straight
@@ -185,7 +188,8 @@ downstream. The bed still slopes where it meets the water
 and the banks carry that slope on up before rounding over: a bed meeting the
 water flat would turn tiny mesh errors into a sawtooth shoreline. Detail is
 calm for several widths around rivers, levees rise gradually from the
-waterline, and the terrain mesh alternates its quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
+waterline (their height blended over nearby reaches, so the neck of a loop
+has no step), and the terrain mesh alternates its quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
 patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
 the edge of its range. Ranges are four patch widths per LOD, so the farthest
 patch of LOD k - 1 ends before LOD k starts morphing, which keeps seams closed.

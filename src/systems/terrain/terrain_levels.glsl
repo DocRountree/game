@@ -168,6 +168,14 @@ struct Channel {
 	vec2 dir;
 };
 
+// Water level and half width blended over all nearby water channels, weighted
+// steeply by how far inside each p is: the nearest wins, but where two reaches
+// are about as near (the neck of a loop, upstream limb higher than downstream)
+// the level crosses over smoothly instead of stepping (a step there shows as
+// a jagged little cliff in the levees).
+float soft_level;
+float soft_hw;
+
 // best: the channel p is most inside of (any); water: the same among channels
 // holding water, so a dry bed joining a river never punches a hole in it.
 float channels(vec2 p, out Channel best, out Channel water) {
@@ -180,6 +188,9 @@ float channels(vec2 p, out Channel best, out Channel water) {
 	best.dir = vec2(1.0, 0.0);
 	water = best;
 	float carve = 1e9;
+	float ws = 0.0, wl = 0.0, wh = 0.0;
+	soft_level = 0.0;
+	soft_hw = 1.0;
 	ivec2 tile = ivec2(floor((p - (pc.center - 0.5 * pc.world_size)) / pc.tile_size));
 	if (any(lessThan(tile, ivec2(0))) || any(greaterThanEqual(tile, ivec2(pc.tiles_per_side))))
 		return carve;
@@ -222,8 +233,18 @@ float channels(vec2 p, out Channel best, out Channel water) {
 		here.dir = normalize(ab);
 		if (r < best.r)
 			best = here;
-		if (speed >= 0.0 && here.fill > 0.02 && r < water.r)
-			water = here;
+		if (speed >= 0.0 && here.fill > 0.02) {
+			if (r < water.r)
+				water = here;
+			float w = exp(-8.0 * r);
+			ws += w;
+			wl += w * (surface - depth * (1.0 - here.fill));
+			wh += w * hw;
+		}
+	}
+	if (ws > 0.0) {
+		soft_level = wl / ws;
+		soft_hw = wh / ws;
 	}
 	return carve;
 }
@@ -296,7 +317,7 @@ void main() {
 		h = mix(smin(h, carve, 0.4), h, smoothstep(5.0, 10.0, ch.r));   // blend out gently: no walls
 	bool wet = wc.speed >= 0.0 && wc.fill > 0.02 && wc.r < 4.0;
 	// where a river starts to flow it is a thin stream low in its bed
-	float level = wc.surface - wc.depth * (1.0 - wc.fill);
+	float level = soft_level;
 	// at the mouth the river water slips under the sea's surface, so the two
 	// meet without a seam
 	level -= 0.8 * (1.0 - smoothstep(0.3, 1.6, level));
@@ -304,7 +325,7 @@ void main() {
 		// natural levees: the banks never dip below the water beside them,
 		// fading out into the floodplain well before the river's reach ends
 		// (rising gradually from the waterline: a step there would serrate it)
-		float levee = max(h, level + 0.5 * smoothstep(1.0, 1.8, wc.r) - max(0.0, wc.r - 2.2) * wc.hw * 0.25);
+		float levee = max(h, level + 0.5 * smoothstep(1.0, 1.8, wc.r) - max(0.0, wc.r - 2.2) * soft_hw * 0.25);
 		h = mix(levee, h, smoothstep(2.4, 3.6, wc.r));
 	}
 	// One water sheet for rivers, oxbow lakes and lakes: level across the
@@ -313,7 +334,7 @@ void main() {
 	// the two wins, which is continuous because the river ends at lake level.
 	vec4 sheet = vec4(h - 5.0, 0.0, 0.0, 0.0);
 	if (wet) {
-		float y = level - max(0.0, wc.r - 1.8) * wc.hw * 1.5;
+		float y = level - max(0.0, wc.r - 1.8) * soft_hw * 1.5;
 		vec2 current = wc.dir * wc.speed * (1.0 - 0.6 * min(wc.r * wc.r, 1.0));
 		sheet = vec4(max(y, h - 5.0), current, 0.0);
 	}
@@ -326,8 +347,14 @@ void main() {
 	if (wet)
 		surface = max(surface, level);
 	water = 1.0 - smoothstep(0.0, 0.3, h - surface);
-	if (ch.speed < 0.0 && ch.r < 1.3 && !(wet && wc.r < 1.2))
-		water = -0.7 * (1.0 - smoothstep(0.7, 1.3, ch.r));
+	// (eased in and out over a wide band, several texels even on coarse
+	// levels, so the gravel's edge is a smooth curve, not a staircase)
+	if (ch.speed < 0.0 && ch.r < 1.8) {
+		float gravel = 0.7 * (1.0 - smoothstep(0.4, 1.8, ch.r));
+		if (wet)
+			gravel *= smoothstep(1.0, 2.0, wc.r);
+		water = mix(water, -gravel, step(0.001, gravel));
+	}
 
 	imageStore(levels, at, vec4(h, 0.0, 0.0, water));
 	imageStore(water_levels, at, sheet);

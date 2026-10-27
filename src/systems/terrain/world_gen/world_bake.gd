@@ -21,7 +21,7 @@ extends RefCounted
 ##    Lakes fill to their sills or shrink until evaporation matches inflow.
 ## 7. Rivers become smooth centrelines and a nearest-river field for Terrain.
 
-const VERSION := 14
+const VERSION := 17
 const YEAR := 31557600.0          ## Seconds per year (rain is in m / year).
 
 var n: int
@@ -1123,13 +1123,14 @@ func _floodplain(river: Dictionary) -> void:
 	if _fp_dist.is_empty():
 		_fp_dist.resize(n * n)
 		_fp_dist.fill(INF)
+		_fp_wsum.resize(n * n)
 		_fp_level.resize(n * n)
 		_fp_width.resize(n * n)
 	var touched := PackedInt32Array()
 	for k in range(0, pts.size(), 2):
 		if hw[k] < 6.0 or _lake_at(pts[k]):
 			continue
-		var width := clampf(hw[k] * 28.0, 250.0, 3000.0)
+		var width := clampf(hw[k] * 32.0, 250.0, 5200.0)   # room for a loop's swing
 		var g := m.to_grid(pts[k].x, pts[k].z)
 		var reach := ceili(width * 2.0 / cell)
 		var cx := roundi(g.x)
@@ -1144,13 +1145,19 @@ func _floodplain(river: Dictionary) -> void:
 					continue
 				var dx := (x + 0.5) * cell - size * 0.5 - px
 				var dist := sqrt(dx * dx + dz * dz)
-				if dist > width * 2.0 or dist >= _fp_dist[i]:
+				if dist > width * 2.0:
 					continue
 				if _fp_dist[i] == INF:
 					touched.append(i)
-				_fp_dist[i] = dist
-				_fp_level[i] = pts[k].y
-				_fp_width[i] = width
+				# the level and width are blended over the nearby river points,
+				# steeply weighted to the nearest: where two reaches are about
+				# as near (inside a loop, the upstream limb higher) the floor
+				# crosses over smoothly instead of stepping
+				var w := exp(-dist / FP_BLEND)
+				_fp_wsum[i] += w
+				_fp_level[i] += w * pts[k].y
+				_fp_width[i] += w * width
+				_fp_dist[i] = minf(_fp_dist[i], dist)
 	_fp_touched.append_array(touched)
 
 
@@ -1162,20 +1169,28 @@ func _apply_floodplains() -> void:
 	for i in _fp_touched:
 		if _fp_dist[i] == INF:
 			continue   # listed twice
-		var d := _fp_dist[i] / _fp_width[i]
+		var wsum := maxf(_fp_wsum[i], 1e-300)
+		var width := _fp_width[i] / wsum
+		var level := _fp_level[i] / wsum
+		var d := _fp_dist[i] / width
 		# flat out to about one width, then curving up to meet the valley
 		# sides (by two widths the curve is above most hills: no edge)
-		var floor_h := _fp_level[i] + 1.0 + _fp_width[i] * (0.004 * d + 0.08 * pow(d, 4.0))
+		var floor_h := level + 1.0 + width * (0.004 * d + 0.08 * pow(d, 4.0))
 		# never below a nearby lake's level: lakes keep their shores
 		if h[i] > _lake_guard[i]:
 			floor_h = maxf(floor_h, _lake_guard[i])
 		h[i] = minf(h[i], floor_h)
 		_fp_dist[i] = INF
+		_fp_wsum[i] = 0.0
+		_fp_level[i] = 0.0
+		_fp_width[i] = 0.0
 
 
+const FP_BLEND := 90.0   ## Floodplain level blending distance (m).
 var _fp_dist := PackedFloat32Array()
-var _fp_level := PackedFloat32Array()
-var _fp_width := PackedFloat32Array()
+var _fp_wsum := PackedFloat64Array()
+var _fp_level := PackedFloat64Array()
+var _fp_width := PackedFloat64Array()
 
 
 var _lake_guard := PackedFloat32Array()
@@ -1208,6 +1223,12 @@ func _lake_at(p: Vector3) -> bool:
 const MEANDER_STEP := 12.0  ## Spacing of meandering centrelines (m).
 
 
+# A meander's wavelength: about sixteen channel widths (rivers of every size
+# loop in the same proportions, so big rivers make big, open loops).
+func _meander_length(half_width: float) -> float:
+	return clampf(half_width * 32.0, 200.0, 5200.0)
+
+
 # Rivers meander as sine-generated curves (Langbein & Leopold; Kinoshita):
 # the channel's direction swings as omega * sin(phase), plus a little skew and
 # fattening (the third harmonic) so bends lean downstream and bulge like real
@@ -1236,7 +1257,7 @@ func _meander(river: Dictionary, index: int) -> void:
 		dirs.append(t)
 		var nrm := Vector2(-t.y, t.x)
 		normals.append(nrm)
-		var lam := clampf(hw[k] * 26.0, 160.0, 1800.0)
+		var lam := _meander_length(hw[k])
 		var s := STEP * k
 		var want := 0.45 * lam * smoothstep(0.0, lam * 0.7, s) * smoothstep(0.0, lam * 0.7, total - s)
 		var free := 0.0
@@ -1301,14 +1322,17 @@ func _meander(river: Dictionary, index: int) -> void:
 		var nrm := Vector2(-dir.y, dir.x)
 		var h_w := lerpf(hw[k], hw[k + 1], f)
 		var vary := sin(u / 1300.0 + w1) * 0.6 + sin(u / 470.0 + w2) * 0.4
-		var lam := clampf(h_w * 26.0, 160.0, 1800.0) * (1.0 + 0.3 * vary)
+		var lam := _meander_length(h_w) * (1.0 + 0.3 * vary)
 		var amp := lerpf(env[k], env[k + 1], f)
-		var omega := clampf(amp / lam * 3.2 * (0.85 + 0.3 * sin(u / 830.0 + w3)), 0.0, 1.4)
+		# the tightest swing a bend of this width allows: neighbouring limbs
+		# of a loop stay several channel widths apart, never merging
+		var o_max := lerpf(0.9, 1.35, smoothstep(18.0, 32.0, lam / h_w))
+		var omega := clampf(amp / lam * 3.2 * (0.85 + 0.3 * sin(u / 830.0 + w3)), 0.0, o_max)
 		var theta := omega * sin(phase) + pow(omega, 3.0) * (js * cos(3.0 * phase) - jf * sin(3.0 * phase))
 		# steer back toward the valley line: only the slow drift, not the swing
 		var e := (p - base).dot(nrm)
 		drift = lerpf(drift, e, MEANDER_STEP / lam)
-		var steer := -clampf((drift + e * (1.0 - omega / 1.4) * 0.5) / (lam * 0.5), -0.6, 0.6)
+		var steer := -clampf((drift + e * (1.0 - omega / o_max) * 0.5) / (lam * 0.5), -0.6, 0.6)
 		var heading := dir.angle() + theta + steer
 		var step := Vector2.from_angle(heading) * MEANDER_STEP
 		p += step
@@ -1366,7 +1390,7 @@ func _scars(river: Dictionary, index: int) -> Array[Dictionary]:
 	for apex: int in loops:
 		if apex < 4 or apex > count - 5 or rng.randf() > 0.8:
 			continue
-		var lam := clampf(hw[apex] * 26.0, 160.0, 1800.0)
+		var lam := _meander_length(hw[apex])
 		var span := int(lam * 0.6 / MEANDER_STEP)   # half a loop each way: a horseshoe
 		var a := maxi(apex - span, 1)
 		var b := mini(apex + span, count - 2)
@@ -1392,9 +1416,9 @@ func _scars(river: Dictionary, index: int) -> Array[Dictionary]:
 				var ok := true
 				for q in range(a, b + 1):
 					var c := Vector2(pts[q].x, pts[q].z) + shift
-					# clear of today's river, and on flat floor (no cutting into hills)
+					# clear of today's river and its levees, and on flat floor (no cutting into hills)
 					var ground := m.height_at(c.x, c.y)
-					if ground > level + 2.5 or ground < level - 0.3 or _near_river(pts, c, hw[apex] * 2.5, apex, span * 4):
+					if ground > level + 2.5 or ground < level - 0.3 or _near_river(pts, c, hw[apex] * 5.0, apex, span * 4):
 						ok = false
 						break
 					sp.append(Vector3(c.x, level, c.y))
