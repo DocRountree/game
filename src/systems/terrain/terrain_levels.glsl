@@ -4,11 +4,11 @@
 // Terrain heights around the camera, as nested square levels (a geometry
 // clipmap): level k has 256 x 256 texels spaced 0.5 * 2^k m. Each texel is the
 // terrain function at that point:
-//   baked height (smooth cubic B-spline over the world grid)
+//   baked height (smooth cubic B-spline), read from a pre-filtered mip of the
+//     baked grid that matches the level's spacing, so coarse levels never
+//     alias the 48 m grid (no shimmering or popping mountains as you move)
 //   + fractal detail, finer octaves only where the level can resolve them,
 //     damped on steep ground (derivative-damped fBm)
-//   + gullies: stripes running straight downhill, phase-randomised per cell
-//     and blended (in the spirit of runevision's erosion filter / phasor noise)
 //   then carved by the river channels from the nearest-river field.
 // Mode 0 writes height and water info; mode 1 fills in the gradient from the
 // neighbouring texels.
@@ -18,7 +18,7 @@
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, std430) restrict readonly buffer Base { float base_h[]; };
+layout(set = 0, binding = 0, std430) restrict readonly buffer Base { float base_h[]; };   // mip chain, finest first
 layout(set = 0, binding = 1, std430) restrict readonly buffer RiverA { vec4 river_a[]; };   // offset xz to centreline, surface, half width
 layout(set = 0, binding = 2, std430) restrict readonly buffer RiverB { vec4 river_b[]; };   // flow dir xz, depth, speed (0 = dry)
 layout(set = 0, binding = 3, std430) restrict readonly buffer Ground { uint ground[]; };    // RGBA8 weights: sand, dirt, rock, lakebed
@@ -35,11 +35,11 @@ layout(push_constant, std430) uniform Params {
 	int seed;
 	float cell;         // baked grid cell size (m)
 	float detail;       // overall detail strength
-	float pad0;
-	float pad1;
+	vec2 center;        // world xz of the baked grid's centre
 } pc;
 
 const int SIZE = 256;
+const int MIPS = 6;
 const float TAU = 6.28318530718;
 const float NO_WATER = -100000.0;
 
@@ -83,7 +83,7 @@ int idx(ivec2 c) {
 }
 
 vec2 grid_of(vec2 p) {
-	return (p + 0.5 * pc.world_size) / pc.cell - 0.5;
+	return (p - pc.center + 0.5 * pc.world_size) / pc.cell - 0.5;
 }
 
 vec4 bspline(float t) {
@@ -97,9 +97,16 @@ vec4 bspline_d(float t) {
 	return vec4(-3.0 + 6.0 * t - 3.0 * t2, -12.0 * t + 9.0 * t2, 3.0 + 6.0 * t - 9.0 * t2, 3.0 * t2) / 6.0;
 }
 
-// Baked height and its gradient (per metre), smooth cubic B-spline.
-vec3 base_height(vec2 p) {
-	vec2 g = grid_of(p);
+// Baked height and its gradient (per metre) from mip m (cell * 2^m), cubic B-spline.
+vec3 base_mip(vec2 p, int m) {
+	int size = pc.n;
+	int offset = 0;
+	for (int i = 0; i < m; i++) {
+		offset += size * size;
+		size /= 2;
+	}
+	float cell = pc.cell * float(1 << m);
+	vec2 g = (p - pc.center + 0.5 * pc.world_size) / cell - 0.5;
 	vec2 i = floor(g);
 	vec2 f = g - i;
 	vec4 wx = bspline(f.x);
@@ -109,11 +116,21 @@ vec3 base_height(vec2 p) {
 	vec3 s = vec3(0.0);
 	for (int y = 0; y < 4; y++) {
 		for (int x = 0; x < 4; x++) {
-			float h = base_h[idx(ivec2(i) + ivec2(x - 1, y - 1))];
-			s += h * vec3(wx[x] * wy[y], dx[x] * wy[y] / pc.cell, wx[x] * dy[y] / pc.cell);
+			ivec2 c = clamp(ivec2(i) + ivec2(x - 1, y - 1), ivec2(0), ivec2(size - 1));
+			float h = base_h[offset + c.y * size + c.x];
+			s += h * vec3(wx[x] * wy[y], dx[x] * wy[y] / cell, wx[x] * dy[y] / cell);
 		}
 	}
 	return s;
+}
+
+// The mip whose cells are about as big as this level's texels, blended.
+vec3 base_height(vec2 p) {
+	float lod = clamp(log2(max(pc.spacing * 1.5 / pc.cell, 1.0)), 0.0, float(MIPS - 1));
+	int m0 = int(floor(lod));
+	int m1 = min(m0 + 1, MIPS - 1);
+	vec3 a = base_mip(p, m0);
+	return m1 == m0 ? a : mix(a, base_mip(p, m1), fract(lod));
 }
 
 vec4 bilinear_ground(vec2 p) {
@@ -125,25 +142,6 @@ vec4 bilinear_ground(vec2 p) {
 	vec4 c = unpackUnorm4x8(ground[idx(i + ivec2(0, 1))]);
 	vec4 d = unpackUnorm4x8(ground[idx(i + ivec2(1, 1))]);
 	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}
-
-// Stripes running downhill (gullies and spurs), blended from the four nearest
-// cells, each with its own random phase so the pattern never repeats.
-float gullies(vec2 p, vec2 down, float wavelength, uint salt) {
-	vec2 across = vec2(-down.y, down.x);
-	vec2 g = p / wavelength;
-	ivec2 i = ivec2(floor(g));
-	vec2 f = g - floor(g);
-	vec2 w = f * f * (3.0 - 2.0 * f);
-	float s = 0.0;
-	for (int y = 0; y < 2; y++) {
-		for (int x = 0; x < 2; x++) {
-			float phase = float(hash2(i + ivec2(x, y), salt) & 0xffffu) / 65536.0 * TAU;
-			float c = cos(dot(p, across) / wavelength * TAU + phase);
-			s += c * (x == 1 ? w.x : 1.0 - w.x) * (y == 1 ? w.y : 1.0 - w.y);
-		}
-	}
-	return s;
 }
 
 // Interpolated nearest-river data: centreline point, surface, half width,
@@ -164,7 +162,7 @@ void river_at(vec2 p, out vec2 q, out vec4 ra, out vec4 rb) {
 			float w = (x == 1 ? f.x : 1.0 - f.x) * (y == 1 ? f.y : 1.0 - f.y);
 			if (a.w <= 0.0)
 				continue;
-			vec2 centre = (vec2(clamp(c, ivec2(0), ivec2(pc.n - 1))) + 0.5) * pc.cell - 0.5 * pc.world_size;
+			vec2 centre = (vec2(clamp(c, ivec2(0), ivec2(pc.n - 1))) + 0.5) * pc.cell - 0.5 * pc.world_size + pc.center;
 			qs += (centre + a.xy) * w;
 			ra += a * w;
 			rb += river_b[k] * w;
@@ -213,7 +211,7 @@ void main() {
 	bool sea = h < 0.0;
 
 	// how rugged: rock most, dirt, then sand; the seafloor and beaches stay smooth
-	float rough = dot(gw, vec4(0.18, 0.7, 1.0, 0.2));
+	float rough = dot(gw, vec4(0.15, 0.55, 1.0, 0.15));
 	rough *= sea ? 0.25 : mix(0.25, 1.0, smoothstep(1.0, 40.0, h));
 
 	vec2 q;
@@ -225,22 +223,10 @@ void main() {
 	// detail calms down in and right beside channels
 	float calm = ra.w > 0.0 ? smoothstep(1.0, 4.0, r) : 1.0;
 
-	// gullies down the baked slopes, two scales
-	float slope = length(base.yz);
-	if (slope > 0.01 && pc.detail > 0.0) {
-		vec2 down = -base.yz / slope;
-		float strength = smoothstep(0.03, 0.35, slope) * rough * calm * pc.detail;
-		for (int o = 0; o < 2; o++) {
-			float wl = o == 0 ? 240.0 : 75.0;
-			float fade = clamp((wl - 4.0 * pc.spacing) / (4.0 * pc.spacing), 0.0, 1.0);
-			h += gullies(p, down, wl, uint(31 + o)) * wl * 0.035 * strength * fade;
-		}
-	}
-
 	// fractal detail, band-limited to what this level can show
-	float amp = 22.0 * rough * calm * pc.detail;
-	float freq = 1.0 / 420.0;
-	vec2 d = base.yz * 0.0;
+	float amp = 6.0 * rough * calm * pc.detail;
+	float freq = 1.0 / 300.0;
+	vec2 d = vec2(0.0);
 	vec2 pp = p;
 	const mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
 	for (int o = 0; o < 14; o++) {
@@ -251,19 +237,21 @@ void main() {
 		vec3 nz = noised(pp * freq, uint(o + 1));
 		d += nz.yz * amp * freq;
 		h += amp * fade * nz.x / (1.0 + 0.6 * dot(d, d));
-		amp *= 0.47;
+		amp *= 0.45;
 		freq *= 2.03;
 		pp = rot * pp;
 	}
 
 	// river channels: a parabolic bed below the water surface, banks rising out
 	float water = 0.0;
-	if (ra.w > 0.0) {
+	// rivers narrower than a few texels would only alias: fade them out far away
+	float resolvable = smoothstep(1.0, 3.0, ra.w / pc.spacing);
+	if (ra.w > 0.0 && resolvable > 0.0) {
 		float surface = ra.z;
 		bool wet = rb.w > 0.01;
 		float depth = rb.z * (wet ? 1.0 : 0.6);
 		float carve = surface - depth * max(0.0, 1.0 - r * r) + max(0.0, r - 1.0) * hw * 0.55;
-		h = smin(h, carve, 0.8);
+		h = mix(h, smin(h, carve, 0.8), resolvable);
 		if (wet && r < 3.0)
 			water = surface;
 		else if (!wet && r < 1.6)

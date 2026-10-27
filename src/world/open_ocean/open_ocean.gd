@@ -32,7 +32,11 @@ func _ready() -> void:
 	var world_map := WorldMapView.new()   # F4
 	world_map.target = player
 	add_child(world_map)
-	$Sun.directional_shadow_max_distance = QualitySettings.current().shadow_distance
+	var sun: DirectionalLight3D = $Sun
+	sun.directional_shadow_max_distance = QualitySettings.current().shadow_distance
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	sun.directional_shadow_blend_splits = true   # no hard seams between shadow cascades
+	sun.directional_shadow_fade_start = 0.7
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3
 	for i in crate_count:

@@ -21,7 +21,7 @@ extends RefCounted
 ##    Lakes fill to their sills or shrink until evaporation matches inflow.
 ## 7. Rivers become smooth centrelines and a nearest-river field for Terrain.
 
-const VERSION := 2
+const VERSION := 3
 const YEAR := 31557600.0          ## Seconds per year (rain is in m / year).
 
 var n: int
@@ -67,11 +67,10 @@ func run() -> WorldMaps:
 	m.seed = config.world_seed
 	m.version = VERSION
 	_step("layout", 0.0)
-	landmasses = WorldLayout.generate(config, size)
-	for lm in landmasses:
-		m.landmasses.append({"kind": lm.kind, "center": lm.center, "radius": lm.radius})
+	landmasses = WorldLayout.generate(config)
 	_step("land shapes", 0.05)
 	_land_shapes()
+	_place_spawn()
 	_step("coastlines", 0.15)
 	_coast_distance()
 	_ramp_uplift()
@@ -88,6 +87,7 @@ func run() -> WorldMaps:
 	_step("river field", 0.88)
 	_rivers()
 	_materials()
+	_shift_to_spawn()
 	_step("done", 1.0)
 	return m
 
@@ -148,7 +148,7 @@ func _land_shapes() -> void:
 		var rng := RandomNumberGenerator.new()
 		rng.seed = lm.seed
 		var axis := rng.randf() * TAU
-		var stretch := rng.randf_range(1.0, 1.6)
+		var stretch := rng.randf_range(1.0, 1.25)
 		var ca := cos(axis)
 		var sa := sin(axis)
 		for y in range(y0, y1 + 1):
@@ -156,8 +156,11 @@ func _land_shapes() -> void:
 				var i := y * n + x
 				var px := (x + 0.5) * cell - size * 0.5
 				var pz := (y + 0.5) * cell - size * 0.5
-				var wx := px + warp.get_noise_2d(px, pz) * lm.radius * 0.3
-				var wz := pz + warp.get_noise_2d(pz + 9000.0, px - 4000.0) * lm.radius * 0.3
+				# islands keep their own shapes: warp them far less than a continent
+				var wamp := lm.radius * 0.3 if lm.kind == Landmass.Kind.CONTINENT \
+						else (300.0 if lm.kind == Landmass.Kind.VOLCANIC_CHAIN else 750.0)
+				var wx := px + warp.get_noise_2d(px, pz) * wamp
+				var wz := pz + warp.get_noise_2d(pz + 9000.0, px - 4000.0) * wamp
 				var cn := coast.get_noise_2d(px, pz)
 				var s := -1.0
 				var u := 0.0
@@ -167,7 +170,7 @@ func _land_shapes() -> void:
 						var dz := wz - lm.center.y
 						var a := (dx * ca + dz * sa) / stretch
 						var b := (-dx * sa + dz * ca) * stretch
-						s = 1.0 - sqrt(a * a + b * b) / lm.radius + cn * 0.55 * lm.coast_roughness
+						s = 1.0 - sqrt(a * a + b * b) / lm.radius + cn * 0.35 * lm.coast_roughness
 						u = 0.18 + 0.12 * hills.get_noise_2d(px, pz)
 						for belt in lm.belts:
 							var bd := _polyline_distance(belt, Vector2(px, pz))
@@ -178,7 +181,7 @@ func _land_shapes() -> void:
 							var d := Vector2(wx - isl.x, wz - isl.y).length() / isl.z
 							if d > 1.6:
 								continue
-							var si := 1.0 - d * (1.3 if volcanic else 1.0) + cn * (0.25 if volcanic else 0.5) * lm.coast_roughness
+							var si := 1.0 - d * (1.3 if volcanic else 1.0) + cn * (0.3 if volcanic else 0.5) * lm.coast_roughness
 							var ui := isl.w * (pow(maxf(0.0, 1.0 - d), 0.7) + 0.05) if volcanic \
 									else isl.w * (0.3 + 0.7 * maxf(0.0, 1.0 - d))
 							if si > s:
@@ -215,6 +218,71 @@ static func _polyline_distance(line: PackedVector2Array, p: Vector2) -> float:
 
 func _land(i: int) -> bool:
 	return _is_land[i] == 1
+
+
+var spawn := Vector2.ZERO   ## Where the player starts, in layout coordinates.
+
+
+# Offshore of the continent, away from the islands: march out from the
+# continent's middle until well past its coast, and keep open water around it.
+func _place_spawn() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = config.seed_for("spawn")
+	var avoid: Array[float] = []
+	for lm in landmasses:
+		if lm.kind != Landmass.Kind.CONTINENT:
+			avoid.append(lm.center.angle())
+	var best_dir := 0.0
+	var best_gap := -1.0
+	for _try in 24:
+		var a := rng.randf() * TAU
+		var gap := PI
+		for b in avoid:
+			gap = minf(gap, absf(angle_difference(a, b)))
+		if gap > best_gap:
+			best_gap = gap
+			best_dir = a
+	var dir := Vector2.from_angle(best_dir)
+	var coast_r := 0.0
+	var r := 0.0
+	while r < size * 0.45:
+		var g := (dir * r + Vector2.ONE * size * 0.5) / cell
+		var i := clampi(int(g.y), 0, n - 1) * n + clampi(int(g.x), 0, n - 1)
+		if _shape[i] > 0.0:
+			coast_r = r
+		r += cell
+	spawn = dir * (coast_r + 2500.0)
+	var clear := 1500.0
+	var g0 := m.to_grid(spawn.x - clear - 2000.0, spawn.y - clear - 2000.0)
+	var g1 := m.to_grid(spawn.x + clear + 2000.0, spawn.y + clear + 2000.0)
+	for y in range(clampi(floori(g0.y), 0, n - 1), clampi(ceili(g1.y), 0, n - 1) + 1):
+		for x in range(clampi(floori(g0.x), 0, n - 1), clampi(ceili(g1.x), 0, n - 1) + 1):
+			var i := y * n + x
+			var d := Vector2(_cx(i), _cz(i)).distance_to(spawn)
+			if d < clear + 2000.0:
+				_shape[i] = minf(_shape[i], (d - clear) / 2000.0)
+				if _shape[i] <= 0.0:
+					_is_land[i] = 0
+					m.owner[i] = 0
+					m.water_kind[i] = WorldMaps.WaterKind.OCEAN
+
+
+# Move everything so the spawn point is the world origin.
+func _shift_to_spawn() -> void:
+	m.center = -spawn
+	for lm in landmasses:
+		m.landmasses.append({"kind": lm.kind, "center": lm.center - spawn, "radius": lm.radius})
+	for lake in m.lakes:
+		lake.center -= spawn
+		var r: Rect2 = lake.rect
+		r.position -= spawn
+		lake.rect = r
+	var shift := Vector3(spawn.x, 0.0, spawn.y)
+	for river in m.rivers:
+		var pts: PackedVector3Array = river.points
+		for k in pts.size():
+			pts[k] -= shift
+		river.points = pts
 
 
 # Chamfer distance: land cells to the nearest sea cell, sea cells to the nearest land.
@@ -271,7 +339,7 @@ func _coast_distance() -> void:
 # Uplift fades toward the coast: gentle coastal plains on continents and
 # archipelagos, steeper shores on the volcanoes.
 func _ramp_uplift() -> void:
-	var ramps := {Landmass.Kind.CONTINENT: 2000.0, Landmass.Kind.VOLCANIC_CHAIN: 350.0, Landmass.Kind.ARCHIPELAGO: 300.0}
+	var ramps := {Landmass.Kind.CONTINENT: 3000.0, Landmass.Kind.VOLCANIC_CHAIN: 450.0, Landmass.Kind.ARCHIPELAGO: 400.0}
 	var by_owner := PackedFloat32Array([1.0])
 	for lm in landmasses:
 		by_owner.append(ramps[lm.kind])
@@ -282,7 +350,7 @@ func _ramp_uplift() -> void:
 		if owner[i] == 0:
 			up[i] = 0.0
 		else:
-			up[i] *= 0.15 + 0.85 * smoothstep(0.0, by_owner[owner[i]], dist[i])
+			up[i] *= 0.1 + 0.9 * smoothstep(0.0, by_owner[owner[i]], dist[i])
 
 
 # --- 2. mountains and valleys ----------------------------------------------------------
@@ -325,7 +393,7 @@ func _erode() -> void:
 	for i in _order:
 		var o := m.owner[i] - 1
 		h[i] *= landmasses[o].peak / maxf(peaks[o], 1.0)
-	var talus := tan(deg_to_rad(38.0))
+	var talus := tan(deg_to_rad(30.0))
 	for i in _order:
 		var j := _recv[i]
 		var dd := cell * (1.0 if absi(j - i) == 1 or absi(j - i) == n else sqrt(2.0))
@@ -826,6 +894,9 @@ func _rivers() -> void:
 			has_ch_donor[_recv[i]] = 1
 	var visited := PackedByteArray()
 	visited.resize(count)
+	var river_of := PackedInt32Array()   # which river first ran through each cell
+	river_of.resize(count)
+	river_of.fill(-1)
 	var mean_runoff := 0.0   # past climate: channels carry this much per m^2 when full
 	for i in _order:
 		mean_runoff += m.rainfall[i]
@@ -838,6 +909,7 @@ func _rivers() -> void:
 		var flows := PackedFloat32Array()
 		var areas := PackedFloat32Array()
 		var c := i
+		var joins := -1
 		while true:
 			var land := _land(c)
 			var in_lake := _lake_id[c] != 0
@@ -849,17 +921,76 @@ func _rivers() -> void:
 			pts.append(Vector3(_cx(c), s, _cz(c)))
 			flows.append(_flow[c] if land else 0.0)
 			areas.append(_area[c])
-			if not land or in_lake or visited[c] == 1:
+			if visited[c] == 1:
+				joins = river_of[c]
+				break
+			if not land or in_lake:
 				break
 			visited[c] = 1
+			river_of[c] = m.rivers.size()
 			c = _recv[c]
 			if c < 0:
 				break
 		if pts.size() < 2:
 			continue
 		var river := _smooth_river(pts, flows, areas, mean_runoff)
+		river.joins = joins
+		_meander(river, m.rivers.size())
 		m.rivers.append(river)
+	# tributaries end exactly on the (now meandering) river they join
+	for river in m.rivers:
+		var j: int = river.joins
+		if j < 0:
+			continue
+		var pts: PackedVector3Array = river.points
+		var main: PackedVector3Array = m.rivers[j].points
+		var end := pts[pts.size() - 1]
+		var best := 0
+		var best_d := INF
+		for k in main.size():
+			var d := Vector2(main[k].x - end.x, main[k].z - end.z).length_squared()
+			if d < best_d:
+				best_d = d
+				best = k
+		pts[pts.size() - 1] = Vector3(main[best].x, minf(main[best].y, pts[pts.size() - 2].y), main[best].z)
+		river.points = pts
 	_rasterize_rivers()
+
+
+# Lowland rivers wind: where the water surface is nearly flat, the centreline
+# swings side to side in loops a few channel widths across, with a wavelength
+# of about fifteen widths. Steep reaches stay straight; both ends stay put.
+func _meander(river: Dictionary, index: int) -> void:
+	var pts: PackedVector3Array = river.points
+	var hw: PackedFloat32Array = river.half_width
+	var count := pts.size()
+	if count < 6:
+		return
+	var arc := PackedFloat32Array([0.0])
+	for k in range(1, count):
+		arc.append(arc[k - 1] + Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length())
+	var total := arc[count - 1]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = config.seed_for("meander:%d" % index)
+	var phase := rng.randf() * TAU
+	var phase2 := rng.randf() * TAU
+	var theta := 0.0
+	var out := pts.duplicate()
+	for k in count:
+		var lam := clampf(hw[k] * 30.0, 160.0, 900.0)
+		if k > 0:
+			theta += (arc[k] - arc[k - 1]) / lam * TAU
+		var a := maxi(k - 4, 0)
+		var b := mini(k + 4, count - 1)
+		var slope := (pts[a].y - pts[b].y) / maxf(arc[b] - arc[a], 1.0)
+		var flat := 1.0 - smoothstep(0.002, 0.02, slope)
+		var taper := smoothstep(0.0, lam, arc[k]) * smoothstep(0.0, lam, total - arc[k])
+		var amp := minf(hw[k] * 3.5 + 20.0, 150.0) * flat * taper
+		var t := Vector2(pts[b].x - pts[a].x, pts[b].z - pts[a].z).normalized()
+		var nrm := Vector2(-t.y, t.x)
+		var off := amp * (sin(theta + phase) + 0.3 * sin(2.3 * theta + phase2))
+		out[k] = pts[k] + Vector3(nrm.x * off, 0.0, nrm.y * off)
+	river.points = out
 
 
 # One round of Chaikin corner cutting (the D8 path zigzags), widths from flow.

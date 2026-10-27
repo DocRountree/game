@@ -121,20 +121,23 @@ an object would sink into its own displacement trough.
 
 **The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
 `(seed, WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
-`user://worlds/`. `Terrain` runs it on a worker thread at start (about 10 s for
-the default 1024 x 1024 grid of 48 m cells, a 49 km world), and the HUD shows
+`user://worlds/`. `Terrain` runs it on a worker thread at start (about 12 s for
+the default 1280 x 1280 grid of 48 m cells, a 61 km world), and the HUD shows
 progress; until it finishes the world is open ocean.
 
-1. `WorldLayout` places landmasses from the seed: usually a continent (mountain
-   belts along random curves), one or two volcanic chains (cones along a hotspot
-   arc, younger ones taller, with craters) and archipelagos (clusters of low
-   islands), leaving open water around the origin where the player starts.
+1. `WorldLayout` lays the land out around a main continent (mountain belts
+   along random curves): an archipelago scattered off one coast and a volcanic
+   chain trailing away from another, a big young volcano with a crater first,
+   then smaller, older islands with open water between them. The spawn point is
+   picked offshore, away from both, and the whole world is shifted so it is the
+   origin (`WorldMaps.center` is the grid centre in world coordinates).
 2. Each gives a land shape (warped, noisy coastline) and an uplift rate.
 3. Mountains and valleys are the steady state of stream-power erosion: a
    channel's slope is `U / (K sqrt(A))` (A = drained area), so heights follow
    from the drainage tree in one pass upstream from the coast. Six rounds of
    re-routing water down the new slopes give dendritic valleys and sharp ridges.
-   Heights are scaled per landmass to its target peak, slopes capped at 38 deg.
+   Heights are scaled per landmass to its target peak (continent 0.7-1.3 km),
+   slopes capped at 30 deg so mountains can be climbed.
 4. Seafloor: shelf, slope and deep sea by distance from the coast.
 5. Lakes are placed on river valleys: a basin is scooped around an outlet and
    flooded to a level held by a rock sill, so every lake is fed by its river
@@ -145,7 +148,7 @@ progress; until it finishes the world is open ocean.
    country, so beds carved in a wetter past can run dry; lakes fill to their
    sill or shrink until evaporation matches inflow (or dry out).
 8. Rivers become smoothed centrelines (width and depth from flow, speed from
-   slope) and a nearest-river field: per cell, the offset to the nearest
+   slope) that meander where the land is flat, and a nearest-river field: per cell, the offset to the nearest
    centreline point and the river there. Offsets interpolate exactly along
    straight reaches, which is what lets 48 m cells carve 5 m channels.
 9. Ground: sand on archipelagos, beaches and the seafloor, rock on volcanoes,
@@ -153,11 +156,16 @@ progress; until it finishes the world is open ocean.
 
 **Drawing.** `terrain_levels.glsl` keeps 11 nested 256 x 256 height levels
 (0.5 m to 512 m spacing) centred on the camera: the baked height (cubic
-B-spline) plus band-limited, derivative-damped fractal detail, downhill gullies
-(phase-randomised stripes along the slope) and the river channels carved from
-the nearest-river field. `terrain.gdshader` draws a CDLOD quadtree of 32 x 32
+B-spline, read from a 2x2-averaged mip of the grid matching the level's
+spacing, so coarse levels never alias the grid and far mountains hold still),
+plus band-limited, derivative-damped fractal detail (a few metres) and the
+river channels carved from the nearest-river field. `terrain.gdshader` draws a CDLOD quadtree of 32 x 32
 patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
-the edge of its range, so seams never crack.
+the edge of its range, so seams never crack. The morph uses the main camera's
+position (a uniform), also in the shadow pass, so shadows hold still.
+
+The sky's moon, stars, planets, meteors and aurora are pushed to the far plane
+in their vertex shaders, so terrain always draws in front of them.
 
 **Physics and queries.** Level 1 (1 m spacing, 256 m) is read back into a
 `HeightMapShape3D` that follows the player when they have moved 48 m. Without a

@@ -18,6 +18,7 @@ void vertex() {
 	POSITION = PROJECTION_MATRIX * vec4(centre + vec3(offset * pixel_angle * length(centre), 0.0), 1.0);
 	colour = COLOR.rgb * INSTANCE_CUSTOM.r * visibility * step(0.0, dir.y);   // hidden below the horizon
 	quad = VERTEX.xy;
+	POSITION.z = POSITION.w * 1e-6;   // at the far plane: anything in the world draws in front of the sky
 }
 
 void fragment() {

@@ -37,5 +37,5 @@ func _process(_delta: float) -> void:
 	if not visible or maps == null or target == null:
 		return
 	var p := target.global_position
-	var uv := Vector2((p.x + maps.size * 0.5) / maps.size, (p.z + maps.size * 0.5) / maps.size)
+	var uv := (maps.to_grid(p.x, p.z) + Vector2.ONE * 0.5) / maps.n
 	_marker.position = uv * PX - _marker.size * 0.5

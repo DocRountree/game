@@ -10,7 +10,7 @@ extends Resource
 
 @export_group("Rendering")
 @export_range(0.25, 1.0) var render_scale := 1.0      ## 3D resolution scale (1 = native).
-@export var shadow_distance := 60.0                   ## Directional shadow range (m).
+@export var shadow_distance := 350.0                  ## Directional shadow range (m).
 
 @export_group("Water")
 @export var ocean_rings := 200                        ## Radial rings of the ocean mesh.

@@ -63,8 +63,9 @@ func _process(delta: float) -> void:
 	var vel := Vector3(player.velocity.x, 0.0, player.velocity.z)
 	var speed := vel.length()
 	var airborne := player.state == &"AIRBORNE"
-	var step_time := clampf(0.32 - speed * 0.025, 0.15, 0.32)
-	var reach := 0.22 + speed * 0.11
+	# strides lengthen up to what the legs can reach, then steps just quicken
+	var reach := minf(0.22 + speed * 0.11, 0.85)
+	var step_time := clampf(reach / maxf(speed, 0.01) * 0.9, 0.06, 0.32)
 	for i in 2:
 		var hip := _hip(i)
 		if airborne:

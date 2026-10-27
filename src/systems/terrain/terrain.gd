@@ -25,8 +25,8 @@ const VIEW_RADIUS := 60000.0        ## Draw terrain out to here (m).
 const DEEP := -4000.0               ## Height reported before the world exists.
 
 ## Grid cells per side for the bake (fixed per world version; tests use fewer).
-static var bake_resolution := 1024
-static var world_size := 49152.0
+static var bake_resolution := 1280
+static var world_size := 61440.0
 static var _current: Terrain
 
 @export var focus: Node3D           ## The collider follows this (the player).
@@ -147,6 +147,7 @@ func _process(_delta: float) -> void:
 		if _gpu_ok:
 			_update_levels(c)
 			_select_patches(c)
+			_material.set_shader_parameter("view_pos", cam.global_position)
 	_update_collider()
 
 
@@ -227,6 +228,7 @@ func _build_drawing() -> void:
 	_material.shader = preload("res://src/systems/terrain/terrain.gdshader")
 	_material.set_shader_parameter("ground", _ground_texture())
 	_material.set_shader_parameter("world_size", _maps.size)
+	_material.set_shader_parameter("world_center", _maps.center)
 	_material.set_shader_parameter("top_level", LEVELS - 1)
 	_material.set_shader_parameter("grid_dim", float(GRID))
 	_material.set_shader_parameter("level_size", float(LEVEL_SIZE))
@@ -326,6 +328,27 @@ static func _box_distance(origin: Vector2, size: float, p: Vector2) -> float:
 
 # --- GPU levels -----------------------------------------------------------------------
 
+const MIPS := 6   ## Must match terrain_levels.glsl.
+
+
+# The baked heights and 2x2-averaged copies, finest first, in one array.
+func _height_mips() -> PackedFloat32Array:
+	var out := _maps.height.duplicate()
+	var src := _maps.height
+	var size := _maps.n
+	for _m in range(1, MIPS):
+		var half := size / 2
+		var dst := PackedFloat32Array()
+		dst.resize(half * half)
+		for y in half:
+			for x in half:
+				var i := 2 * y * size + 2 * x
+				dst[y * half + x] = (src[i] + src[i + 1] + src[i + size] + src[i + size + 1]) * 0.25
+		out.append_array(dst)
+		src = dst
+		size = half
+	return out
+
 func _create_gpu() -> void:
 	var shader_file: RDShaderFile = load("res://src/systems/terrain/terrain_levels.glsl")
 	var spirv := shader_file.get_spirv()
@@ -339,7 +362,7 @@ func _create_gpu() -> void:
 	ground.resize(n * n * 4)
 	for i in n * n:
 		ground[i * 4 + mini(_maps.material[i], 3)] = 255
-	for data: PackedByteArray in [_maps.height.to_byte_array(), _maps.river_a.to_byte_array(),
+	for data: PackedByteArray in [_height_mips().to_byte_array(), _maps.river_a.to_byte_array(),
 			_maps.river_b.to_byte_array(), ground, _maps.water_level.to_byte_array()]:
 		_buffers.append(_rd.storage_buffer_create(data.size(), data))
 	var fmt := RDTextureFormat.new()
@@ -415,6 +438,8 @@ func _dispatch_levels(changed: Array[int], origins: Array[Vector2], physics_laye
 			pc.encode_s32(28, _detail_seed)
 			pc.encode_float(32, _maps.cell)
 			pc.encode_float(36, detail)
+			pc.encode_float(40, _maps.center.x)
+			pc.encode_float(44, _maps.center.y)
 			_rd.compute_list_set_push_constant(cl, pc, pc.size())
 			_rd.compute_list_dispatch(cl, LEVEL_SIZE / 16, LEVEL_SIZE / 16, 1)
 		_rd.compute_list_add_barrier(cl)

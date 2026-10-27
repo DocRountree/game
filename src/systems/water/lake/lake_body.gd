@@ -44,6 +44,7 @@ func _ready() -> void:
 	_material.set_shader_parameter("lake_mask", Terrain.current().lake_mask_texture())
 	_material.set_shader_parameter("seabed", Terrain.current().seabed_texture())
 	_material.set_shader_parameter("world_size", Terrain.maps().size)
+	_material.set_shader_parameter("world_center", Terrain.maps().center)
 	_material.set_shader_parameter("has_seabed", true)
 	_material.set_shader_parameter("absorption", Vector3(0.38, 0.1, 0.09))
 	var plane := PlaneMesh.new()

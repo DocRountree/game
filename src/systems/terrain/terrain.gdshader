@@ -17,7 +17,12 @@ uniform int top_level = 10;
 uniform float grid_dim = 32.0;
 uniform float level_size = 256.0;
 uniform sampler2D ground : filter_linear, repeat_disable;   // sand, dirt, rock, lakebed weights
-uniform float world_size = 49152.0;
+uniform float world_size = 61440.0;
+uniform vec2 world_center = vec2(0.0);
+// The main camera, also during the shadow pass (CAMERA_POSITION_WORLD is the
+// light's camera there): patches must morph the same way in both, or shadows
+// shift as you look around.
+uniform vec3 view_pos;
 
 uniform vec3 sand_color : source_color = vec3(0.78, 0.7, 0.52);
 uniform vec3 dirt_color : source_color = vec3(0.4, 0.3, 0.21);
@@ -41,7 +46,7 @@ void vertex() {
 	vec2 gp = VERTEX.xz;
 	vec2 wp = origin.xz + gp * cd.w;
 	lod = int(cd.x + 0.5);
-	float d = distance(wp, CAMERA_POSITION_WORLD.xz);
+	float d = distance(wp, view_pos.xz);
 	morph = lod < top_level ? clamp((d - cd.y) / (cd.z - cd.y), 0.0, 1.0) : 0.0;
 	gp -= fract(gp * grid_dim * 0.5) * 2.0 / grid_dim * morph;
 	wp = origin.xz + gp * cd.w;
@@ -74,7 +79,7 @@ void fragment() {
 	vec3 n_world = normalize(vec3(-s.g, 1.0, -s.b));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
-	vec4 gw = texture(ground, (wp + world_size * 0.5) / world_size);
+	vec4 gw = texture(ground, (wp - world_center + world_size * 0.5) / world_size);
 	gw /= max(gw.r + gw.g + gw.b + gw.a, 0.001);
 	vec3 col = sand_color * gw.r + dirt_color * gw.g + rock_color * gw.b + lakebed_color * gw.a;
 	// bare rock on steep slopes

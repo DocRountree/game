@@ -40,7 +40,8 @@ group_uniforms shore;
 // Terrain height over the world grid: waves shrink as the water shoals and
 // break into foam at the shore.
 uniform sampler2D seabed : filter_linear, repeat_disable;
-uniform float world_size = 49152.0;
+uniform float world_size = 61440.0;
+uniform vec2 world_center = vec2(0.0);
 uniform bool has_seabed = false;
 
 group_uniforms body;
@@ -69,7 +70,7 @@ float lod(int i, float sp) {
 float water_depth(vec2 p) {
 	if (!has_seabed)
 		return 1000.0;
-	return surface_level - texture(seabed, (p + world_size * 0.5) / world_size).r;
+	return surface_level - texture(seabed, (p - world_center + world_size * 0.5) / world_size).r;
 }
 
 // waves feel the bottom in water shallower than about a third of their length
@@ -106,7 +107,7 @@ void vertex() {
 }
 
 void fragment() {
-	vec2 cell_uv = (x0 + world_size * 0.5) / world_size;
+	vec2 cell_uv = (x0 - world_center + world_size * 0.5) / world_size;
 	if (masked && texture(lake_mask, cell_uv).r < surface_level - 0.5)
 		discard;
 	float depth = water_depth(x0);

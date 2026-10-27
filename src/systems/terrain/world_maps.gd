@@ -5,8 +5,10 @@ extends RefCounted
 ## climate and ground material. Baked once per (seed, generator version) and
 ## cached on disk; Terrain, the water bodies and the map read it.
 ##
-## Cell (x, y) covers world x in [x * cell - size / 2, (x + 1) * cell - size / 2),
-## likewise z with y. Values are stored at cell centres.
+## The grid is centred on `center` (world xz): cell (x, y) covers world x in
+## [center.x - size / 2 + x * cell, ... + cell), likewise z with y. Values are
+## stored at cell centres. The world origin is the player's starting point,
+## offshore.
 
 enum WaterKind { LAND, OCEAN, LAKE, DRY_LAKE }
 enum Ground { SAND, DIRT, ROCK, LAKEBED }
@@ -17,6 +19,7 @@ const FILE_MAGIC := "WMAP"
 var n := 0                         ## Cells per side.
 var size := 0.0                    ## World side (m).
 var cell := 0.0                    ## Cell side (m).
+var center := Vector2.ZERO         ## World xz of the grid's centre.
 var seed := 0
 var version := 0
 
@@ -71,11 +74,11 @@ func setup(cells: int, world_size: float) -> void:
 
 ## Cell-space coordinates of a world point (cell centres at integers).
 func to_grid(x: float, z: float) -> Vector2:
-	return Vector2((x + size * 0.5) / cell - 0.5, (z + size * 0.5) / cell - 0.5)
+	return Vector2((x - center.x + size * 0.5) / cell - 0.5, (z - center.y + size * 0.5) / cell - 0.5)
 
 
 func to_world(gx: float, gy: float) -> Vector2:
-	return Vector2((gx + 0.5) * cell - size * 0.5, (gy + 0.5) * cell - size * 0.5)
+	return Vector2((gx + 0.5) * cell - size * 0.5 + center.x, (gy + 0.5) * cell - size * 0.5 + center.y)
 
 
 func index_at(x: float, z: float) -> int:
@@ -139,6 +142,8 @@ func save(path: String) -> Error:
 	f.store_32(n)
 	f.store_double(size)
 	f.store_64(seed)
+	f.store_double(center.x)
+	f.store_double(center.y)
 	for arr: PackedFloat32Array in [height, water_level, temperature, rainfall, river_a, river_b]:
 		f.store_buffer(arr.to_byte_array())
 	for arr: PackedByteArray in [water_kind, material, owner]:
@@ -162,6 +167,7 @@ static func load_from(path: String, expect_version: int) -> WorldMaps:
 	var world_size := f.get_double()
 	m.setup(cells, world_size)
 	m.seed = f.get_64()
+	m.center = Vector2(f.get_double(), f.get_double())
 	var count := cells * cells
 	m.height = f.get_buffer(count * 4).to_float32_array()
 	m.water_level = f.get_buffer(count * 4).to_float32_array()

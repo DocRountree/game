@@ -89,6 +89,7 @@ func _process(delta: float) -> void:
 		_shore_set = true
 		_material.set_shader_parameter("seabed", Terrain.current().seabed_texture())
 		_material.set_shader_parameter("world_size", Terrain.maps().size)
+		_material.set_shader_parameter("world_center", Terrain.maps().center)
 		_material.set_shader_parameter("has_seabed", true)
 	if sun:
 		_material.set_shader_parameter("sun_direction", sun.global_basis.z)

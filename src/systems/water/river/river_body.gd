@@ -105,7 +105,12 @@ func contains_point(x: float, z: float) -> bool:
 	if maps == null:
 		return false
 	var r := maps.river_at(x, z)
-	return not r.is_empty() and r.wet and r.distance < r.half_width and Terrain.height_at(x, z) < r.surface
+	if r.is_empty() or not r.wet or r.distance >= r.half_width:
+		return false
+	var ground := Terrain.height_at(x, z)
+	if ground < maps.lake_level_at(x, z):
+		return false   # where a river runs into a lake, the lake has it
+	return ground < r.surface
 
 
 func surface_height(x: float, z: float, _footprint := 0.0, _ripple_radius := -1.0) -> float:

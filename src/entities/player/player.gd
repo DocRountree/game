@@ -19,7 +19,7 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 @export var breath_seconds := 20.0          ## Breath-hold without gear.
 @export var board_range := 5.0
 @export var sprint_factor := 1.6           ## Ctrl: faster walking and swimming
-@export var walk_speed := 4.0               ## m/s on land
+@export var walk_speed := 20.0              ## m/s on land
 @export var jump_speed := 4.5
 @export var traits: CharacterTraits
 
@@ -46,6 +46,7 @@ var _facing := 0.0
 
 func _ready() -> void:
 	add_to_group(&"ripple_sources")
+	floor_snap_length = 1.2   # stay on the ground running downhill
 	var legs := ProceduralLegs.new()
 	legs.player = self
 	add_child(legs)
