@@ -117,6 +117,67 @@ Objects read ripples on a ring just outside their own footprint, and compute
 their displacement against the swell only. That breaks the feedback loop where
 an object would sink into its own displacement trough.
 
+### Terrain and world generation (`src/systems/terrain/`)
+
+**The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
+`(seed, WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
+`user://worlds/`. `Terrain` runs it on a worker thread at start (about 10 s for
+the default 1024 x 1024 grid of 48 m cells, a 49 km world), and the HUD shows
+progress; until it finishes the world is open ocean.
+
+1. `WorldLayout` places landmasses from the seed: usually a continent (mountain
+   belts along random curves), one or two volcanic chains (cones along a hotspot
+   arc, younger ones taller, with craters) and archipelagos (clusters of low
+   islands), leaving open water around the origin where the player starts.
+2. Each gives a land shape (warped, noisy coastline) and an uplift rate.
+3. Mountains and valleys are the steady state of stream-power erosion: a
+   channel's slope is `U / (K sqrt(A))` (A = drained area), so heights follow
+   from the drainage tree in one pass upstream from the coast. Six rounds of
+   re-routing water down the new slopes give dendritic valleys and sharp ridges.
+   Heights are scaled per landmass to its target peak, slopes capped at 38 deg.
+4. Seafloor: shelf, slope and deep sea by distance from the coast.
+5. Lakes are placed on river valleys: a basin is scooped around an outlet and
+   flooded to a level held by a rock sill, so every lake is fed by its river
+   (wet or dry). Some (more in dry places) have no outlet.
+6. Climate: temperature from height; rain from moist sea wind rising over the
+   land (rain shadows behind mountains).
+7. Water today: runoff accumulates downstream, channels lose water in dry
+   country, so beds carved in a wetter past can run dry; lakes fill to their
+   sill or shrink until evaporation matches inflow (or dry out).
+8. Rivers become smoothed centrelines (width and depth from flow, speed from
+   slope) and a nearest-river field: per cell, the offset to the nearest
+   centreline point and the river there. Offsets interpolate exactly along
+   straight reaches, which is what lets 48 m cells carve 5 m channels.
+9. Ground: sand on archipelagos, beaches and the seafloor, rock on volcanoes,
+   dirt on continents, lake beds.
+
+**Drawing.** `terrain_levels.glsl` keeps 11 nested 256 x 256 height levels
+(0.5 m to 512 m spacing) centred on the camera: the baked height (cubic
+B-spline) plus band-limited, derivative-damped fractal detail, downhill gullies
+(phase-randomised stripes along the slope) and the river channels carved from
+the nearest-river field. `terrain.gdshader` draws a CDLOD quadtree of 32 x 32
+patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
+the edge of its range, so seams never crack.
+
+**Physics and queries.** Level 1 (1 m spacing, 256 m) is read back into a
+`HeightMapShape3D` that follows the player when they have moved 48 m. Without a
+GPU it is built from the baked map. `Terrain.height_at(x, z)` uses it near the
+player, the baked map elsewhere. `Ocean.contains_point` is "ground below sea
+level"; lakes (`LakeBody`) and rivers (`RiverBody`) are water bodies built from
+the bake, so buoyancy, swimming, currents and sampling work in them unchanged.
+
+**Water on land.** The ocean shader shrinks each Gerstner wave where the water
+is shallower than a third of its length and adds surf near the shore (physics
+matches). Lakes reuse the ocean shader without swell, masked to their basin.
+Rivers are ribbons along wet reaches with `river.gdshader`, after P_Malin's
+"Where the River Goes": flow-mapped, self-warping value-noise ripples whose
+octaves drift at different rates, foam where fast water runs shallow, and
+clear, slightly brown water. Currents push swimmers and boats.
+
+**Walking.** `ProceduralLegs` plants each foot on the collider (a ray down)
+and steps it in an arc when the body has moved on, alternating feet, with a
+two-bone solver bending the knees. No animation clips.
+
 ### Atmosphere (`src/systems/atmosphere/`)
 
 A single-scattering sky after Sebastian Lague's

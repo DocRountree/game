@@ -264,6 +264,26 @@ func _run() -> void:
 			and Water.body_at(spot.x, spot.z) == null,
 			"player stands on land (%s, feet %.2f m above the ground)" % [player.state, player.global_position.y - Player.CHEST - ground])
 
+	# procedural legs: feet planted on the ground, stepping while walking
+	player.model.visible = true
+	var legs: ProceduralLegs = null
+	for ch in player.get_children():
+		if ch is ProceduralLegs:
+			legs = ch
+	await _frames(10)
+	var planted := true
+	for f in legs._feet:
+		planted = planted and absf(f.y - Terrain.height_at(f.x, f.z)) < 0.15
+	Input.action_press(&"move_forward")
+	var start_feet := legs._feet.duplicate()
+	await _frames(60)
+	Input.action_release(&"move_forward")
+	var stepped: bool = legs._feet[0].distance_to(start_feet[0]) > 0.3 and legs._feet[1].distance_to(start_feet[1]) > 0.3
+	await _frames(30)
+	for f in legs._feet:
+		planted = planted and absf(f.y - Terrain.height_at(f.x, f.z)) < 0.15
+	_check(legs != null and planted and stepped, "procedural legs plant both feet on the ground and step while walking")
+
 	# lakes and rivers are water bodies
 	var lake_ok := true
 	var lakes_seen := 0

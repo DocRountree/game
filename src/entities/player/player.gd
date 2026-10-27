@@ -46,6 +46,9 @@ var _facing := 0.0
 
 func _ready() -> void:
 	add_to_group(&"ripple_sources")
+	var legs := ProceduralLegs.new()
+	legs.player = self
+	add_child(legs)
 	if traits:
 		traits.apply_to(model)
 	var game := WorldConfig._game()

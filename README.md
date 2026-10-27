@@ -7,8 +7,15 @@ with C++ via GDExtension where profiling calls for it).
 The sky is a single-scattering atmosphere over the real winter night sky:
 naked-eye stars, planets and Messier objects, every day the winter solstice.
 A moon goes through its phases day by day. Days last 15 real minutes, nights 10.
-The first system in place is the water: a Gerstner-wave ocean that physics and
-rendering agree on exactly, spring buoyancy for anything that floats, and an
+
+Every world is generated from its seed, like Minecraft: a continent, volcanic
+island chains and sandy archipelagos, carved by erosion into ridges and valleys,
+with rivers (some dried up), lakes fed by them, and a sandy seafloor. The first
+start of a world bakes it (about 10 s, in the background) and caches it.
+
+The water: a Gerstner-wave ocean that physics and rendering agree on exactly,
+waves that shoal and break at the shore, calm lakes, flowing rivers whose
+current carries you, spring buoyancy for anything that floats, and an
 interactive GPU ripple simulation that turns hulls and swimmers into wakes that
 lift and shove whatever they reach.
 
@@ -31,12 +38,13 @@ and gameplay still work, just without ripples.
 | Mouse | look around (Esc releases the cursor; arrow keys also orbit) |
 | Left Shift | swim down; get off the boat |
 | F3 | performance overlay (fps, CPU, GPU, memory) |
+| F4 | world map (debug: the whole baked world, with you on it) |
 | F5 | toggle first-person (default) / third-person view |
 | F6 | debug: aurora every night (toggle) |
 | M | debug: meteor shower every night (toggle) |
-| W A S D | swim, relative to the camera (look down while swimming to dive) |
+| W A S D | walk on land; swim, relative to the camera (look down while swimming to dive) |
 | Left Ctrl | sprint (hold with W) |
-| Space | swim up / tread water (do nothing and you sink) |
+| Space | jump; swim up / tread water (do nothing and you sink) |
 | Right mouse | board the boat |
 | W / S, A / D | on the boat: throttle / reverse, steer |
 | [ / ] | scrub time of day backward / forward |
@@ -51,7 +59,8 @@ src/                all game code and scenes, grouped by feature
   autoload/         global services: Events (signal bus), Game, Settings, Perf
   core/             world-wide basics: WorldConfig (seed, latitude, date), WorldGrid
   data/             Resource schemas and instances: items, species, biomes, boats, characters
-  systems/          reusable pieces: water (ocean), time, atmosphere, buoyancy,
+  systems/          reusable pieces: terrain (world generation), water (ocean,
+                    lakes, rivers), time, atmosphere, buoyancy,
                     camera, inventory, exploration, performance
   entities/         things in the world: player, boat, props
   world/            levels / playable spaces (open_ocean is the main scene)
