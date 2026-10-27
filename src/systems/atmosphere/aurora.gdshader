@@ -20,9 +20,10 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled, 
 // converge on the magnetic zenith. Per pixel the view ray is stepped through
 // the shell; near or inside a sheet each step is refined into exact sub-steps,
 // and per sub-step the length of ray inside the sheet's profile is integrated
-// in closed form (error functions), with the light blended from both ends. So
-// edge-on sheets glow brighter and neighbouring pixels change smoothly: no
-// stripes, grain or moire, even where rays graze swirled sheets. Pillar detail
+// in closed form (error functions), with the light taken where the ray comes
+// closest to the sheet. So edge-on sheets glow brighter and neighbouring pixels
+// change smoothly: no stripes, grain, moire or dashes, even where rays graze
+// swirled sheets. Pillar detail
 // fades by its actual on-screen size (catching pillars seen end-on overhead).
 //
 // Colour by altitude, per curtain and drifting along it: green (yellow-green to
@@ -96,9 +97,8 @@ float resolved(float size, float t, float pa) {
 	return smoothstep(2.0 + 4.0 * blur, 6.0 + 8.0 * blur, size / max(t * pa, 1e-4));
 }
 
-// fades pillar detail of this size (km along the curtain) once it is under a few
-// pixels on screen; dx_px is how far the along-curtain coordinate moves per
-// pixel here, which also catches pillars seen end-on near the magnetic zenith
+// fades pillar detail of this size (km) once it is under a few pixels on screen;
+// dx_px is roughly how far one pixel spans at pillar height
 float on_screen(float size, float dx_px) {
 	return smoothstep(2.0 + 4.0 * blur, 6.0 + 8.0 * blur, size / dx_px);
 }
@@ -167,9 +167,12 @@ vec3 curtain_light(int k, float t, vec2 track, float ey, float pa, float dx_px) 
 	float base = c_shape[k].z + 8.0 * (noise(x / 160.0 + s * 7.0 + clock * 0.004) - 0.5) + ragged;
 	float decay = c_glow[k].x * mix(1.0, mix(0.5, 1.4, noise(x / sp + s * 23.0)), far);
 	float above = h - base;
-	float lower = 1.0 / (1.0 + exp(-above / (c_shape[k].w * (1.0 + 0.6 * blur))));
+	// soft bottom; raggedness too fine to show (far away) widens the fade instead
+	// of vanishing, so distant curtains don't get a crisp, uniform base line
+	float softness = c_shape[k].w * (1.0 + 0.6 * blur) + 0.8 * c_extent[k].w * (1.0 - far);
+	float lower = 1.0 / (1.0 + exp(-above / softness));
 	float upper = exp(-max(above, 0.0) / decay);
-	float bottom_glow = 1.0 + 0.8 * exp(-pow(max(above, 0.0) / 15.0, 2.0));   // brightest near the bottom
+	float bottom_glow = 1.0 + 0.5 * exp(-pow(max(above, 0.0) / 30.0, 2.0));   // brightest near the bottom
 	// colour by altitude, drifting along the curtain
 	float drift = mix(0.3, 1.7, noise(x / 350.0 + s * 9.0 + clock * 0.003));
 	float top = c_style[k].x;
@@ -193,12 +196,14 @@ void fragment() {
 	float pa = max(length(fwidth(dir)), 1e-5);
 	float ey = max(dir.y, 0.0005);
 	vec2 track = vec2(dir.x, -dir.z);   // east, north per km of ray
-	float t0 = ray_to(80.0, ey);
+	float t0 = ray_to(30.0, ey);   // low enough that soft bottoms fade out fully instead of being cut off
 	float t1 = ray_to(450.0, ey);
 	float dt = (t1 - t0) / float(steps);
-	// how far the along-curtain coordinate moves per pixel, at a typical pillar height
-	float x_ref = unwarp(foot_point(ray_to(115.0, ey), track, ey)).x;
-	float dx_px = max(fwidth(x_ref), 1e-3);
+	// roughly how far a pixel spans at a typical pillar height. Distance-based on
+	// purpose: deriving it from the folded along-curtain coordinate (by fwidth or
+	// finite differences) made the fade itself jump where swirls bend that
+	// coordinate sharply, which drew dark dashes across distant curtains.
+	float dx_px = max(ray_to(115.0, ey) * pa, 1e-3);
 	vec3 light = vec3(0.0);
 
 	for (int k = 0; k < MAX_CURTAINS; k++) {
@@ -207,72 +212,75 @@ void fragment() {
 		float w = c_glow[k].y * (1.0 + blur);   // thicker sheets: softer edges
 		float ta = t0;
 		float ga = offset(k, ta, track, ey, pa);
-		vec3 la = vec3(0.0);   // light at ta, carried over from the previous step
-		bool has_la = false;
 		for (int i = 1; i <= steps; i++) {
 			float tb = t0 + dt * float(i);
 			float gb = offset(k, tb, track, ey, pa);
-			vec3 lb = vec3(0.0);
-			bool has_lb = false;
 			bool crossing = (ga < 0.0) != (gb < 0.0);
-			if (crossing || min(abs(ga), abs(gb)) < 4.0 * w) {
+			// look closer near a sheet, or within about a step of it: a ray skimming a
+			// fold edge-on can dip into the sheet and out again between two samples
+			if (crossing || min(abs(ga), abs(gb)) < max(4.0 * w, 0.75 * dt)) {
 				// Near or inside a sheet: split the step into sub-steps with the exact
-				// offset at each, integrate the length of ray inside the sheet's
-				// profile per sub-step in closed form, and blend the light at the
-				// sub-step ends by closeness. The offset is far from linear where rays
-				// graze swirled sheets; refining only here keeps that accurate (no
-				// stripes, grain or moire) without paying for it everywhere.
-				if (!has_la)
-					la = curtain_light(k, ta, track, ey, pa, dx_px);
+				// offset at each and integrate the length of ray inside the sheet's
+				// profile per sub-step in closed form. The light for a sub-step is taken
+				// at the ray's closest approach to the sheet, which is where it really
+				// comes from and moves continuously with the view. (Blending the light
+				// at sub-step ends instead left dark dashes on distant curtains.)
 				float tp = ta;
 				float gp = ga;
-				vec3 lp = la;
-				float wp = exp(-gp * gp / (w * w));
 				float sub = dt / float(SUBSAMPLES + 1);
 				for (int j = 1; j <= SUBSAMPLES + 1; j++) {
 					float tj = j <= SUBSAMPLES ? ta + sub * float(j) : tb;
 					float gj = j <= SUBSAMPLES ? offset(k, tj, track, ey, pa) : gb;
-					vec3 lj = curtain_light(k, tj, track, ey, pa, dx_px);
-					float wj = exp(-gj * gj / (w * w));
 					float dg = gj - gp;
 					float inside;   // km of ray, weighted by the sheet's profile exp(-(g/w)^2)
 					if (abs(dg) < 1e-3 * w)
-						inside = sub * 0.5 * (wp + wj);
+						inside = sub * exp(-gp * gp / (w * w));
 					else
 						inside = abs(sub * w / dg) * 0.8862 * abs(erf_approx(gj / w) - erf_approx(gp / w));
-					light += (lp * wp + lj * wj) / max(wp + wj, 1e-6) * min(inside, 25.0);
+					if (inside > 1e-4) {
+						float sc = abs(dg) > 1e-6 ? clamp(-gp / dg, 0.0, 1.0) : 0.5;
+						light += curtain_light(k, tp + (tj - tp) * sc, track, ey, pa, dx_px) * min(inside, 25.0);
+					}
 					tp = tj;
 					gp = gj;
-					lp = lj;
-					wp = wj;
 				}
-				lb = lp;
-				has_lb = true;
 			}
 			ta = tb;
 			ga = gb;
-			la = lb;
-			has_la = has_lb;
 		}
 	}
 
-	// structureless glows, marched coarsely (they vary slowly)
-	if (red_glow > 0.0 || green_patches > 0.0) {
-		float ds = (t1 - t0) / 14.0;
-		for (int i = 0; i < 14; i++) {
-			float t = t0 + ds * (float(i) + 0.5);
+	// structureless glows, each sampled only through its own layer and finely
+	// (sampling them across the whole ray was coarser than the thin green layer,
+	// which left broken horizontal dashes near the horizon)
+	if (green_patches > 0.0) {
+		float ga0 = ray_to(90.0, ey);
+		float gs = (ray_to(155.0, ey) - ga0) / 16.0;
+		for (int i = 0; i < 16; i++) {
+			float t = ga0 + gs * (float(i) + 0.5);
 			float h = altitude(t, ey);
 			vec2 f = foot_point(t, track, ey);
-			float high = smoothstep(220.0, 280.0, h) * (1.0 - smoothstep(380.0, 450.0, h));
-			light += RED * red_glow * high * noise2(f / 600.0 + glow_seed + clock * 0.0015) * ds * 0.0013;
-			float lowband = smoothstep(95.0, 110.0, h) * (1.0 - smoothstep(120.0, 150.0, h));
+			float lowband = smoothstep(90.0, 110.0, h) * (1.0 - smoothstep(115.0, 155.0, h));
 			float pulse = 0.6 + 0.4 * sin(clock * 0.35 + noise2(f / 150.0 + glow_seed) * 12.0);
 			float patches = noise2(f / 180.0 - glow_seed + clock * 0.002);
-			light += GREEN_CYAN * green_patches * lowband * patches * patches * pulse * ds * 0.02;
+			light += GREEN_CYAN * green_patches * lowband * patches * patches * pulse * gs * 0.02;
+		}
+	}
+	if (red_glow > 0.0) {
+		float ra0 = ray_to(210.0, ey);
+		float rs = (t1 - ra0) / 12.0;
+		for (int i = 0; i < 12; i++) {
+			float t = ra0 + rs * (float(i) + 0.5);
+			float h = altitude(t, ey);
+			vec2 f = foot_point(t, track, ey);
+			float high = smoothstep(210.0, 290.0, h) * (1.0 - smoothstep(370.0, 450.0, h));
+			light += RED * red_glow * high * noise2(f / 600.0 + glow_seed + clock * 0.0015) * rs * 0.0013;
 		}
 	}
 
-	light *= exp(-0.06 / max(ey, 0.01)) * gain * strength;   // fades through the thick air low down
+	// fades through the thick, hazy air low down, so curtains melt into the
+	// horizon instead of being clipped by it
+	light *= exp(-0.15 / max(ey, 0.01)) * smoothstep(0.0, 0.12, ey) * gain * strength;
 	// only genuinely bright light whitens, as the eye and camera see it
 	float lum = dot(light, vec3(0.3, 0.55, 0.15));
 	light = mix(light, vec3(lum * 1.15), smoothstep(0.6, 2.5, lum) * 0.5);

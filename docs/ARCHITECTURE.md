@@ -209,15 +209,22 @@ stars, so they repeat exactly each day. The moon and planets move on:
     swirls exactly to evaluate them. Both properties are tested.
   - Field lines tilt toward the equator as they rise, so overhead pillars
     converge on the magnetic zenith.
-  - Per pixel, the view ray is stepped through 80-450 km of altitude; near or
+  - Per pixel, the view ray is stepped through 30-450 km of altitude (low enough that soft bottoms are never cut off); near or
     inside a sheet each step is refined into exact sub-steps, and per sub-step
     the length of ray inside the sheet's profile is integrated in closed form,
     with the light blended from both ends. Edge-on sheets glow and pixels change
     smoothly: no stripes, grain or moire (an earlier per-pixel jitter caused
     stippling, and plain steps caused moire where rays graze swirled sheets).
-    Pillars fade by their actual on-screen size (a screen-space derivative of
-    the along-curtain coordinate), which also catches pillars seen end-on near
-    the magnetic zenith.
+    The light for each sub-step is taken where the ray comes closest to the
+    sheet. Pillar detail fades by a distance-based estimate of pixel size:
+    deriving it from the folded along-curtain coordinate (fwidth or finite
+    differences) made the fade jump where swirls bend that coordinate, drawing
+    dark dashes across distant curtains. The structureless glows are sampled
+    only within their own thin layers for the same reason.
+  - Near the horizon the light fades through the thick, hazy low air, so
+    curtains melt into the horizon instead of being clipped by the sea. Bottoms
+    are soft (10-35 km), and where pillars are too fine to show, their
+    raggedness widens the fade rather than vanishing.
   - Colour by altitude, per curtain and drifting along it: green from
     yellow-green to cyan, red or blue-violet tops, sometimes magenta lower parts.
     Only genuinely bright light whitens.

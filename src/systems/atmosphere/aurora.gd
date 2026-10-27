@@ -87,7 +87,7 @@ func _style_for(night_id: int) -> Dictionary:
 			"amplitude": rng.randf_range(5.0, 60.0),
 			"gap": rng.randf_range(MIN_GAP, 150.0),
 			"base": rng.randf_range(130.0, 160.0) if high_base else rng.randf_range(95.0, 120.0),
-			"softness": rng.randf_range(6.0, 25.0),
+			"softness": rng.randf_range(10.0, 35.0),
 			"decay": rng.randf_range(30.0, 160.0),
 			"thickness": rng.randf_range(2.0, 10.0),
 			"brightness": rng.randf_range(0.5, 1.0),
