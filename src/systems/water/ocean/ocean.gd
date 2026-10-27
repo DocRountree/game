@@ -75,13 +75,15 @@ func _process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		time += delta   # animate the preview; in game, physics owns the clock
 	_material.set_shader_parameter("time", time)
-	_material.set_shader_parameter("ripple_tex", ripples.texture)
+	# the ripple and small-wave simulations only run in game (not @tool)
 	if not Engine.is_editor_hint():
+		_material.set_shader_parameter("ripple_tex", ripples.texture)
 		small_waves.update(time)
-	for c in OceanFFT.CASCADES:
-		_material.set_shader_parameter("fft_%d" % c, small_waves.textures[c])
-	_material.set_shader_parameter("fft_sizes", small_waves.sizes)
-	_material.set_shader_parameter("ripple_rect", Vector3(ripples.origin.x, ripples.origin.y, ripples.size()))
+		for c in OceanFFT.CASCADES:
+			_material.set_shader_parameter("fft_%d" % c, small_waves.textures[c])
+		_material.set_shader_parameter("fft_sizes", small_waves.sizes)
+	if not Engine.is_editor_hint():
+		_material.set_shader_parameter("ripple_rect", Vector3(ripples.origin.x, ripples.origin.y, ripples.size()))
 	if sun:
 		_material.set_shader_parameter("sun_direction", sun.global_basis.z)
 		_material.set_shader_parameter("sun_color", Vector3(sun.light_color.r, sun.light_color.g, sun.light_color.b) * sun.light_energy)

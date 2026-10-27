@@ -98,6 +98,10 @@ static func _island(cx: int, cz: int) -> Dictionary:
 
 
 static func _ensure_noise() -> void:
+	# the world seed lives in the scene tree, which only the main thread may touch;
+	# worker threads use the noise the main thread set up before starting them
+	if OS.get_thread_caller_id() != OS.get_main_thread_id():
+		return
 	var s := WorldConfig.current().seed_for("seafloor")
 	if s == _seed:
 		return
@@ -158,6 +162,7 @@ func _physics_process(_delta: float) -> void:
 	if p.distance_to(_centre) > REBUILD_DISTANCE or p.distance_to(_far_centre) > FAR_REBUILD:
 		# snap to whole cells so the floor never swims as the patch moves
 		_pending_centre = (p / CELL).round() * CELL
+		_ensure_noise()
 		_task = WorkerThreadPool.add_task(_generate)
 
 

@@ -6,3 +6,9 @@
 script = ExtResource("1_spec")
 id = &"small_motorboat"
 display_name = "Small motorboat"
+thrust_forward = 780000.0
+thrust_reverse = 260000.0
+steer_rate = 0.25
+yaw_damping = 3.0
+drag_forward_linear = 3000.0
+drag_side_linear = 6000.0

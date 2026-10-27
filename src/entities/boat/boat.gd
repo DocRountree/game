@@ -45,13 +45,14 @@ func _physics_process(delta: float) -> void:
 	var right := global_basis.x
 	var v_fwd := linear_velocity.dot(fwd)
 	var v_side := linear_velocity.dot(right)
+	var v_ctl := clampf(v_fwd, -15.0, 15.0)   # rudder, lift and lean stop growing past ~15 m/s
 	var thrust := throttle * (spec.thrust_forward if throttle > 0.0 else spec.thrust_reverse)
 	apply_central_force(fwd * (thrust - spec.drag_forward_quadratic * v_fwd * absf(v_fwd) - spec.drag_forward_linear * v_fwd)
 			+ right * (-spec.drag_side_quadratic * v_side * absf(v_side) - spec.drag_side_linear * v_side))
 	var yaw_rate := angular_velocity.y
-	apply_torque(Vector3.UP * (steer * spec.steer_rate * v_fwd - spec.yaw_damping * yaw_rate) * _yaw_inertia)
-	apply_torque(right * spec.bow_lift * maxf(v_fwd, 0.0))     # bow lifts at speed
-	apply_torque(fwd * -spec.turn_lean * yaw_rate * v_fwd)     # lean into turns
+	apply_torque(Vector3.UP * (steer * spec.steer_rate * v_ctl - spec.yaw_damping * yaw_rate) * _yaw_inertia)
+	apply_torque(right * spec.bow_lift * maxf(v_ctl, 0.0))     # bow lifts at speed
+	apply_torque(fwd * -spec.turn_lean * yaw_rate * v_ctl)     # lean into turns
 
 
 func speed() -> float:
