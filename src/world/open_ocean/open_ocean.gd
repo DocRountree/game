@@ -40,7 +40,7 @@ func _ready() -> void:
 	camera.eyes = player.get_node("Model/Head")
 	_set_first_person(true)   # start looking out of your own eyes
 	player.drowned.connect(_on_player_drowned)
-	hud.flash("Press E near the boat to climb aboard", 4.0)
+	hud.flash("Right-click near the boat to climb aboard", 4.0)
 
 
 var _air_fog := {}

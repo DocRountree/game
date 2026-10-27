@@ -39,6 +39,7 @@ func _physics_process(delta: float) -> void:
 		odometer_m += v * delta
 		hours_underway += delta / 3600.0
 		top_speed = maxf(top_speed, v)
+	_stay_upright()
 	if buoyancy.submerged <= 0.0:
 		return
 	var fwd := -global_basis.z
@@ -53,6 +54,16 @@ func _physics_process(delta: float) -> void:
 	apply_torque(Vector3.UP * (steer * spec.steer_rate * v_ctl - spec.yaw_damping * yaw_rate) * _yaw_inertia)
 	apply_torque(right * spec.bow_lift * maxf(v_ctl, 0.0))     # bow lifts at speed
 	apply_torque(fwd * -spec.turn_lean * yaw_rate * v_ctl)     # lean into turns
+
+
+# A keel's worth of stability: torque back toward level, plus damping of roll
+# and pitch rates, applied even in the air so the boat lands flat after a jump.
+func _stay_upright() -> void:
+	var up := global_basis.y
+	var tilt := up.cross(Vector3.UP)   # axis and sine of the tilt
+	var spin := angular_velocity - Vector3.UP * angular_velocity.dot(Vector3.UP)   # roll and pitch only
+	var inertia := mass * (spec.length * spec.length) / 12.0
+	apply_torque((tilt * spec.righting - spin * spec.righting_damping) * inertia)
 
 
 func speed() -> float:

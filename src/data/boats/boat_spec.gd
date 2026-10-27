@@ -24,6 +24,8 @@ extends Resource
 @export var drag_side_linear := 800.0
 @export var bow_lift := 6000.0            ## Pitch-up torque per m/s.
 @export var turn_lean := 2000.0           ## Roll into turns.
+@export var righting := 14.0              ## How hard it rights itself (per radian of tilt).
+@export var righting_damping := 6.0       ## Damps rolling and pitching.
 
 @export_group("Cargo")
 @export var cargo_slots := 6              ## Hold capacity (ItemStacks).

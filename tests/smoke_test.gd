@@ -171,7 +171,8 @@ func _run() -> void:
 	Input.action_press(&"move_forward")
 	await _frames(600)
 	Input.action_release(&"move_forward")
-	_check(boat.speed() > 6.0, "boat drives forward (%.1f m/s)" % boat.speed())
+	_check(boat.speed() > 6.0 and boat.global_basis.y.dot(Vector3.UP) > 0.8,
+			"boat drives forward upright (%.1f m/s)" % boat.speed())
 	var heading := boat.global_rotation.y
 	var body := player.model.rotation.y
 	camera.yaw += 1.2

@@ -20,6 +20,7 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 @export var board_range := 5.0
 @export var walk_speed := 4.0               ## m/s on land
 @export var jump_speed := 4.5
+@export var sprint_factor := 1.6           ## Ctrl: faster walking and swimming
 @export var traits: CharacterTraits
 
 var state := &"TREADING"
@@ -53,11 +54,11 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(&"interact"):
-		if boat:
-			_leave_boat()
-		else:
-			_try_board()
+	# Minecraft-style: right-click boards, Shift dismounts
+	if event.is_action_pressed(&"interact") and not boat:
+		_try_board()
+	elif event.is_action_pressed(&"dive") and boat:
+		_leave_boat()
 
 
 func _physics_process(delta: float) -> void:
@@ -76,7 +77,7 @@ func _physics_process(delta: float) -> void:
 	var vrel := velocity.y - water_vy
 
 	# 3D swimming: forward follows the camera's pitch, so look down to dive and
-	# up to climb; Space swims straight up, C straight down
+	# up to climb; Space swims straight up, Shift straight down
 	var cam := get_viewport().get_camera_3d()
 	var input := Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
 	var rise := Input.get_axis(&"dive", &"tread")
@@ -91,12 +92,13 @@ func _physics_process(delta: float) -> void:
 	var treading := Input.is_action_pressed(&"tread")
 	var moving := move != Vector3.ZERO
 	var deep := pos.y + 0.4 < water_height - 0.8   # head well under: free 3D swimming
+	var sprint := sprint_factor if Input.is_action_pressed(&"sprint") and input.y > 0.0 else 1.0
 
 	var fy := -MASS * Water.G + water.density() * Water.G * VOLUME * s
 	if s > 0.0:
 		fy -= (40.0 + 60.0 * absf(vrel)) * vrel
 		# at the surface, swimming level or treading keeps the head up; aiming
-		# down (or pressing C) lets you dive under instead
+		# down (or pressing Shift) lets you dive under instead
 		var surface_swim := not deep and (treading or (moving and move.y > -0.3))
 		if surface_swim:
 			# kicking is a one-sided, force-limited spring toward the surface
@@ -107,9 +109,9 @@ func _physics_process(delta: float) -> void:
 	var fh := Vector3.ZERO
 	if s > 0.2:
 		if moving:
-			fh = Vector3(move.x, 0.0, move.z) * swim_force
+			fh = Vector3(move.x, 0.0, move.z) * swim_force * sprint
 			if deep or move.y < -0.3:
-				fy += move.y * swim_force   # pitch and C/Space steer depth
+				fy += move.y * swim_force * sprint   # pitch and Shift/Space steer depth
 		var vh := Vector3(velocity.x, 0.0, velocity.z)
 		fh -= (30.0 + 70.0 * vh.length()) * vh
 		if pos.y + 0.4 > water_height - 0.5:   # near the surface: wakes shove you
@@ -121,7 +123,7 @@ func _physics_process(delta: float) -> void:
 		# on land (or wading): walk, and Space jumps
 		var walk := Vector3(move.x, 0.0, move.z)
 		if walk.length() > 0.0:
-			walk = walk.normalized() * walk_speed
+			walk = walk.normalized() * walk_speed * sprint
 			_facing = atan2(-walk.x, -walk.z)
 		velocity.x = lerpf(velocity.x, walk.x, minf(1.0, 12.0 * delta))
 		velocity.z = lerpf(velocity.z, walk.z, minf(1.0, 12.0 * delta))
