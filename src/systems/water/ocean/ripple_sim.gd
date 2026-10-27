@@ -21,7 +21,7 @@ const SOURCE_STRIDE := 32    ## Two vec4s per source.
 
 var origin := Vector2.ZERO   ## World x, z of the grid's corner.
 var enabled := false
-var texture: Texture2D       ## Height in r, foam in g.
+var texture: Texture2D       ## Height in r.
 
 var _rd: RenderingDevice
 var _shader: RID

@@ -4,10 +4,10 @@ render_mode blend_mix, depth_draw_always, cull_disabled;
 // Inland water (rivers, oxbow lakes and lakes), in the same look as the
 // ocean (water.gdshader): the
 // ocean's FFT small waves for the surface detail, light from the bed refracted
-// and absorbed with depth, the same body colour and foam texture. What makes
+// and absorbed with depth, the same body colour. What makes
 // a river: the small waves are carried downstream by the current (two
 // copies, half a cycle apart, crossfaded so the drift never resets visibly),
-// they get choppier as the water speeds up, and rapids whiten. Lakes are the
+// they get choppier as the water speeds up. Lakes are the
 // same water with no current. At the very edge the water thins to nothing, so
 // shorelines are soft.
 //
@@ -28,7 +28,6 @@ uniform sampler2D fft_1 : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D fft_2 : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec3 fft_sizes = vec3(97.0, 13.7, 2.31);
 uniform float detail_strength = 0.45;
-uniform sampler2D foam_noise : filter_linear_mipmap, repeat_enable;
 uniform float cycle = 3.0;            // seconds per flow-map cycle
 
 group_uniforms water;
@@ -49,7 +48,6 @@ uniform float level_size = 256.0;
 uniform vec3 view_pos;
 
 varying vec2 flow;        // m/s
-varying float rapids;
 varying vec3 wpos;
 varying flat int lod;
 varying float morph;
@@ -73,7 +71,6 @@ void vertex() {
 	if (morph > 0.0)
 		w = mix(w, textureLod(water_levels, vec3(level_uv(lod + 1, wp), float(lod + 1)), 0.0), morph);
 	flow = w.yz;
-	rapids = w.a;
 	float drop = dot(wp - view_pos.xz, wp - view_pos.xz) / (2.0 * planet_radius);   // the planet curves away
 	VERTEX = vec3(gp.x * cd.w, w.x - origin.y - drop, gp.y * cd.w);
 	NORMAL = vec3(0.0, 1.0, 0.0);
@@ -123,15 +120,11 @@ void fragment() {
 			* (0.12 + 0.88 * sun_color);
 	vec3 refracted = background * transmit + body * (1.0 - transmit);
 
-	// rapids whiten: soft streaks carried along the current
-	float noise = texture(foam_noise, p0 * 0.08).r * w0 + texture(foam_noise, p1 * 0.08).r * (1.0 - w0);
-	float foam = rapids * smoothstep(0.08, 0.6, thickness) * smoothstep(0.25, 0.75, noise) * 0.6;
-
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
-	ALBEDO = vec3(0.9) * foam;
-	ROUGHNESS = mix(0.04, 0.85, foam);
+	ALBEDO = vec3(0.0);
+	ROUGHNESS = 0.04;
 	SPECULAR = 0.5;
-	EMISSION = refracted * (1.0 - fresnel) * (1.0 - foam);
+	EMISSION = refracted * (1.0 - fresnel);
 	// The water's edge thins to nothing, by the true depth here: the water
 	// level minus the ground height read (smoothly filtered) from the terrain
 	// levels for this very pixel. So the visible shoreline is a smooth curve,

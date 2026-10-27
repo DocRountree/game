@@ -20,7 +20,7 @@
 //   2  forward FFT along rows of field_a      3  ... along columns
 //   1  advance every wavelength exactly                                  field_a -> field_b
 //   4  inverse FFT along rows of field_b      5  ... along columns
-//   6  unpack h, v, update foam, write the display texture               B -> A, disp
+//   6  unpack h, v, write the display texture               B -> A, disp
 //   7  record occupancy without displacing water (objects already present)
 
 #define N 256
@@ -28,7 +28,7 @@
 
 layout(local_size_x = N, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, rgba32f) uniform restrict image2D state_a;   // h, v, foam, occupancy
+layout(set = 0, binding = 0, rgba32f) uniform restrict image2D state_a;   // h, v, unused, occupancy
 layout(set = 0, binding = 1, rgba32f) uniform restrict image2D state_b;
 
 struct Source {
@@ -39,7 +39,7 @@ layout(set = 0, binding = 2, std430) restrict readonly buffer Sources {
 	Source items[];
 } sources;
 
-layout(set = 0, binding = 3, rgba16f) uniform restrict writeonly image2D disp_img;   // h, foam
+layout(set = 0, binding = 3, rgba16f) uniform restrict writeonly image2D disp_img;   // h
 layout(set = 0, binding = 4, std430) restrict buffer FieldA { vec2 field_a[]; };
 layout(set = 0, binding = 5, std430) restrict buffer FieldB { vec2 field_b[]; };
 
@@ -135,10 +135,7 @@ void main() {
 		float occ = occupancy(pc.origin + (vec2(c) + 0.5) * pc.cell);
 		float d = pc.mode == 0 ? occ - s.a : 0.0;
 		s.r -= d;                                 // move water, don't kick it
-		// foam where a hull shoves water aside or it rushes back in behind (the
-		// churned trail); it lingers a few seconds, so a moving boat leaves a fading line
-		s.b = min(s.b + max(abs(d) - 0.004, 0.0) * 8.0, 1.0);
-		s.b *= exp(-pc.dt / 3.0);
+		s.b = 0.0;
 		s.a = occ;
 		// sponge: waves fade out over the border instead of wrapping round
 		int e = min(min(c.x, c.y), min(N - 1 - c.x, N - 1 - c.y));
@@ -184,8 +181,7 @@ void main() {
 		vec2 hv = field_b[at(y, x)] / float(N * N);
 		vec4 s = imageLoad(state_b, c);
 		float h = clamp(hv.x, -1.5, 1.5);
-		float foam = min(s.b + pc.dt * clamp((abs(hv.y) - 2.0) * 0.8, 0.0, 1.0), 1.0);   // fast-moving water froths
-		imageStore(state_a, c, vec4(h, hv.y, foam, s.a));
-		imageStore(disp_img, c, vec4(h, foam, 0.0, 0.0));
+		imageStore(state_a, c, vec4(h, hv.y, 0.0, s.a));
+		imageStore(disp_img, c, vec4(h, 0.0, 0.0, 0.0));
 	}
 }

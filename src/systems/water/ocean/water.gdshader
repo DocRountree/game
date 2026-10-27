@@ -5,7 +5,7 @@ render_mode blend_mix, depth_draw_always, cull_disabled;
 // camera-centred mesh; per pixel it adds the analytic wave normal, interactive
 // ripples, and FFT small waves. Godot's lighting handles the
 // sky reflection and sun glints; this shader supplies the light coming up
-// through the water (refraction + depth absorption + crest scattering) and foam.
+// through the water (refraction + depth absorption + crest scattering).
 
 const int NW = 6;
 uniform vec4 waves[NW];          // dir.x, dir.z, k, amplitude
@@ -16,7 +16,7 @@ uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
 uniform vec3 sun_color = vec3(1.0);
 uniform float planet_radius = 6400000.0;
 
-uniform sampler2D ripple_tex : filter_linear, repeat_disable;  // r height, g foam
+uniform sampler2D ripple_tex : filter_linear, repeat_disable;  // r height
 uniform vec3 ripple_rect = vec3(0.0, 0.0, 1.0);                // origin x, origin z, size
 
 group_uniforms detail;
@@ -27,7 +27,6 @@ uniform sampler2D fft_1 : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform sampler2D fft_2 : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform vec3 fft_sizes = vec3(97.0, 13.7, 2.31);   // tile size (m) per cascade
 uniform float detail_strength = 1.0;
-uniform sampler2D foam_noise : filter_linear_mipmap, repeat_enable;
 
 group_uniforms water;
 uniform vec3 deep_color = vec3(0.004, 0.03, 0.06);
@@ -39,7 +38,7 @@ uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
 group_uniforms shore;
 // Terrain height over the world grid: waves shrink as the water shoals and
-// break into foam at the shore.
+// fade out at the shore.
 uniform sampler2D seabed : filter_linear, repeat_disable;
 uniform float world_size = 61440.0;
 uniform vec2 world_center = vec2(0.0);
@@ -107,9 +106,9 @@ void vertex() {
 
 void fragment() {
 	float depth = water_depth(x0);
-	// analytic Gerstner normal and Jacobian (GPU Gems 1, ch. 1)
+	// analytic Gerstner normal (GPU Gems 1, ch. 1)
 	vec2 slope = vec2(0.0);
-	float nz = 1.0, jxx = 1.0, jzz = 1.0, jxz = 0.0;
+	float nz = 1.0;
 	for (int i = 0; i < NW; i++) {
 		float wa = waves[i].z * waves[i].w * lod(i, spacing) * shoal(i, depth);
 		float th = theta(i, x0);
@@ -117,12 +116,8 @@ void fragment() {
 		float s = sin(th);
 		slope += waves[i].xy * wa * c;
 		nz -= steepness * wa * s;
-		jxx -= steepness * wa * waves[i].x * waves[i].x * s;
-		jzz -= steepness * wa * waves[i].y * waves[i].y * s;
-		jxz -= steepness * wa * waves[i].x * waves[i].y * s;
 	}
 	slope /= nz;
-	float jac = jxx * jzz - jxz * jxz;   // < 1 where crests bunch up
 
 	// interactive ripples
 	vec2 ruv = rip_uv(x0);
@@ -131,7 +126,6 @@ void fragment() {
 	slope += vec2(texture(ripple_tex, ruv + vec2(e, 0.0)).r - texture(ripple_tex, ruv - vec2(e, 0.0)).r,
 			texture(ripple_tex, ruv + vec2(0.0, e)).r - texture(ripple_tex, ruv - vec2(0.0, e)).r)
 			/ (2.0 * e * ripple_rect.z) * rf;
-	float ripple_foam = texture(ripple_tex, ruv).g * rf;
 
 	// small waves: FFT ocean slopes, attached to the water (x0 rides the swell)
 	slope += detail_strength * smoothstep(0.0, 0.5, depth) * (texture(fft_0, x0 / fft_sizes.x).rg + texture(fft_1, x0 / fft_sizes.y).rg
@@ -164,23 +158,10 @@ void fragment() {
 	body *= 0.12 + 0.88 * sun_color;   // the water body is lit by the (possibly sunset-coloured) sun
 	vec3 refracted = background * transmit + body * (1.0 - transmit);
 
-	// foam: crest compression + ripple foam, broken up by noise so it reads as foam
-	float f = (1.0 - smoothstep(0.55, 0.72, jac)) * 0.6 + ripple_foam * 0.9;   // whitecaps only on the sharpest crests; wakes churn white
-
-	float noise = texture(foam_noise, (x0 + vec2(0.2, 0.0) * time) * (2.5 / 20.0)).r * 0.6
-			+ texture(foam_noise, (x0 - vec2(0.0, 0.15) * time) * (5.0 / 20.0)).r * 0.4;
-	float lo = 1.0 - 0.6 * clamp(f, 0.0, 1.0);
-	float foam = smoothstep(lo, lo + 0.25, noise) * sqrt(min(f, 1.0));
-	// surf: a soft wash where the waves run up the shore, no speckles
-	float wash = texture(foam_noise, (x0 + vec2(0.15, 0.1) * time) * 0.05).r;
-	// (only on real shallow sea: not in river mouths cut below sea level inland)
-	float shallow = smoothstep(0.0, 0.1, depth) * (1.0 - smoothstep(0.1, 0.8, depth));
-	foam = max(foam, shallow * smoothstep(0.3, 0.8, wash) * 0.45 * swell_scale);
-
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
-	ALBEDO = vec3(0.9) * foam;
-	ROUGHNESS = mix(0.03, 0.85, foam);
+	ALBEDO = vec3(0.0);
+	ROUGHNESS = 0.03;
 	SPECULAR = 0.5;
-	EMISSION = refracted * (1.0 - fresnel) * (1.0 - foam);
+	EMISSION = refracted * (1.0 - fresnel);
 	ALPHA = 1.0;
 }

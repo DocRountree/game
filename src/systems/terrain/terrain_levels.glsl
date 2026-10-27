@@ -30,7 +30,7 @@ layout(set = 0, binding = 3, std430) restrict readonly buffer Ground { uint grou
 layout(set = 0, binding = 4, std430) restrict readonly buffer Lake { float lake_level[]; };
 layout(set = 0, binding = 5, rgba32f) uniform restrict image2DArray levels;
 // River water per texel: sheet height (tucked under the ground where there is
-// no river), current x, z (m/s), and foam (rapids).
+// no river), current x, z (m/s), unused.
 layout(set = 0, binding = 6, rgba32f) uniform restrict writeonly image2DArray water_levels;
 
 layout(push_constant, std430) uniform Params {
@@ -315,7 +315,7 @@ void main() {
 	if (wet) {
 		float y = level - max(0.0, wc.r - 1.8) * wc.hw * 1.5;
 		vec2 current = wc.dir * wc.speed * (1.0 - 0.6 * min(wc.r * wc.r, 1.0));
-		sheet = vec4(max(y, h - 5.0), current, smoothstep(2.2, 4.0, wc.speed) * wc.fill);
+		sheet = vec4(max(y, h - 5.0), current, 0.0);
 	}
 	if (in_lake && lake >= sheet.x)
 		sheet = vec4(lake, 0.0, 0.0, 0.0);

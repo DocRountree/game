@@ -63,7 +63,7 @@ lower in fresh water.
 | `ocean.gd` / `ocean.tscn` | `Ocean extends WaterBody`: endless, the fallback everywhere. Owns the wave list, the wave time and `surface_height()`. Pushes uniforms to the water shader each frame. |
 | `ocean_wave.gd` | One Gerstner component (direction, wavelength, amplitude, phase), editable in the inspector. |
 | `ocean_surface.gd` | Builds the camera-centred polar mesh. Each vertex stores its local spacing so the shader can drop waves too short to resolve there (no far-field aliasing). |
-| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + procedural small waves, see below), refraction and depth absorption from the screen/depth textures, crest scattering and foam. Sky reflection and sun glints come from Godot's own lighting. |
+| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + procedural small waves, see below), refraction and depth absorption from the screen/depth textures, crest scattering. Sky reflection and sun glints come from Godot's own lighting. |
 | `ripple_sim.gd` / `ripple_sim.glsl` | Interactive ripples on the GPU (see below). |
 | `ocean_fft.gd` / `ocean_fft.glsl` | The small waves: an FFT ocean spectrum on the GPU (see below). |
 
@@ -93,8 +93,8 @@ with the player holds the water's height and vertical velocity. Each physics fra
 1. Every node in the `ripple_sources` group reports a footprint (hull, box or
    disc) and how deep it sits in the swell. The compute shader turns *changes*
    in that occupancy into displaced water (height only, no kick): a moving
-   hull pushes water out at the bow and lets it back in at the stern. Where it
-   shoves or refills hard, it leaves foam that lingers ~3 s: the churned trail.
+   hull pushes water out at the bow and lets it back in at the stern.
+
 2. Height and velocity are packed into one complex field and FFT'd (the same
    shared-memory FFT as the ocean). Every wavelength is advanced *exactly* by
    its own deep-water frequency, omega = sqrt(g k + sigma k^3), then
@@ -201,11 +201,11 @@ level"; lakes (`LakeBody`) and rivers (`RiverBody`) are water bodies built from
 the bake, so buoyancy, swimming, currents and sampling work in them unchanged.
 
 **Water on land.** The ocean shader shrinks each Gerstner wave where the water
-is shallower than a third of its length and adds surf near the shore (physics
+is shallower than a third of its length (physics
 matches). Lakes reuse the ocean shader without swell, masked to their basin.
 Rivers, oxbow lakes and lakes are one water sheet drawn on the terrain's own
 patches with `river.gdshader`: the compute pass writes a second level array
-(sheet height, current, rapids) from the same segments that carve the
+(sheet height, current) from the same segments that carve the
 channels and the baked lake levels. The sheet runs level a little past the
 water's edge, then dives under the ground, so shorelines are wherever the
 ground meets the water; where a river meets a lake the higher surface wins
@@ -213,10 +213,9 @@ ground meets the water; where a river meets a lake the higher surface wins
 water slips just under the ocean's surface. Per pixel, the water fades out by
 its true depth (water level minus the filtered terrain height), so shorelines
 are soft curves. The look is the ocean's (its FFT small waves, colours,
-refraction, absorption, foam texture), with the small waves carried
-downstream by the current (two phases, crossfaded), choppier in fast water,
-and soft whitening on rapids; lakes are the same water with no current. The
-ocean's surf is a soft wash on real shallow sea only. Currents push swimmers
+refraction, absorption), with the small waves carried
+downstream by the current (two phases, crossfaded), choppier in fast water;
+lakes are the same water with no current. There is no foam anywhere. Currents push swimmers
 and boats.
 
 **Moving on land** is Minecraft-like: quick to start and stop on the ground,
