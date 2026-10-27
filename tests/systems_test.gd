@@ -200,6 +200,19 @@ func _run() -> void:
 	_check(floor_y < -8.0 and floor_y > -80.0 and not hit.is_empty() and dived > 2.0 and player.head_depth() < 1.0,
 			"seafloor at %.0f m with collision; looking down dives %.1f m, Space brings you back up" % [floor_y, dived])
 
+	# archipelago: islands above sea level within a few km; open water at spawn
+	var land := 0
+	var highest := -1e9
+	for gz in range(-20, 21):
+		for gx in range(-20, 21):
+			var hh := Seafloor.height_at(gx * 250.0, gz * 250.0)
+			highest = maxf(highest, hh)
+			if hh > 0.0:
+				land += 1
+	var spawn_clear := Seafloor.height_at(0.0, 0.0) < -5.0 and Seafloor.height_at(300.0, 0.0) < -2.0
+	_check(land > 20 and highest > 15.0 and spawn_clear,
+			"archipelago: %d of 1681 points within 5 km are land, highest %.0f m; spawn is open water" % [land, highest])
+
 	# exploration: cells around the player are revealed, and survive a save/load
 	var explore: ExplorationTracker = world.get_node("Exploration")
 	var revealed := explore.explored.size()

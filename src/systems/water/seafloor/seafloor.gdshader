@@ -9,6 +9,11 @@ render_mode cull_disabled;   // the shared polar grid is wound for viewing from 
 
 uniform sampler2D heights : filter_linear, repeat_disable;   // r: height (m)
 uniform vec3 patch_rect = vec3(0.0, 0.0, 768.0);             // corner x, corner z, size (m)
+uniform sampler2D far_heights : filter_linear, repeat_disable; // coarse field for distant land
+uniform vec3 far_rect = vec3(0.0, 0.0, 16000.0);
+uniform vec3 beach = vec3(0.82, 0.76, 0.6);
+uniform vec3 grass = vec3(0.24, 0.36, 0.14);
+uniform vec3 scrub = vec3(0.36, 0.38, 0.2);
 uniform float ripple_height = 0.06;     // m: small sand ripples
 uniform float ripple_wavelength = 1.0;  // m
 uniform float wave_height = 0.2;        // m: larger sand waves (megaripples)
@@ -78,11 +83,18 @@ float flatness(vec2 xz) {
 			- texture(heights, (xz - vec2(e, 0.0) - patch_rect.xy) / patch_rect.z).r,
 			texture(heights, (xz + vec2(0.0, e) - patch_rect.xy) / patch_rect.z).r
 			- texture(heights, (xz - vec2(0.0, e) - patch_rect.xy) / patch_rect.z).r) / (2.0 * e);
-	return 1.0 - smoothstep(0.2, 0.45, length(g));   // ripples only where sand can lie
+	float under = 1.0 - smoothstep(-2.0, -0.5, texture(heights, (xz - patch_rect.xy) / patch_rect.z).r);
+	return (1.0 - smoothstep(0.2, 0.45, length(g))) * under;   // ripples only on underwater sand
 }
 
 float coarse(vec2 xz) {
-	return texture(heights, (xz - patch_rect.xy) / patch_rect.z).r;
+	vec2 uv = (xz - patch_rect.xy) / patch_rect.z;
+	float near = texture(heights, uv).r;
+	float far = texture(far_heights, (xz - far_rect.xy) / far_rect.z).r;
+	// the detailed patch near the camera, blending to the coarse far field toward its edge
+	vec2 edge = min(uv, 1.0 - uv) * patch_rect.z;
+	float w = clamp((min(edge.x, edge.y) - 20.0) / 60.0, 0.0, 1.0);
+	return mix(far, near, w);
 }
 
 void vertex() {
@@ -106,6 +118,12 @@ void fragment() {
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
 	float rocky = 1.0 - smoothstep(0.65, 0.85, n.y);
 	vec3 sand = mix(sand_deep, sand_shallow, clamp((wpos.y + 40.0) / 25.0, 0.0, 1.0));
+	// above the sea: beach, then vegetation, thinning to scrub and rock with height
+	float speck = noised(wpos.xz * 0.05).x;
+	vec3 land = mix(grass, scrub, clamp((wpos.y - 15.0) / 60.0 + speck * 0.5 - 0.25, 0.0, 1.0));
+	land = mix(land, rock, smoothstep(70.0, 110.0, wpos.y + speck * 20.0));
+	sand = mix(sand, beach, smoothstep(-1.5, 0.5, wpos.y));
+	sand = mix(sand, land, smoothstep(1.5, 3.5, wpos.y + speck * 1.5));
 	float speckle = noised(wpos.xz * 3.1).x * 0.15 + noised(wpos.xz * 0.37).x * 0.12;
 	ALBEDO = mix(sand, rock, rocky) * (0.88 + speckle);
 	ROUGHNESS = 0.95;
