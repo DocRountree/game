@@ -174,7 +174,7 @@ vec3 curtain_light(int k, float t, vec2 track, float ey, float pa, float dx_px) 
 	float above = h - base;
 	// soft bottom; raggedness too fine to show (far away) widens the fade instead
 	// of vanishing, so distant curtains don't get a crisp, uniform base line
-	float softness = 2.0 * c_shape[k].w * (1.0 + 0.6 * blur) + 0.8 * c_extent[k].w * (1.0 - far);
+	float softness = c_shape[k].w * (1.0 + 0.6 * blur) + 0.8 * c_extent[k].w * (1.0 - far);
 	float lower = 1.0 / (1.0 + exp(-above / softness));
 	// fade out with height, and well before the top of the shell (450 km),
 	// so no curtain is cut off abruptly
@@ -203,7 +203,10 @@ void fragment() {
 	float pa = max(length(fwidth(dir)), 1e-5);
 	float ey = max(dir.y, 0.0005);
 	vec2 track = vec2(dir.x, -dir.z);   // east, north per km of ray
-	float t0 = ray_to(30.0, ey);   // low enough that soft bottoms fade out fully instead of being cut off
+	// trace from the ground: a distant curtain seen low in the sky is crossed at
+	// low altitude, and starting higher up skipped those crossings, which drew a
+	// hard edge across its bottom at the screen height where they began
+	float t0 = 0.0;
 	float t1 = ray_to(450.0, ey);
 	float dt = (t1 - t0) / float(steps);
 	// roughly how far a pixel spans at a typical pillar height. Distance-based on

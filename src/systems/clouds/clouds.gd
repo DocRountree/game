@@ -4,7 +4,7 @@ extends MeshInstance3D
 ## Volumetric clouds (see clouds.gdshader): a ray-marched cloud layer over the
 ## round Earth, drawn on a dome around the camera. This node owns the noise
 ## textures and passes in lighting (from Atmosphere), weather (coverage,
-## overcast fill and greyness, from Weather) and lightning flashes.
+## thunderhead mix and greyness, from Weather) and lightning flashes.
 ##
 ## Cost scales with QualitySettings.cloud_steps (samples per view ray).
 
@@ -73,7 +73,7 @@ func update_sky(sun_direction: Vector3, sun_colour: Vector3, ambient: Vector3) -
 	mat.set_shader_parameter("ambient", ambient)
 
 
-## Weather: how much of the sky is cloud, overcast fullness, and greyness (0..1).
+## Weather: cumulus coverage, thunderhead mix (0 cumulus .. 1 cumulonimbus), greyness.
 func set_weather(coverage: float, fill: float, grey: float) -> void:
 	var mat := material_override as ShaderMaterial
 	if mat:

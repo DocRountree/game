@@ -326,16 +326,19 @@ haze. Density = a 2D coverage map x a height profile (flat bases, rounded tops)
 x 3D billow noise, eroded by finer noise. Each sample is lit by sunlight traced
 toward the sun (self-shadowing), a two-lobe phase function (silver linings), the
 powder effect and sky light. Empty stretches are skipped using the coverage map
-alone. Noise textures are generated at startup (`NoiseTexture3D`). Cost scales
+alone. On thunderhead days the clouds are scattered cumulonimbus instead:
+billowing towers from 1.5 to ~11 km under flat, smoother anvils that spread
+wider than the tower and are blown downwind. Noise textures are generated at startup (`NoiseTexture3D`). Cost scales
 with `QualitySettings.cloud_steps`.
 
 ### Weather (`src/systems/weather/`)
 
 `Weather` schedules clear, normal (scattered cumulus) and overcast days from the
-world seed: blocks of 6-8 days with one overcast day flanked by normal days,
-clear otherwise (about 4/2/1 per 7); 1 overcast day in 10 is stormy. It blends
-over the hours around midnight and drives cloud coverage, overcast fullness and
-greyness, and dims sun and moonlight and greys the sky. `Lightning` adds
+world seed: blocks of 6-8 days with one thunderhead day flanked by normal days,
+clear otherwise (about 4/2/1 per 7); the "overcast" slot is now a day of
+scattered cumulonimbus (thunderheads), and 1 in 10 of those has lightning. It
+blends over the hours around midnight and drives cloud coverage and the
+cumulus/thunderhead mix. `Lightning` adds
 in-cloud flashes (~5 s apart) and distant cloud-to-ground strokes (~45 s) on
 storm days. F7 cycles a weather override.
 

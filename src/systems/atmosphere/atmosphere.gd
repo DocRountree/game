@@ -181,10 +181,10 @@ func night_amount() -> float:
 
 func _update_sun() -> void:
 	var dir := sun_direction()
-	var clear := weather.sunlight if weather and not Engine.is_editor_hint() else 1.0   # 1 clear .. low overcast
+	var clear := weather.sunlight if weather and not Engine.is_editor_hint() else 1.0   # direct-light factor from the weather
 	if _material:
 		_material.set_shader_parameter("sun_direction", dir)
-		_material.set_shader_parameter("overcast", weather.cloud_fill * 0.85 if weather and not Engine.is_editor_hint() else 0.0)
+		_material.set_shader_parameter("overcast", 0.0)   # no overcast weather (kept for future use)
 	if sun == null or not sun.is_inside_tree():
 		return
 	sun.global_basis = Basis.looking_at(-dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)

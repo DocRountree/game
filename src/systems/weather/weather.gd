@@ -1,19 +1,19 @@
 class_name Weather
 extends Node
-## Day-to-day weather: clear, normal (a smattering of cumulus) or overcast, with
-## a thunderstorm on some overcast days. The schedule comes from the world seed,
+## Day-to-day weather: clear, normal (a smattering of cumulus) or thunderheads
+## (scattered cumulonimbus with anvils), with lightning on some thunderhead days. The schedule comes from the world seed,
 ## so a given day always has the same weather.
 ##
-## Days come in blocks of 6-8. Each block has one overcast day with a normal day
+## Days come in blocks of 6-8. Each block has one thunderhead day with a normal day
 ## either side and clear days for the rest, so in the long run about 4 days in 7
-## are clear, 2 normal and 1 overcast, and every overcast day is flanked by
-## normal ones. One overcast day in STORM_CHANCE^-1 brings lightning.
+## are clear, 2 normal and 1 thunderhead, and every thunderhead day is flanked by
+## normal ones. One thunderhead day in STORM_CHANCE^-1 brings lightning.
 ##
 ## The look changes smoothly over the hours either side of midnight, so clouds
 ## form and dissolve rather than pop. Other systems read the blended values
 ## (cloud_coverage, cloud_fill, cloud_grey, sunlight) and storm_active().
 
-enum Kind { CLEAR, NORMAL, OVERCAST }
+enum Kind { CLEAR, NORMAL, THUNDERHEADS }
 
 const STORM_CHANCE := 0.1
 const BLEND_HOURS := 2.0           ## Each side of midnight.
@@ -22,7 +22,7 @@ const BLEND_HOURS := 2.0           ## Each side of midnight.
 const LOOKS := {
 	Kind.CLEAR: [0.0, 0.0, 0.0, 1.0],
 	Kind.NORMAL: [0.6, 0.0, 0.0, 1.0],
-	Kind.OVERCAST: [1.0, 1.0, 0.65, 0.35],
+	Kind.THUNDERHEADS: [0.3, 1.0, 0.15, 1.0],
 }
 
 @export var clock: GameClock
@@ -57,7 +57,7 @@ func _process(_delta: float) -> void:
 ## The weather of a day (override included).
 func kind_for(day: int) -> Kind:
 	if override >= 0:
-		return mini(override, Kind.OVERCAST) as Kind
+		return mini(override, Kind.THUNDERHEADS) as Kind
 	return schedule(day)[0]
 
 
@@ -94,7 +94,7 @@ func _fill_block_containing(day: int) -> void:
 				var d := first + i
 				var kind := Kind.CLEAR
 				if i == b[1]:
-					kind = Kind.OVERCAST
+					kind = Kind.THUNDERHEADS
 				elif absi(i - b[1]) == 1:
 					kind = Kind.NORMAL
 				_cache[d] = [kind, i == b[1] and b[2]]
@@ -125,7 +125,7 @@ static func _mix(a: Array, b: Array, f: float) -> Array:
 	return out
 
 
-## Debug: cycle schedule -> clear -> normal -> overcast -> storm -> schedule.
+## Debug: cycle schedule -> clear -> normal -> thunderhead -> storm -> schedule.
 func cycle_override() -> String:
 	override = override + 1 if override < 3 else -1
-	return ["weather: by schedule", "weather: clear", "weather: normal", "weather: overcast", "weather: storm"][override + 1]
+	return ["weather: by schedule", "weather: clear", "weather: normal", "weather: thunderhead", "weather: storm"][override + 1]
