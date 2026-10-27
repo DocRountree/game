@@ -10,7 +10,7 @@ render_mode cull_disabled;   // the shared polar grid is wound for viewing from 
 
 uniform sampler2D heights : filter_linear, repeat_disable;   // r: height (m)
 uniform vec3 patch_rect = vec3(0.0, 0.0, 768.0);             // corner x, corner z, size (m)
-uniform float relief = 0.55;          // m of fine relief on top of the coarse field
+uniform float relief = 0.0;           // m of fine fractal relief on top of the coarse field (off: ripples instead)
 uniform float relief_wavelength = 9.0; // m: longest fine octave
 uniform float ripple_height = 0.06;     // m: small sand ripples
 uniform float ripple_wavelength = 1.0;  // m
