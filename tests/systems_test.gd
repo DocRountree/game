@@ -135,9 +135,14 @@ func _run() -> void:
 	for i in 18000:
 		meteors._process(1.0 / 30.0)
 	var in_shower := meteors.launched - b1
+	# every shower meteor travels directly away from the radiant
+	var radial := true
+	for m: Dictionary in meteors._active:
+		var head: Vector3 = (m.start as Vector3).rotated(m.axis, 0.05)
+		radial = radial and head.angle_to(meteors.radiant) > (m.start as Vector3).angle_to(meteors.radiant)
 	meteors.set_forced_shower(false)
-	_check(shower_nights > 60 and shower_nights < 140 and in_shower > 150,
-			"meteor showers on %d of 5000 nights; %d meteors in a 10-minute shower night" % [shower_nights, in_shower])
+	_check(shower_nights > 60 and shower_nights < 140 and in_shower > 120 and radial,
+			"meteor showers on %d of 5000 nights; %d meteors in a 10-minute shower night, all from one radiant" % [shower_nights, in_shower])
 	var aurora: Aurora = world.get_node("Aurora")
 	var nights_with := 0
 	for n in 5000:

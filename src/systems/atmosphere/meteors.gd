@@ -16,6 +16,7 @@ const SLOTS := 16               ## Most meteors in the sky at once.
 
 var forced_shower := false      ## Debug (F8): a shower every night.
 var shower := false             ## Tonight is a meteor shower.
+var radiant := Vector3.UP       ## During a shower: the point in the sky meteors come from.
 var launched := 0               ## Meteors so far (a tracker for logs and achievements).
 
 var _rng := RandomNumberGenerator.new()
@@ -62,20 +63,37 @@ func update_sky(night: float, night_id := 0) -> void:
 	if night_id != _night_id:
 		_night_id = night_id
 		shower = shower_for(night_id)
+		var rng := RandomNumberGenerator.new()
+		rng.seed = WorldConfig.current().seed_for("meteor-radiant:%d" % night_id)
+		var az := rng.randf() * TAU
+		var alt := deg_to_rad(rng.randf_range(35.0, 70.0))
+		radiant = Vector3(cos(alt) * sin(az), sin(alt), -cos(alt) * cos(az))
 
 
 ## Launch a meteor now (also used by tests and for debugging).
 func spawn() -> void:
 	if _active.size() >= SLOTS:
 		return
-	var az := _rng.randf() * TAU
-	var alt := deg_to_rad(_rng.randf_range(20.0, 75.0))
-	var start := Vector3(cos(alt) * sin(az), sin(alt), -cos(alt) * cos(az))
-	# travel along a great circle, mostly downward
-	var east := Vector3.UP.cross(start).normalized()
-	var down := start.cross(east).normalized() * -1.0
-	var heading := _rng.randf_range(-1.2, 1.2)
-	var axis := start.cross(down * cos(heading) + east * sin(heading)).normalized()
+	var start: Vector3
+	var axis: Vector3
+	if shower:
+		# a shower radiates from one point: start somewhere around the radiant and
+		# travel straight away from it, so every streak points back to it
+		var side := radiant.cross(Vector3.UP if absf(radiant.y) < 0.95 else Vector3.RIGHT).normalized()
+		var off := side.rotated(radiant, _rng.randf() * TAU)
+		start = radiant.rotated(radiant.cross(off).normalized(), deg_to_rad(_rng.randf_range(4.0, 45.0)))
+		if start.y < 0.15:
+			return   # below or too near the horizon
+		axis = radiant.cross(start).normalized()
+	else:
+		var az := _rng.randf() * TAU
+		var alt := deg_to_rad(_rng.randf_range(20.0, 75.0))
+		start = Vector3(cos(alt) * sin(az), sin(alt), -cos(alt) * cos(az))
+		# travel along a great circle, mostly downward
+		var east := Vector3.UP.cross(start).normalized()
+		var down := start.cross(east).normalized() * -1.0
+		var heading := _rng.randf_range(-1.2, 1.2)
+		axis = start.cross(down * cos(heading) + east * sin(heading)).normalized()
 	launched += 1
 	_active.append({
 		"start": start, "axis": axis,
