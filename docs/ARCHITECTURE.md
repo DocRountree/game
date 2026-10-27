@@ -346,27 +346,6 @@ cumulus/thunderhead mix. `Lightning` adds
 in-cloud flashes (~5 s apart) and distant cloud-to-ground strokes (~45 s) on
 storm days. F7 cycles a weather override.
 
-### Seafloor and land (`src/systems/water/seafloor/`)
-
-The same heightfield is the sea floor and the land. The archipelago: on a 3 km
-grid from the world seed, about half the cells hold an island (150-700 m radius,
-20-120 m high): a warped dome with ridged slopes and a shallow shelf around it;
-450 m around the world origin stay open water. A coarse 16 km far field (64 m
-cells, rebuilt every 3 km) feeds the same camera-centred grid, which now reaches
-~15 km, so islands show on the horizon. Colours: seabed sand, beach, grass and
-scrub, rock on slopes and peaks. The player walks on land (Space jumps).
-
-`Seafloor.height_at(x, z)` gives the bottom anywhere from the world seed:
-broad basins and rises (~16-60 m deep), sharp-crested ridges and fine ripples.
-A 768 m patch around the player gets heightmap collision and is uploaded as a
-height texture. `seafloor.gdshader` draws it on a camera-centred polar grid
-(10 cm spacing underfoot, ~300 m out), adding sand ripples (1 m) and sand waves (6 m)
-across the bottom current, curving and forking, on flat sand only, as real
-geometry wherever the mesh is fine enough (~17 m around the camera). Collision stays on the coarse 4 m field. The next patch is generated on a worker thread once
-the player is 120 m from the centre (the edge is 384 m out) and swapped in when
-ready, so there is no hitch and no waiting. `Ocean.floor_depth_at`
-reads it. Underwater, the level swaps the fog for a dense blue-green murk.
-
 ## Entities
 
 - **Player** (`CharacterBody3D`). Custom swim physics with one buoyancy probe at

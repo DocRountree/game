@@ -33,10 +33,11 @@ and gameplay still work, just without ripples.
 | Left Shift | swim down; get off the boat |
 | F5 | toggle first-person (default) / third-person view |
 | F6 | debug: aurora every night (toggle) |
+| F8 | debug: meteor shower every night (toggle) |
 | F7 | debug: cycle weather (schedule, clear, normal, cloudy) |
-| W A S D | swim or walk, relative to the camera (look down while swimming to dive) |
+| W A S D | swim, relative to the camera (look down while swimming to dive) |
 | Left Ctrl | sprint (hold with W) |
-| Space | swim up / tread water / jump (do nothing in water and you sink) |
+| Space | swim up / tread water (do nothing and you sink) |
 | Right mouse | board the boat |
 | W / S, A / D | on the boat: throttle / reverse, steer |
 | [ / ] | scrub time of day backward / forward |

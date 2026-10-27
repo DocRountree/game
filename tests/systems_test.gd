@@ -125,6 +125,19 @@ func _run() -> void:
 		meteors.update_sky(1.0)
 	var by_night := meteors.launched - before - by_day
 	_check(by_day == 0 and by_night >= 10 and by_night <= 45, "meteors: %d in a 10-minute night, none by day" % by_night)
+	var shower_nights := 0
+	for n in 5000:
+		if meteors.shower_for(n):
+			shower_nights += 1
+	meteors.set_forced_shower(true)
+	meteors.update_sky(1.0, 77)
+	var b1 := meteors.launched
+	for i in 18000:
+		meteors._process(1.0 / 30.0)
+	var in_shower := meteors.launched - b1
+	meteors.set_forced_shower(false)
+	_check(shower_nights > 60 and shower_nights < 140 and in_shower > 150,
+			"meteor showers on %d of 5000 nights; %d meteors in a 10-minute shower night" % [shower_nights, in_shower])
 	var aurora: Aurora = world.get_node("Aurora")
 	var nights_with := 0
 	for n in 5000:
@@ -180,11 +193,7 @@ func _run() -> void:
 	var storm_share: float = float(storms) / counts[2]
 	_check(flanked and absf(per7[0] - 4.0) < 0.3 and absf(per7[1] - 2.0) < 0.2 and absf(per7[2] - 1.0) < 0.1,
 			"weather per 7 days: %.1f clear, %.1f normal, %.1f thunderhead; %d%% of thunderhead days stormy" % [per7[0], per7[1], per7[2], roundi(storm_share * 100.0)])
-	# seafloor under the spawn, and diving by looking down
-	var floor_y := Seafloor.height_at(player.global_position.x, player.global_position.z)
-	var hits := PhysicsRayQueryParameters3D.create(Vector3(0, -2, 0), Vector3(0, -200, 0), 1)
-	await physics_frame
-	var hit := player.get_world_3d().direct_space_state.intersect_ray(hits)
+	# diving by looking down
 	player.respawn(Vector3(20, 0, 20))
 	await _frames(30)
 	var start_depth := player.head_depth()
@@ -197,21 +206,8 @@ func _run() -> void:
 	Input.action_press(&"tread")
 	await _frames(240)
 	Input.action_release(&"tread")
-	_check(floor_y < -8.0 and floor_y > -80.0 and not hit.is_empty() and dived > 2.0 and player.head_depth() < 1.0,
-			"seafloor at %.0f m with collision; looking down dives %.1f m, Space brings you back up" % [floor_y, dived])
-
-	# archipelago: islands above sea level within a few km; open water at spawn
-	var land := 0
-	var highest := -1e9
-	for gz in range(-20, 21):
-		for gx in range(-20, 21):
-			var hh := Seafloor.height_at(gx * 250.0, gz * 250.0)
-			highest = maxf(highest, hh)
-			if hh > 0.0:
-				land += 1
-	var spawn_clear := Seafloor.height_at(0.0, 0.0) < -5.0 and Seafloor.height_at(300.0, 0.0) < -2.0
-	_check(land > 20 and highest > 15.0 and spawn_clear,
-			"archipelago: %d of 1681 points within 5 km are land, highest %.0f m; spawn is open water" % [land, highest])
+	_check(dived > 2.0 and player.head_depth() < 1.0,
+			"looking down dives %.1f m, Space brings you back up" % dived)
 
 	# exploration: cells around the player are revealed, and survive a save/load
 	var explore: ExplorationTracker = world.get_node("Exploration")

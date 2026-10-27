@@ -136,7 +136,3 @@ func _gather_ripple_sources() -> void:
 		var s: PackedFloat32Array = node.ripple_source()
 		if s.size() == 8 and _sources.size() < RippleSim.MAX_SOURCES * 8:
 			_sources.append_array(s)
-
-
-func floor_depth_at(x: float, z: float) -> float:
-	return -Seafloor.height_at(x, z)

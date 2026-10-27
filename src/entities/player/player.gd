@@ -18,9 +18,7 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 @export var swim_force := 260.0             ## N
 @export var breath_seconds := 20.0          ## Breath-hold without gear.
 @export var board_range := 5.0
-@export var walk_speed := 4.0               ## m/s on land
-@export var jump_speed := 4.5
-@export var sprint_factor := 1.6           ## Ctrl: faster walking and swimming
+@export var sprint_factor := 1.6           ## Ctrl: faster swimming
 @export var traits: CharacterTraits
 
 var state := &"TREADING"
@@ -119,21 +117,9 @@ func _physics_process(delta: float) -> void:
 			fh -= Vector3(slope.x, 0.0, slope.y) * MASS * Water.G * 1.5
 
 	velocity += (fh + Vector3.UP * fy) / MASS * delta
-	if s < 0.3 and is_on_floor():
-		# on land (or wading): walk, and Space jumps
-		var walk := Vector3(move.x, 0.0, move.z)
-		if walk.length() > 0.0:
-			walk = walk.normalized() * walk_speed * sprint
-			_facing = atan2(-walk.x, -walk.z)
-		velocity.x = lerpf(velocity.x, walk.x, minf(1.0, 12.0 * delta))
-		velocity.z = lerpf(velocity.z, walk.z, minf(1.0, 12.0 * delta))
-		if Input.is_action_just_pressed(&"tread"):
-			velocity.y = jump_speed
 	move_and_slide()
 
-	if s == 0.0 and is_on_floor():
-		state = &"WALKING"
-	elif s == 0.0:
+	if s == 0.0:
 		state = &"AIRBORNE"
 	elif moving and deep:
 		state = &"DIVING"

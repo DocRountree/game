@@ -201,8 +201,8 @@ func _update_sun() -> void:
 	if planets:   # they wander from day to day, relative to the fixed sun
 		planets.update_sky(Astronomy.planet_positions(WorldConfig.current(), day(), time_of_day()),
 				equatorial_to_world(), night)
-	if meteors:
-		meteors.update_sky(night)
+	if meteors:   # a night belongs to the day it began
+		meteors.update_sky(night, day() if time_of_day() >= 12.0 else day() - 1)
 	if aurora:   # a night belongs to the day it began
 		aurora.update_sky(night, day() if time_of_day() >= 12.0 else day() - 1)
 	var moon_dir := moon_direction()
