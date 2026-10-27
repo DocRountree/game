@@ -61,8 +61,11 @@ vec3 ripples_at(vec2 p, float min_wavelength) {
 		float ph = dot(p, dir) * tau + warp.x * 9.0;
 		vec2 dph = dir * tau + warp.yz * 9.0 / (wl * 7.0);
 		// asymmetric profile: gentle stoss side, steeper lee side
-		float h = sin(ph) + 0.3 * sin(2.0 * ph);
-		float dh = cos(ph) + 0.6 * cos(2.0 * ph);
+		// the second harmonic has half the wavelength: include it only where the
+		// mesh can carry it too, or it shades as thin dark lines on the crests
+		float fade2 = clamp(wl * 0.5 / min_wavelength - 1.0, 0.0, 1.0) * 0.3;
+		float h = sin(ph) + fade2 * sin(2.0 * ph);
+		float dh = cos(ph) + 2.0 * fade2 * cos(2.0 * ph);
 		float patchy = 0.55 + 0.45 * noised(p / (wl * 11.0) + 5.0).x;   // stronger in places
 		sum += vec3(h, dh * dph) * amp * 0.5 * fade * patchy;
 	}
