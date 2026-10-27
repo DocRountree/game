@@ -17,7 +17,7 @@ func refresh(player: Player, boat: Boat, time_text: String) -> void:
 	_breath.value = player.breath
 	_help.text = ("W/S throttle   A/D steer   SHIFT jump off" if player.boat else
 			"WASD swim (look down to dive)   CTRL sprint   SPACE up   SHIFT down   RIGHT-CLICK board") \
-			+ "\nmouse look (ESC frees)   F5 view   F6 aurora   F7 weather   F9 meteors   [ ] time of day   R respawn"
+			+ "\nmouse look (ESC frees)   F5 view   F6 aurora   F7 weather   M meteors   [ ] time of day   R respawn"
 
 
 func flash(text: String, seconds := 2.5) -> void:

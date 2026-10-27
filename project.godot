@@ -108,7 +108,7 @@ sprint={
 }
 debug_meteors={
 "deadzone": 0.2,
-"events": [Object(InputEventKey,"physical_keycode":4194340)]
+"events": [Object(InputEventKey,"physical_keycode":77)]
 }
 quit={
 "deadzone": 0.2,
