@@ -83,6 +83,7 @@ float density(vec3 p, float h, bool cheap) {
 	vec3 q = (p + drift) / shape_scale;
 	float shape = texture(shape_noise, q).r;
 	float d = clamp(remap(shape * profile, 1.0 - cover, 1.0, 0.0, 1.0), 0.0, 1.0) * cover;
+	d = max(d, fill * profile * (0.35 + 0.4 * shape));   // overcast: a solid deck, no holes
 	if (d <= 0.0 || cheap)
 		return d;
 	// erode the edges with fine noise: wispy at the base, billowy at the top
@@ -166,8 +167,9 @@ void fragment() {
 		}
 		t += dt;
 	}
-	// distant cloud fades into the haze toward the horizon
-	float haze = exp(-t0 / 45000.0);
-	ALBEDO = light * haze;
-	ALPHA = (1.0 - trans) * haze;
+	// distant cloud takes on the colour of the haze toward the horizon (it
+	// stays opaque: haze tints what is behind it, it doesn't make it see-through)
+	float haze = 1.0 - exp(-t0 / 45000.0);
+	ALBEDO = mix(light, ambient * 1.2 * (1.0 - trans), haze * 0.6);
+	ALPHA = 1.0 - trans;
 }

@@ -62,10 +62,16 @@ varying vec3 world_pos;
 
 float hash(float x) { return fract(sin(x * 127.1) * 43758.5453); }
 
-float noise(float x) {
+float lattice(float x) {
 	float i = floor(x);
 	float f = fract(x);
-	return mix(hash(i), hash(i + 1.0), f * f * (3.0 - 2.0 * f));
+	return mix(hash(i), hash(i + 1.0), f * f * f * (f * (f * 6.0 - 15.0) + 10.0));   // quintic fade
+}
+
+// 1D value noise from two lattices that never line up, so pillar edges don't
+// all fall on lattice points (which read as harsh vertical creases)
+float noise(float x) {
+	return 0.5 * (lattice(x) + lattice(x * 1.41 + 17.3));
 }
 
 float noise2(vec2 p) {
@@ -170,7 +176,9 @@ vec3 curtain_light(int k, float t, vec2 track, float ey, float pa, float dx_px) 
 	// of vanishing, so distant curtains don't get a crisp, uniform base line
 	float softness = c_shape[k].w * (1.0 + 0.6 * blur) + 0.8 * c_extent[k].w * (1.0 - far);
 	float lower = 1.0 / (1.0 + exp(-above / softness));
-	float upper = exp(-max(above, 0.0) / decay);
+	// fade out with height, and well before the top of the shell (450 km),
+	// so no curtain is cut off abruptly
+	float upper = exp(-max(above, 0.0) / decay) * (1.0 - smoothstep(300.0, 430.0, h));
 	float bottom_glow = 1.0 + 0.5 * exp(-pow(max(above, 0.0) / 30.0, 2.0));   // brightest near the bottom
 	// colour by altitude, drifting along the curtain
 	float drift = mix(0.3, 1.7, noise(x / 350.0 + s * 9.0 + clock * 0.003));

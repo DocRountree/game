@@ -43,5 +43,7 @@ void fragment() {
 	float brightness = mix(day_brightness, night_brightness, night);
 	vec3 colour = vec3(1.0, 0.97, 0.92) * albedo * limb * (lit * brightness + 0.012 * night);
 	ALBEDO = colour * edge;
-	ALPHA = edge * night;
+	// The dark side blocks the stars behind it, but the twilight sky glows in
+	// front of the moon, so it only blocks once the sky is fully dark
+	ALPHA = edge * smoothstep(0.85, 1.0, night);
 }
