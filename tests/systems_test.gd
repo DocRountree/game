@@ -180,6 +180,26 @@ func _run() -> void:
 	var storm_share: float = float(storms) / counts[2]
 	_check(flanked and absf(per7[0] - 4.0) < 0.3 and absf(per7[1] - 2.0) < 0.2 and absf(per7[2] - 1.0) < 0.1,
 			"weather per 7 days: %.1f clear, %.1f normal, %.1f thunderhead; %d%% of thunderhead days stormy" % [per7[0], per7[1], per7[2], roundi(storm_share * 100.0)])
+	# seafloor under the spawn, and diving by looking down
+	var floor_y := Seafloor.height_at(player.global_position.x, player.global_position.z)
+	var hits := PhysicsRayQueryParameters3D.create(Vector3(0, -2, 0), Vector3(0, -200, 0), 1)
+	await physics_frame
+	var hit := player.get_world_3d().direct_space_state.intersect_ray(hits)
+	player.respawn(Vector3(20, 0, 20))
+	await _frames(30)
+	var start_depth := player.head_depth()
+	camera.pitch = 1.2   # look steeply down
+	Input.action_press(&"move_forward")
+	await _frames(150)
+	Input.action_release(&"move_forward")
+	var dived := player.head_depth() - start_depth
+	camera.pitch = 0.0
+	Input.action_press(&"tread")
+	await _frames(240)
+	Input.action_release(&"tread")
+	_check(floor_y < -8.0 and floor_y > -80.0 and not hit.is_empty() and dived > 2.0 and player.head_depth() < 1.0,
+			"seafloor at %.0f m with collision; looking down dives %.1f m, Space brings you back up" % [floor_y, dived])
+
 	# exploration: cells around the player are revealed, and survive a save/load
 	var explore: ExplorationTracker = world.get_node("Exploration")
 	var revealed := explore.explored.size()

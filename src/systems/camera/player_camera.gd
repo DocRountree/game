@@ -62,7 +62,9 @@ func _process(delta: float) -> void:
 	_distance = lerpf(_distance, distance, minf(1.0, 3.0 * delta))
 	var focus := target.global_position + target_offset
 	var eye := focus + _distance * Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
-	eye.y = maxf(eye.y, Water.surface_height(eye.x, eye.z, 0.0, 0.0) + 0.4)   # stay above water
+	var surface := Water.surface_height(eye.x, eye.z, 0.0, 0.0)
+	if target.global_position.y > surface - 1.0:
+		eye.y = maxf(eye.y, surface + 0.4)   # stay above water, unless following a diver
 	global_position = global_position.lerp(eye, minf(1.0, 12.0 * delta))
 	look_at(focus)
 

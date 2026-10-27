@@ -346,11 +346,21 @@ cumulus/thunderhead mix. `Lightning` adds
 in-cloud flashes (~5 s apart) and distant cloud-to-ground strokes (~45 s) on
 storm days. F7 cycles a weather override.
 
+### Seafloor (`src/systems/water/seafloor/`)
+
+`Seafloor.height_at(x, z)` gives the bottom anywhere from the world seed:
+broad basins and rises (~16-60 m deep), sharp-crested ridges and fine ripples.
+A 384 m patch around the player is meshed (sand on flats, rock on slopes) and
+given heightmap collision, rebuilt when the player moves 60 m. `Ocean.floor_depth_at`
+reads it. Underwater, the level swaps the fog for a dense blue-green murk.
+
 ## Entities
 
 - **Player** (`CharacterBody3D`). Custom swim physics with one buoyancy probe at
   the chest, slightly denser than water. Treading and swimming are force-limited
-  kicks toward the surface. Boards boats by distance. Has `LeftHand`,
+  kicks toward the surface. Swimming is 3D: forward follows the camera's
+  pitch (look down to dive, up to climb), Space swims up, C down; at the surface,
+  swimming level keeps the head up. Boards boats by distance. Has `LeftHand`,
   `RightHand` and `Knapsack` inventories; `breath_capacity()` adds gear's
   `breath_seconds` (the snorkel and scuba hook); `head_under` and `water` track
   where they are. `PlayerStats` keeps distances swum and boated, time in and

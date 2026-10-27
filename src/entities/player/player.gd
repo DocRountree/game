@@ -73,22 +73,30 @@ func _physics_process(delta: float) -> void:
 	var s := submerged(water_height)
 	var vrel := velocity.y - water_vy
 
+	# 3D swimming: forward follows the camera's pitch, so look down to dive and
+	# up to climb; Space swims straight up, C straight down
 	var cam := get_viewport().get_camera_3d()
 	var input := Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
+	var rise := Input.get_axis(&"dive", &"tread")
 	var move := Vector3.ZERO
-	if cam and input != Vector2.ZERO:
+	if cam and (input != Vector2.ZERO or rise != 0.0):
 		var fwd := -cam.global_basis.z
-		fwd.y = 0.0
 		var right := cam.global_basis.x
 		right.y = 0.0
-		move = (fwd.normalized() * input.y + right.normalized() * input.x).normalized()
+		move = fwd.normalized() * input.y + right.normalized() * input.x + Vector3.UP * rise
+		if move.length() > 1.0:
+			move = move.normalized()
 	var treading := Input.is_action_pressed(&"tread")
 	var moving := move != Vector3.ZERO
+	var deep := pos.y + 0.4 < water_height - 0.8   # head well under: free 3D swimming
 
 	var fy := -MASS * Water.G + water.density() * Water.G * VOLUME * s
 	if s > 0.0:
-		fy -= 40.0 * vrel + 60.0 * vrel * absf(vrel)
-		if treading or moving:
+		fy -= (40.0 + 60.0 * absf(vrel)) * vrel
+		# at the surface, swimming level or treading keeps the head up; aiming
+		# down (or pressing C) lets you dive under instead
+		var surface_swim := not deep and (treading or (moving and move.y > -0.3))
+		if surface_swim:
 			# kicking is a one-sided, force-limited spring toward the surface
 			var target := water_height + (0.15 if treading else -0.1)
 			var lift_max := (0.30 if treading else 0.22) * MASS * Water.G
@@ -97,7 +105,9 @@ func _physics_process(delta: float) -> void:
 	var fh := Vector3.ZERO
 	if s > 0.2:
 		if moving:
-			fh = move * swim_force
+			fh = Vector3(move.x, 0.0, move.z) * swim_force
+			if deep or move.y < -0.3:
+				fy += move.y * swim_force   # pitch and C/Space steer depth
 		var vh := Vector3(velocity.x, 0.0, velocity.z)
 		fh -= (30.0 + 70.0 * vh.length()) * vh
 		if pos.y + 0.4 > water_height - 0.5:   # near the surface: wakes shove you
@@ -109,6 +119,8 @@ func _physics_process(delta: float) -> void:
 
 	if s == 0.0:
 		state = &"AIRBORNE"
+	elif moving and deep:
+		state = &"DIVING"
 	elif moving:
 		state = &"SWIMMING"
 	elif treading:

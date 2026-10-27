@@ -43,7 +43,25 @@ func _ready() -> void:
 	hud.flash("Press E near the boat to climb aboard", 4.0)
 
 
+var _air_fog := {}
+
+
+# Under the surface the view closes in to a blue-green murk.
+func _underwater_view() -> void:
+	var env: Environment = $WorldEnvironment.environment
+	if _air_fog.is_empty():
+		_air_fog = {"d": env.fog_density, "c": env.fog_light_color, "a": env.fog_aerial_perspective, "s": env.fog_sky_affect}
+	var eye := camera.global_position
+	var under := eye.y < Water.surface_height(eye.x, eye.z)
+	var day := clampf(($Sun as DirectionalLight3D).light_energy, 0.05, 1.0)
+	env.fog_density = 0.06 if under else _air_fog.d
+	env.fog_light_color = Color(0.02, 0.16, 0.2) * day if under else _air_fog.c
+	env.fog_aerial_perspective = 0.0 if under else _air_fog.a
+	env.fog_sky_affect = 1.0 if under else _air_fog.s
+
+
 func _process(_delta: float) -> void:
+	_underwater_view()
 	var driving := player.boat != null
 	camera.target = boat if driving else player
 	camera.turn_with_target = driving

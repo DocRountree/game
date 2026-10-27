@@ -26,6 +26,7 @@
 [ext_resource type="Script" path="res://src/systems/atmosphere/aurora.gd" id="27_aurora"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/aurora.gdshader" id="28_aurora_shader"]
 [ext_resource type="Script" path="res://src/systems/weather/weather.gd" id="29_weather"]
+[ext_resource type="Script" path="res://src/systems/water/seafloor/seafloor.gd" id="31_seafloor"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -76,6 +77,10 @@ shader = ExtResource("24_planet_shader")
 [sub_resource type="ShaderMaterial" id="Cloud_material"]
 render_priority = 2
 shader = ExtResource("16_clouds_shader")
+
+[sub_resource type="StandardMaterial3D" id="Seafloor_material"]
+vertex_color_use_as_albedo = true
+roughness = 0.95
 
 [node name="OpenOcean" type="Node3D"]
 script = ExtResource("1_world")
@@ -146,6 +151,11 @@ script = ExtResource("15_clouds")
 script = ExtResource("29_weather")
 clock = NodePath("../Clock")
 clouds = NodePath("../Clouds")
+
+[node name="Seafloor" type="Node3D" parent="." node_paths=PackedStringArray("focus")]
+script = ExtResource("31_seafloor")
+focus = NodePath("../Player")
+material = SubResource("Seafloor_material")
 
 [node name="Ocean" parent="." node_paths=PackedStringArray("focus", "sun") instance=ExtResource("2_ocean")]
 focus = NodePath("../Player")

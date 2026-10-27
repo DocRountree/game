@@ -30,6 +30,7 @@ and gameplay still work, just without ripples.
 | | |
 |---|---|
 | Mouse | look around (Tab releases the cursor; arrow keys also orbit) |
+| C | swim down (Space swims up; look down while swimming to dive) |
 | F5 | toggle first-person (default) / third-person view |
 | F6 | debug: aurora every night (toggle) |
 | F7 | debug: cycle weather (schedule, clear, normal, cloudy) |
