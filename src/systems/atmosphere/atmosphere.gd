@@ -22,8 +22,6 @@ extends Node
 @export var meteors: Meteors
 @export var aurora: Aurora
 @export var moonlight: DirectionalLight3D
-@export var clouds: Clouds
-@export var weather: Weather
 @export var sun_energy := 1.4
 @export var moon_energy := 0.12                     ## Full moon light.
 
@@ -56,9 +54,6 @@ extends Node
 ## Each day draws its own haze, high aerosol and ozone, so sunsets range from
 ## clear golden ones to hazy orange or vivid pink-purple twilights.
 @export_range(0.0, 1.0) var sunset_variety := 1.0
-## Pull the clouds' sunset light toward grey (0 = fully saturated, cartoonish).
-@export_range(0.0, 1.0) var cloud_desaturate := 0.35
-const strat_reference := 4.0   # the high-aerosol amount the cloud twilight tint is tuned for
 @export var in_scattering_points := 16
 @export_group("Lookup bake")
 @export var lut_angles := 128                       ## Directions (most detail needed near the horizon).
@@ -108,20 +103,20 @@ func rebuild() -> void:
 
 
 func _process(_delta: float) -> void:
-	if not Engine.is_editor_hint() and day() != _weather_day:
+	if not Engine.is_editor_hint() and day() != _air_day:
 		_vary_air(day())
 	_update_sun()
 
 
 # --- day-to-day variation --------------------------------------------------------
 
-var _weather_day := 0
+var _air_day := 0
 var _base := {}
 
 
 ## Draw this day's air from the world seed: same day, same sunset.
 func _vary_air(for_day: int) -> void:
-	_weather_day = for_day
+	_air_day = for_day
 	if _base.is_empty():
 		_base = {"mie_scattering": mie_scattering, "mie_g": mie_g, "strat_scattering": strat_scattering,
 				"ozone_strength": ozone_strength, "scattering_strength": scattering_strength,
@@ -181,10 +176,8 @@ func night_amount() -> float:
 
 func _update_sun() -> void:
 	var dir := sun_direction()
-	var clear := weather.sunlight if weather and not Engine.is_editor_hint() else 1.0   # direct-light factor from the weather
 	if _material:
 		_material.set_shader_parameter("sun_direction", dir)
-		_material.set_shader_parameter("overcast", 0.0)   # no overcast weather (kept for future use)
 	if sun == null or not sun.is_inside_tree():
 		return
 	sun.global_basis = Basis.looking_at(-dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
@@ -193,7 +186,7 @@ func _update_sun() -> void:
 	var peak := maxf(t.x, maxf(t.y, t.z))
 	var up := smoothstep(-0.03, 0.04, dir.y)    # the planet blocks the sun below the horizon
 	sun.light_color = Color(t.x / peak, t.y / peak, t.z / peak) if peak > 0.0 else Color.BLACK
-	sun.light_energy = sun_energy * clampf(peak, 0.0, 1.0) * up * clear
+	sun.light_energy = sun_energy * clampf(peak, 0.0, 1.0) * up
 	sun.shadow_enabled = up > 0.0
 	var night := night_amount()
 	if starfield:   # stars come out from civil twilight (sun 0-10 degrees below the horizon)
@@ -212,28 +205,8 @@ func _update_sun() -> void:
 		moon.update_sky(moon_dir, dir, night)
 	if moonlight:
 		moonlight.global_basis = Basis.looking_at(-moon_dir, Vector3.UP if absf(moon_dir.y) < 0.99 else Vector3.FORWARD)
-		moonlight.light_energy = moon_energy * illuminated * moon_up * night * clear
+		moonlight.light_energy = moon_energy * illuminated * moon_up * night
 		moonlight.visible = moonlight.light_energy > 0.001
-	if clouds:
-		# Sunlight as it reaches the cloud layer, which still sees the sun for a
-		# while after it sets at sea level. Stylised: keep the colour saturated
-		# and dim it only gently here (the real grazing light is nearly black);
-		# the cloud shader does the dimming, puff by puff.
-		# colour only: the shader fades each puff out as the planet's shadow climbs
-		# it, so sample just above the cloud layer's own horizon, never fully blocked
-		var lit_dir := Vector3(dir.x, maxf(dir.y, -0.017), dir.z).normalized()
-		var at_clouds := _transmittance_from(clouds.altitude, lit_dir) / _zenith_transmittance
-		var cloud_peak := maxf(at_clouds.x, maxf(at_clouds.y, at_clouds.z))
-		var cloud_sun := (at_clouds / cloud_peak * sqrt(minf(cloud_peak, 1.0)) * sun_energy) if cloud_peak > 0.0 else Vector3.ZERO
-		var grey := cloud_sun.dot(Vector3(0.3, 0.55, 0.15))
-		cloud_sun = cloud_sun.lerp(Vector3(grey, grey, grey), cloud_desaturate)
-		var day_amount := smoothstep(-0.12, 0.25, dir.y)
-		# twilight: the high aerosol glow lights the clouds' undersides rose-violet
-		var twilight := smoothstep(0.06, 0.0, dir.y) * smoothstep(-0.16, -0.03, dir.y)
-		var ambient := Vector3(0.20, 0.27, 0.40) * day_amount + Vector3(0.012, 0.014, 0.024) \
-				+ Vector3(0.13, 0.09, 0.13) * twilight * clampf(strat_scattering / strat_reference, 0.0, 2.0) \
-				+ Vector3(0.05, 0.055, 0.07) * illuminated * moon_up * night * clear
-		clouds.update_sky(dir, cloud_sun, ambient)
 
 
 # --- optical-depth lookup (Lague's AtmosphereTexture.compute, on the CPU) -----
@@ -283,18 +256,6 @@ func _extinguish(depth: Vector3) -> Vector3:
 func _lut_texture() -> ImageTexture:
 	var img := Image.create_from_data(lut_angles, lut_heights, false, Image.FORMAT_RGBAF, _lut.to_byte_array())
 	return ImageTexture.create_from_image(img)
-
-
-## Sunlight transmittance from a point height_m above the sea toward dir,
-## including the planet blocking a sun below that point's horizon.
-func _transmittance_from(height_m: float, dir: Vector3) -> Vector3:
-	var origin := Vector2(0.0, 1.0 + height_m / WorldConfig.current().planet_radius_m)
-	var d := Vector2(sqrt(maxf(0.0, 1.0 - dir.y * dir.y)), dir.y)
-	var b := origin.dot(d)
-	var c := origin.length_squared() - 1.0
-	if b < 0.0 and b * b - c > 0.0:
-		return Vector3.ZERO   # behind the planet
-	return _extinguish(_optical_depth(origin, d))
 
 
 func _transmittance(dir: Vector3) -> Vector3:

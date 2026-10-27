@@ -2,8 +2,8 @@
 class_name PlanetLayer
 extends MultiMeshInstance3D
 ## The naked-eye planets as small coloured discs, drawn on the moon's layer:
-## in front of the stars, behind the moon (which can pass over them) and the
-## clouds. Unlike the stars they wander: Atmosphere moves them each frame from
+## in front of the stars, behind the moon (which can pass over them).
+## Unlike the stars they wander: Atmosphere moves them each frame from
 ## the day count, so over weeks they drift and loop among the constellations.
 ## Per instance: COLOR.rgb = colour; CUSTOM = (brightness, size px, 0, 0).
 

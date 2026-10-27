@@ -3,10 +3,10 @@ class_name Meteors
 extends MultiMeshInstance3D
 ## Shooting stars: white streaks with rounded, brightest heads that race across
 ## the night sky and fade. They arrive at random (a Poisson process) and only
-## show at night. Drawn just in front of the stars and planets, behind clouds.
+## show at night. Drawn just in front of the stars and planets.
 ## Per instance: CUSTOM = (brightness, length/width, 0, 0).
 
-const RADIUS := 2350.0          ## In front of the planets (2450 m), behind clouds (<= 2200 m).
+const RADIUS := 2350.0          ## In front of the planets (2450 m).
 const SLOTS := 16               ## Most meteors in the sky at once.
 
 @export var mean_interval := 25.0        ## Real seconds between meteors, on average, at night.

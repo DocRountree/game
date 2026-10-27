@@ -152,8 +152,6 @@ Changes from his version:
   and that light comes to you through blue sky. On its own it mostly warms the
   sky, so a **stylised twilight glow** (`twilight_glow`, `twilight_tint`) adds
   the rose-violet band above the sunset point while the sun is 1-6 degrees down.
-  The clouds pick up a muted version of it; their sunset light is pulled 35%
-  toward grey (`cloud_desaturate`) so they don't look cartoonish.
 - **Every sunset differs:** each day draws its haze, haze phase, high aerosol,
   ozone, scattering strength, and twilight glow strength and hue from `WorldConfig.seed_for("sky:<day>")`
   (`sunset_variety` scales it, 0 = identical). The lookup is re-baked once a day
@@ -191,7 +189,7 @@ stars, so they repeat exactly each day. The moon and planets move on:
 - **Meteors** (`meteors.gd`, `meteors.gdshader`): white streaks that taper from
   a thread to a round, bright head, racing 15-45 degrees across the sky in under
   a second. Random arrivals (about one every 25 s of night), only at night,
-  drawn in front of the stars and behind the clouds. `launched` counts them.
+  drawn in front of the stars. `launched` counts them.
 - **Aurora** (`aurora.gd`, `aurora.gdshader`): a 3D emission field above a
   round Earth, drawn on a sky dome. Each night independently has a 1-in-50
   chance (`chance`) from the world seed; a night belongs to the day it began.
@@ -242,7 +240,7 @@ stars, so they repeat exactly each day. The moon and planets move on:
   objects all go through it. World axes: +X east, +Y up, -Z north.
 - **Planets** (`planet_layer.gd`, `planet_layer.gdshader`): small coloured
   discs on their own layer at 2,450 m, in front of the stars, behind the moon
-  (which can pass over them) and behind the clouds. They wander from day to day.
+  (which can pass over them). They wander from day to day.
   The outer planets run their orbits faster than real
   (`WorldConfig.outer_planet_pace`: 1 = about the moon's 13 degrees a day, 0 =
   real), so they visibly cross the constellations; the Earth keeps the real
@@ -303,7 +301,7 @@ map will draw from it; it never moves anyone.
 
 `QualitySettings` holds the knobs systems read when they build: render scale
 (applied to the viewport by the level), shadow distance, ocean mesh rings and
-segments, cloud and puff counts, and detail and far distances for future LOD and
+segments, and detail and far distances for future LOD and
 culling. `Perf` keeps smoothed frame time and render counts.
 
 ## Data (`src/data/`)
@@ -315,82 +313,3 @@ culling. `Perf` keeps smoothed frame time and render counts.
 | `BiomeDef` | A habitat (`open_ocean.tres` so far): medium, depth range, map colour, species list, `species_for(depth, hour, water)`. |
 | `BoatSpec` | Handling, speed and cargo: mass, size, thrusts, steering, drags, bow lift, lean, hold slots and weight. `small_motorboat.tres` reproduces the original boat. |
 | `CharacterTraits` | Height, build, skin, hair and clothing colours, free-form features. `generate(rng)` for NPCs; `apply_to(model)` dresses the capsule model. |
-
-### Clouds (`src/systems/clouds/`)
-
-Volumetric, ray-marched clouds (after Schneider's Nubis clouds in Horizon Zero
-Dawn), drawn on a dome around the camera after the stars, moon and aurora, so
-they cover them. The layer is a spherical shell (base 1.5 km) over the real
-Earth, so it curves and compresses toward the horizon by itself and fades into
-haze. Density = a 2D coverage map x a height profile (flat bases, rounded tops)
-x 3D billow noise, eroded by finer noise. Each sample is lit by sunlight traced
-toward the sun (self-shadowing), a two-lobe phase function (silver linings), the
-powder effect and sky light. Empty stretches are skipped using the coverage map
-alone. On thunderhead days, 9-14 explicit cumulonimbus cells (from the world
-seed, drifting with the wind on a 160 km tile wrapped around the camera) are
-passed to the shader: each a billowing tower 2.2-4.2 km in radius from the 1.5
-km base to 9.5-13 km, bulging at mid height and leaning downwind, under a flat
-anvil ~2.5x the tower's radius, stretched and pushed downwind. Lightning comes
-from these cells: in-cloud flashes inside a tower, ground strokes from a
-tower's base to the sea beneath. Noise textures are generated at startup (`NoiseTexture3D`). Cost scales
-with `QualitySettings.cloud_steps`.
-
-### Weather (`src/systems/weather/`)
-
-`Weather` schedules clear, normal (scattered cumulus) and overcast days from the
-world seed: blocks of 6-8 days with one thunderhead day flanked by normal days,
-clear otherwise (about 4/2/1 per 7); the "overcast" slot is now a day of
-scattered cumulonimbus (thunderheads), and 1 in 10 of those has lightning. It
-blends over the hours around midnight and drives cloud coverage and the
-cumulus/thunderhead mix. `Lightning` adds
-in-cloud flashes (~5 s apart) and distant cloud-to-ground strokes (~45 s) on
-storm days. F7 cycles a weather override.
-
-## Entities
-
-- **Player** (`CharacterBody3D`). Custom swim physics with one buoyancy probe at
-  the chest, slightly denser than water. Treading and swimming are force-limited
-  kicks toward the surface. Swimming is 3D: forward follows the camera's
-  pitch (look down to dive, up to climb), Space swims up, C down; at the surface,
-  swimming level keeps the head up. Boards boats by distance. Has `LeftHand`,
-  `RightHand` and `Knapsack` inventories; `breath_capacity()` adds gear's
-  `breath_seconds` (the snorkel and scuba hook); `head_under` and `water` track
-  where they are. `PlayerStats` keeps distances swum and boated, time in and
-  under water, deepest dive, waters and biomes visited.
-- **Boat** (`RigidBody3D` + `Buoyancy`). Thrust, keel drag (easy forward, hard
-  sideways), a rudder that bites with speed, bow lift, lean into turns, all
-  scaled by its `BoatSpec`. `BoatStation` markers (helm, perch, cargo, research)
-  say where the player stands to do things; `station(kind)` finds them. The
-  `Cargo` inventory is the hold. Tracks odometer, hours under way and top speed.
-- **Crate** (`RigidBody3D` + `Buoyancy`, one probe). Passive floater that rides
-  and gets pushed by wakes.
-
-## Physics layers
-
-| Layer | Name | Who |
-|---|---|---|
-| 1 | world | rigid bodies: boats, props, terrain |
-| 2 | characters | the player (and later NPCs) |
-
-Characters sit on their own layer and mask only `world`. They are blocked by
-hulls and props but never push them: a kinematic body has effectively infinite
-mass, and any overlap would launch the rigid body.
-
-## Adding things
-
-- **A new floating object:** a `RigidBody3D` with a collision shape, a `Buoyancy`
-  child, and one or more `Marker3D` probes under it. Set `waterplane_area` and
-  `max_depth` from the hull's size. Pick a ripple shape if it should make waves.
-- **A new level:** a scene under `src/world/<name>/` with a `WorldConfig`, a
-  `GameClock`, `Ocean` (if it has sea), a `WorldEnvironment`, a sun and the
-  entities it needs. Its script calls `Game.begin_world(self, config)` in
-  `_enter_tree` and `Game.end_world(self)` in `_exit_tree`.
-- **A lake or river:** extend `WaterBody`, set `kind`, `priority` and chemistry,
-  and override `contains_point` and `surface_height` (and `flow_at` for a river).
-- **A boat:** a `BoatSpec` `.tres`, a hull scene with `Buoyancy` probes,
-  `BoatStation` markers and a `Cargo` inventory.
-- **An item or species:** a new `ItemDef` / `SpeciesDef` `.tres` in `src/data/`;
-  add species to a `BiomeDef`.
-- **A minigame:** see `src/minigames/README.md`.
-
-Planned systems and the hooks they build on are listed in `docs/ROADMAP.md`.

@@ -181,23 +181,6 @@ func _run() -> void:
 	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
 			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
 
-	# weather: about 4 clear, 2 normal, 1 thunderhead in 7; thunderhead days flanked by normal
-	# ones; about 1 thunderhead day in 10 stormy; lightning at the requested rates
-	var weather: Weather = world.get_node("Weather")
-	var counts := [0, 0, 0]
-	var storms := 0
-	var flanked := true
-	for d in range(-3500, 3500):
-		var k: int = weather.schedule(d)[0]
-		counts[k] += 1
-		if k == Weather.Kind.THUNDERHEADS:
-			storms += int(weather.schedule(d)[1])
-			flanked = flanked and weather.schedule(d - 1)[0] == Weather.Kind.NORMAL \
-					and weather.schedule(d + 1)[0] == Weather.Kind.NORMAL
-	var per7 := [counts[0] * 7.0 / 7000.0, counts[1] * 7.0 / 7000.0, counts[2] * 7.0 / 7000.0]
-	var storm_share: float = float(storms) / counts[2]
-	_check(flanked and absf(per7[0] - 4.0) < 0.3 and absf(per7[1] - 2.0) < 0.2 and absf(per7[2] - 1.0) < 0.1,
-			"weather per 7 days: %.1f clear, %.1f normal, %.1f thunderhead; %d%% of thunderhead days stormy" % [per7[0], per7[1], per7[2], roundi(storm_share * 100.0)])
 	# diving by looking down
 	player.respawn(Vector3(20, 0, 20))
 	await _frames(30)

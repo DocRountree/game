@@ -87,8 +87,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		var meteors: Meteors = $Meteors
 		meteors.set_forced_shower(not meteors.forced_shower)
 		hud.flash("Debug: meteor shower every night" if meteors.forced_shower else "Debug: meteor showers by chance (1 in 50)", 2.5)
-	elif event.is_action_pressed(&"debug_weather"):
-		hud.flash("Debug: " + ($Weather as Weather).cycle_override(), 2.5)
 	elif event.is_action_pressed(&"respawn"):
 		_respawn_player()
 

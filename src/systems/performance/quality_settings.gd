@@ -17,7 +17,6 @@ extends Resource
 @export var ocean_segments := 256                     ## Vertices around each ring.
 
 @export_group("Sky")
-@export var cloud_steps := 56                         ## Volumetric cloud samples per view ray.
 
 @export_group("Distances")
 @export var detail_distance := 150.0   ## Full-detail range for future props/creatures.

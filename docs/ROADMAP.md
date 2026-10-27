@@ -11,8 +11,8 @@ reinvent. Nothing here is implemented yet beyond those hooks.
 coral) and terrain chunks.
 - Hooks: `QualitySettings.detail_distance` / `far_distance`; `WorldGrid` for
   chunk-level culling; `Perf.objects_drawn` / `draw_calls` to measure.
-- Note: the ocean surface and the clouds set custom AABBs on purpose (shader
-  displacement), so they are never culled.
+- Note: the ocean surface sets a custom AABB on purpose (shader
+  displacement), so it is never culled.
 
 **Resolution that scales with distance.**
 - Hooks: `QualitySettings.render_scale` (applied by the level through

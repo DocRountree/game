@@ -6,8 +6,7 @@ with C++ via GDExtension where profiling calls for it).
 
 The sky is a single-scattering atmosphere over the real winter night sky:
 naked-eye stars, planets and Messier objects, every day the winter solstice.
-A moon goes through its phases day by day, and stylised puffy clouds form,
-drift, evaporate and catch the sunset. Days last 15 real minutes, nights 5.
+A moon goes through its phases day by day. Days last 15 real minutes, nights 10.
 The first system in place is the water: a Gerstner-wave ocean that physics and
 rendering agree on exactly, spring buoyancy for anything that floats, and an
 interactive GPU ripple simulation that turns hulls and swimmers into wakes that
@@ -35,7 +34,6 @@ and gameplay still work, just without ripples.
 | F5 | toggle first-person (default) / third-person view |
 | F6 | debug: aurora every night (toggle) |
 | M | debug: meteor shower every night (toggle) |
-| F7 | debug: cycle weather (schedule, clear, normal, cloudy) |
 | W A S D | swim, relative to the camera (look down while swimming to dive) |
 | Left Ctrl | sprint (hold with W) |
 | Space | swim up / tread water (do nothing and you sink) |
@@ -53,7 +51,7 @@ src/                all game code and scenes, grouped by feature
   autoload/         global services: Events (signal bus), Game, Settings, Perf
   core/             world-wide basics: WorldConfig (seed, latitude, date), WorldGrid
   data/             Resource schemas and instances: items, species, biomes, boats, characters
-  systems/          reusable pieces: water (ocean), time, atmosphere, clouds, buoyancy,
+  systems/          reusable pieces: water (ocean), time, atmosphere, buoyancy,
                     camera, inventory, exploration, performance
   entities/         things in the world: player, boat, props
   world/            levels / playable spaces (open_ocean is the main scene)

@@ -14,8 +14,6 @@
 [ext_resource type="Resource" path="res://src/systems/atmosphere/bright_stars.tres" id="12_catalog"]
 [ext_resource type="Script" path="res://src/systems/atmosphere/moon.gd" id="13_moon"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/moon.gdshader" id="14_moon_shader"]
-[ext_resource type="Script" path="res://src/systems/clouds/clouds.gd" id="15_clouds"]
-[ext_resource type="Shader" path="res://src/systems/clouds/clouds.gdshader" id="16_clouds_shader"]
 [ext_resource type="Script" path="res://src/systems/time/game_clock.gd" id="20_clock"]
 [ext_resource type="Script" path="res://src/systems/exploration/exploration_tracker.gd" id="21_explore"]
 [ext_resource type="Resource" path="res://src/world/open_ocean/open_ocean_world.tres" id="22_world"]
@@ -25,7 +23,6 @@
 [ext_resource type="Shader" path="res://src/systems/atmosphere/meteors.gdshader" id="26_meteor_shader"]
 [ext_resource type="Script" path="res://src/systems/atmosphere/aurora.gd" id="27_aurora"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/aurora.gdshader" id="28_aurora_shader"]
-[ext_resource type="Script" path="res://src/systems/weather/weather.gd" id="29_weather"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -73,10 +70,6 @@ shader = ExtResource("28_aurora_shader")
 render_priority = 1
 shader = ExtResource("24_planet_shader")
 
-[sub_resource type="ShaderMaterial" id="Cloud_material"]
-render_priority = 2
-shader = ExtResource("16_clouds_shader")
-
 [node name="OpenOcean" type="Node3D"]
 script = ExtResource("1_world")
 world_config = ExtResource("22_world")
@@ -92,7 +85,7 @@ directional_shadow_max_distance = 60.0
 [node name="Clock" type="Node" parent="."]
 script = ExtResource("20_clock")
 
-[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "planets", "meteors", "aurora", "moonlight", "clouds", "weather")]
+[node name="Atmosphere" type="Node" parent="." node_paths=PackedStringArray("clock", "sun", "world_environment", "starfield", "moon", "planets", "meteors", "aurora", "moonlight")]
 script = ExtResource("9_atmosphere")
 clock = NodePath("../Clock")
 sun = NodePath("../Sun")
@@ -103,8 +96,6 @@ planets = NodePath("../Planets")
 meteors = NodePath("../Meteors")
 aurora = NodePath("../Aurora")
 moonlight = NodePath("../Moonlight")
-clouds = NodePath("../Clouds")
-weather = NodePath("../Weather")
 
 [node name="Starfield" type="MultiMeshInstance3D" parent="."]
 material_override = SubResource("Star_material")
@@ -136,16 +127,6 @@ script = ExtResource("13_moon")
 [node name="Moonlight" type="DirectionalLight3D" parent="."]
 light_color = Color(0.75, 0.83, 1, 1)
 light_energy = 0.0
-
-[node name="Clouds" type="MeshInstance3D" parent="."]
-material_override = SubResource("Cloud_material")
-cast_shadow = 0
-script = ExtResource("15_clouds")
-
-[node name="Weather" type="Node" parent="." node_paths=PackedStringArray("clock", "clouds")]
-script = ExtResource("29_weather")
-clock = NodePath("../Clock")
-clouds = NodePath("../Clouds")
 
 [node name="Ocean" parent="." node_paths=PackedStringArray("focus", "sun") instance=ExtResource("2_ocean")]
 focus = NodePath("../Player")
