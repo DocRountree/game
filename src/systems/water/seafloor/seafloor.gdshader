@@ -12,6 +12,11 @@ uniform sampler2D heights : filter_linear, repeat_disable;   // r: height (m)
 uniform vec3 patch_rect = vec3(0.0, 0.0, 768.0);             // corner x, corner z, size (m)
 uniform float relief = 0.55;          // m of fine relief on top of the coarse field
 uniform float relief_wavelength = 9.0; // m: longest fine octave
+uniform float ripple_height = 0.035;    // m: small sand ripples
+uniform float ripple_wavelength = 0.7;  // m
+uniform float wave_height = 0.12;       // m: larger sand waves (megaripples)
+uniform float wave_wavelength = 6.0;    // m
+uniform vec2 current = vec2(0.8, 0.6);  // direction the bottom current runs (ripple crests lie across it)
 uniform vec3 sand_deep = vec3(0.55, 0.5, 0.38);
 uniform vec3 sand_shallow = vec3(0.72, 0.67, 0.52);
 uniform vec3 rock = vec3(0.28, 0.28, 0.26);
@@ -61,6 +66,40 @@ vec3 relief_at(vec2 p, float min_wavelength) {
 	return sum;
 }
 
+// Sand ripples: crests across the current, gently curving and forking (the phase
+// is warped by smooth noise), with a steep lee side. Returns (height, gradient);
+// only scales the mesh or pixel can hold contribute.
+vec3 ripples_at(vec2 p, float min_wavelength) {
+	vec2 dir = normalize(current);
+	vec3 sum = vec3(0.0);
+	for (int k = 0; k < 2; k++) {
+		float wl = k == 0 ? wave_wavelength : ripple_wavelength;
+		float amp = k == 0 ? wave_height : ripple_height;
+		float fade = clamp(wl / min_wavelength - 1.0, 0.0, 1.0);
+		if (fade <= 0.0)
+			continue;
+		vec3 warp = noised(p / (wl * 7.0) + float(k) * 13.7);   // bends and forks the crests
+		float tau = 6.2831853 / wl;
+		float ph = dot(p, dir) * tau + warp.x * 9.0;
+		vec2 dph = dir * tau + warp.yz * 9.0 / (wl * 7.0);
+		// asymmetric profile: gentle stoss side, steeper lee side
+		float h = sin(ph) + 0.3 * sin(2.0 * ph);
+		float dh = cos(ph) + 0.6 * cos(2.0 * ph);
+		float patchy = 0.55 + 0.45 * noised(p / (wl * 11.0) + 5.0).x;   // stronger in places
+		sum += vec3(h, dh * dph) * amp * 0.5 * fade * patchy;
+	}
+	return sum;
+}
+
+float flatness(vec2 xz) {
+	float e = 4.0;
+	vec2 g = vec2(texture(heights, (xz + vec2(e, 0.0) - patch_rect.xy) / patch_rect.z).r
+			- texture(heights, (xz - vec2(e, 0.0) - patch_rect.xy) / patch_rect.z).r,
+			texture(heights, (xz + vec2(0.0, e) - patch_rect.xy) / patch_rect.z).r
+			- texture(heights, (xz - vec2(0.0, e) - patch_rect.xy) / patch_rect.z).r) / (2.0 * e);
+	return 1.0 - smoothstep(0.2, 0.45, length(g));   // ripples only where sand can lie
+}
+
 float coarse(vec2 xz) {
 	return texture(heights, (xz - patch_rect.xy) / patch_rect.z).r;
 }
@@ -68,7 +107,7 @@ float coarse(vec2 xz) {
 void vertex() {
 	vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	spacing = UV.x;
-	w.y = coarse(w.xz) + relief_at(w.xz, spacing * 3.0).x;
+	w.y = coarse(w.xz) + relief_at(w.xz, spacing * 3.0).x + ripples_at(w.xz, spacing * 3.0).x * flatness(w.xz);
 	VERTEX = (inverse(MODEL_MATRIX) * vec4(w, 1.0)).xyz;
 	wpos = w;
 }
@@ -80,7 +119,8 @@ void fragment() {
 			coarse(wpos.xz + vec2(0.0, e)) - coarse(wpos.xz - vec2(0.0, e))) / (2.0 * e);
 	float footprint = max(length(fwidth(wpos.xz)), 0.003);
 	vec3 r = relief_at(wpos.xz, footprint * 2.0);
-	g += r.yz;
+	float sandy = flatness(wpos.xz);
+	g += r.yz + ripples_at(wpos.xz, footprint * 2.0).yz * sandy;
 	vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
 	float rocky = 1.0 - smoothstep(0.65, 0.85, n.y);
