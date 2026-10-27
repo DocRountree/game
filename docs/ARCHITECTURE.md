@@ -147,10 +147,17 @@ progress; until it finishes the world is open ocean.
 7. Water today: runoff accumulates downstream, channels lose water in dry
    country, so beds carved in a wetter past can run dry; lakes fill to their
    sill or shrink until evaporation matches inflow (or dry out).
-8. Rivers become smoothed centrelines (width and depth from flow, speed from
-   slope) that meander where the land is flat, and a nearest-river field: per cell, the offset to the nearest
-   centreline point and the river there. Offsets interpolate exactly along
-   straight reaches, which is what lets 48 m cells carve 5 m channels.
+8. Rivers: every channel draining more than about 0.3 km^2 is traced, so
+   rivers have many tributaries. Each path is resampled every 24 m and
+   smoothed; width and depth come from today's flow (past flow for dry beds).
+   Big rivers lay down floodplains (the ground brought down to just above the
+   water within ~14 widths, curving up to the valley sides). Then the
+   centreline meanders: loops ~11 widths long and up to 0.4 of that across,
+   limited to where the valley floor is flat on both sides. Beside the largest
+   bends sit the bends the river used to have: shallow dry meander scars
+   (sometimes a few, like scroll bars), the outermost sometimes still holding
+   water as an oxbow lake. `RiverNetwork` turns all of it into straight
+   segments with a 256 m tile index, for the GPU and for physics alike.
 9. Ground: sand on archipelagos, beaches and the seafloor, rock on volcanoes,
    dirt on continents, lake beds.
 
@@ -159,7 +166,10 @@ progress; until it finishes the world is open ocean.
 B-spline, read from a 2x2-averaged mip of the grid matching the level's
 spacing, so coarse levels never alias the grid and far mountains hold still),
 plus band-limited, derivative-damped fractal detail (a few metres) and the
-river channels carved from the nearest-river field. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
+river channels carved from the exact distance to the river segments (found
+through the tile index): a rounded bed, banks rounding onto a floodplain just
+above the water, steepening to meet the hillside, the lowest of all nearby
+channels so confluences merge. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
 patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
 the edge of its range. Ranges are four patch widths per LOD, so the farthest
 patch of LOD k - 1 ends before LOD k starts morphing, which keeps seams closed.
@@ -180,14 +190,15 @@ the bake, so buoyancy, swimming, currents and sampling work in them unchanged.
 **Water on land.** The ocean shader shrinks each Gerstner wave where the water
 is shallower than a third of its length and adds surf near the shore (physics
 matches). Lakes reuse the ocean shader without swell, masked to their basin.
-Rivers are drawn on the terrain's own patches with `river.gdshader`: the
-compute pass writes a second level array (water surface, current, wet flag)
-from the same river data that carves the channels, so the water sits exactly
-in its bed at every distance (low natural levees keep the banks above it).
-The shading is after P_Malin's
-"Where the River Goes": flow-mapped, self-warping value-noise ripples whose
-octaves drift at different rates, foam where fast water runs shallow, and
-clear, slightly brown water. Currents push swimmers and boats.
+Rivers and oxbow lakes are drawn on the terrain's own patches with
+`river.gdshader`: the compute pass writes a second level array (water sheet
+height, current, rapids) from the same segments that carve the channels. The
+sheet runs level a little past each bank, then dives under the ground, so the
+shoreline is wherever the ground meets the water, exactly, as for the sea. The
+look is the ocean's (its FFT small waves, refraction, absorption, foam
+texture), with the small waves carried downstream by the current (two phases,
+crossfaded), choppier in fast water, and froth on rapids. Currents push
+swimmers and boats.
 
 **Moving on land** is Minecraft-like: quick to start and stop on the ground,
 little air control so momentum carries a jump, Ctrl runs, Shift sneaks,

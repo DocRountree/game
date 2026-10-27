@@ -14,7 +14,7 @@ func _initialize() -> void:
 	var a := WorldBake.new(cfg, 256).run()
 	var bake_ms := Time.get_ticks_msec() - t
 	var b := WorldBake.new(cfg, 256).run()
-	_check(a.height == b.height and a.river_a == b.river_a and a.rivers.size() == b.rivers.size()
+	_check(a.height == b.height and a.rivers.size() == b.rivers.size() and a.network().segments == b.network().segments
 			and a.lakes.size() == b.lakes.size(), "same seed, same world (256 cells in %d ms)" % bake_ms)
 	var cfg2 := WorldConfig.new()
 	cfg2.world_seed = 8
@@ -43,6 +43,8 @@ func _initialize() -> void:
 			lakes += 1
 			fed = fed and int(lake.inflows) >= 1 and float(lake.level) <= float(lake.full_level) + 0.01
 		for river in w.rivers:
+			if river.kind != WorldBake.RIVER:
+				continue
 			var pts: PackedVector3Array = river.points
 			for k in range(1, pts.size()):
 				downhill = downhill and pts[k].y <= pts[k - 1].y + 0.001
@@ -59,11 +61,19 @@ func _initialize() -> void:
 	_check(downhill, "rivers only run downhill")
 	_check(wet > 0 and dry > 0, "some riverbeds carry water and some are dry (%d wet, %d dry points)" % [wet, dry])
 	_check(rock_on_volcanoes, "volcanic islands are rock")
+	var kinds_seen := {}
+	var tributaries := 0
+	for river in a.rivers:
+		kinds_seen[river.kind] = true
+		if river.joins >= 0:
+			tributaries += 1
+	_check(kinds_seen.has(WorldBake.OXBOW) or kinds_seen.has(WorldBake.SCAR), "meander scars and oxbow lakes beside the bends (%s)" % [kinds_seen.keys()])
+	_check(tributaries > 5, "rivers have tributaries (%d)" % tributaries)
 
 	var path := "user://test_world.wmap"
 	a.save(path)
 	var loaded := WorldMaps.load_from(path, WorldBake.VERSION)
-	_check(loaded != null and loaded.height == a.height and loaded.river_b == a.river_b
+	_check(loaded != null and loaded.height == a.height and loaded.network().segments == a.network().segments
 			and loaded.lakes.size() == a.lakes.size() and loaded.rivers.size() == a.rivers.size(),
 			"the bake survives a save and load")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))

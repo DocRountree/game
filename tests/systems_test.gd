@@ -248,8 +248,8 @@ func _run() -> void:
 	var spot := Vector3.INF
 	for i in maps.n * maps.n:
 		var h := maps.height[i]
-		if h > 5.0 and h < 200.0 and maps.water_level[i] <= WorldMaps.NO_WATER and maps.river_a[i * 4 + 3] == 0.0:
-			var c := maps.to_world(i % maps.n, i / maps.n)
+		var c := maps.to_world(i % maps.n, i / maps.n)
+		if h > 5.0 and h < 200.0 and maps.water_level[i] <= WorldMaps.NO_WATER and maps.river_at(c.x, c.y).is_empty():
 			if absf(maps.height_at(c.x + 20.0, c.y) - h) < 3.0 and absf(maps.height_at(c.x, c.y + 20.0) - h) < 3.0:
 				spot = Vector3(c.x, h, c.y)
 				break
@@ -329,15 +329,20 @@ func _run() -> void:
 				break
 	_check(lakes_seen == 0 or lake_ok, "lakes are water bodies at their level (%d cells checked)" % lakes_seen)
 	var river_ok := false
-	for i in maps.n * maps.n:
-		var r := maps.river_at(maps.to_world(i % maps.n, i / maps.n).x, maps.to_world(i % maps.n, i / maps.n).y)
-		if r.is_empty() or not r.wet:
+	for river in maps.rivers:
+		if river.kind != WorldBake.RIVER:
 			continue
-		var c := maps.to_world(i % maps.n, i / maps.n) + Vector2(maps.river_a[i * 4], maps.river_a[i * 4 + 1])
-		var rb := Water.body_at(c.x, c.y)
-		if rb is RiverBody:
-			var f := rb.flow_at(c.x, c.y)
-			river_ok = f.length() > 0.2 and Vector2(f.x, f.z).dot(r.flow_dir) > 0.0
+		var pts: PackedVector3Array = river.points
+		for k in range(1, pts.size() - 1):
+			if river.wet[k] == 0 or Terrain.height_at(pts[k].x, pts[k].z) >= pts[k].y:
+				continue
+			var rb := Water.body_at(pts[k].x, pts[k].z)
+			if rb is RiverBody:
+				var f := rb.flow_at(pts[k].x, pts[k].z)
+				var down := Vector2(pts[k + 1].x - pts[k - 1].x, pts[k + 1].z - pts[k - 1].z)
+				river_ok = f.length() > 0.2 and Vector2(f.x, f.z).dot(down) > 0.0
+				break
+		if river_ok:
 			break
 	_check(river_ok, "rivers are water bodies whose current runs downstream")
 

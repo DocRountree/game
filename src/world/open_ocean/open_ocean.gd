@@ -37,6 +37,10 @@ func _ready() -> void:
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
 	sun.directional_shadow_blend_splits = true   # no hard seams between shadow cascades
 	sun.directional_shadow_fade_start = 0.7
+	sun.directional_shadow_split_1 = 0.06   # sharp shadows near, coarser far
+	sun.directional_shadow_split_2 = 0.18
+	sun.directional_shadow_split_3 = 0.45
+	RenderingServer.directional_shadow_atlas_set_size(8192, true)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3
 	for i in crate_count:

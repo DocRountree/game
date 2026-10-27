@@ -30,18 +30,10 @@ var material := PackedByteArray()        ## Ground.
 var owner := PackedByteArray()           ## Landmass id + 1; 0 for open sea.
 var temperature := PackedFloat32Array()  ## Mean air temperature (C).
 var rainfall := PackedFloat32Array()     ## Precipitation (m / year).
-## River field, 4 floats per cell: offset x, offset z from the cell centre to
-## the nearest point on a river's centreline, the water surface height there,
-## and the half width (0 = no river near this cell).
-var river_a := PackedFloat32Array()
-## 4 floats per cell: flow direction x, z at that nearest point, the depth at
-## the centre of the channel, and the flow speed (m/s) if water flows there
-## now (0 = dry bed).
-var river_b := PackedFloat32Array()
-
-## Rivers as centrelines: each a Dictionary with "points" (PackedVector3Array:
-## x, water surface height, z), "half_width", "depth", "flow" (m^3/s),
-## "speed" (m/s) and "wet" (PackedByteArray) per point. Downstream order.
+## Rivers as centrelines: each a Dictionary with "kind" (WorldBake.RIVER,
+## OXBOW or SCAR), "points" (PackedVector3Array: x, water surface height, z),
+## "half_width", "depth", "flow" (m^3/s), "speed" (m/s) and "wet"
+## (PackedByteArray) per point. Downstream order. RiverNetwork indexes them.
 var rivers: Array[Dictionary] = []
 ## Lakes: Dictionaries with "center" (Vector2), "level" (current surface),
 ## "full_level", "endorheic" (no outlet), "dry", "area" (m^2), "rect" (Rect2
@@ -64,10 +56,6 @@ func setup(cells: int, world_size: float) -> void:
 	for arr: PackedByteArray in [water_kind, material, owner]:
 		arr.resize(count)
 		arr.fill(0)
-	river_a.resize(count * 4)
-	river_a.fill(0.0)
-	river_b.resize(count * 4)
-	river_b.fill(0.0)
 
 
 # --- queries -------------------------------------------------------------------
@@ -114,20 +102,19 @@ func lake_level_at(x: float, z: float) -> float:
 	return water_level[i]
 
 
-## The river nearest a point: Dictionary with "distance" (to the centreline),
-## "half_width", "surface", "depth", "flow_dir" (Vector2), "wet"; empty if none near.
+var _network: RiverNetwork
+
+
+## The rivers, oxbows and meander scars, indexed for nearest-point queries.
+func network() -> RiverNetwork:
+	if _network == null:
+		_network = RiverNetwork.new(self)
+	return _network
+
+
+## The river (or oxbow, or scar) nearest a point: see RiverNetwork.query().
 func river_at(x: float, z: float) -> Dictionary:
-	var i := index_at(x, z)
-	var hw := river_a[i * 4 + 3]
-	if hw <= 0.0:
-		return {}
-	var c := to_world(i % n, i / n)
-	var cx := c.x + river_a[i * 4]
-	var cz := c.y + river_a[i * 4 + 1]
-	return {"distance": Vector2(x - cx, z - cz).length(), "half_width": hw,
-			"surface": river_a[i * 4 + 2], "depth": river_b[i * 4 + 2],
-			"flow_dir": Vector2(river_b[i * 4], river_b[i * 4 + 1]), "speed": river_b[i * 4 + 3],
-			"wet": river_b[i * 4 + 3] > 0.01}
+	return network().query(x, z)
 
 
 # --- persistence -----------------------------------------------------------------
@@ -144,7 +131,7 @@ func save(path: String) -> Error:
 	f.store_64(seed)
 	f.store_double(center.x)
 	f.store_double(center.y)
-	for arr: PackedFloat32Array in [height, water_level, temperature, rainfall, river_a, river_b]:
+	for arr: PackedFloat32Array in [height, water_level, temperature, rainfall]:
 		f.store_buffer(arr.to_byte_array())
 	for arr: PackedByteArray in [water_kind, material, owner]:
 		f.store_buffer(arr)
@@ -173,8 +160,6 @@ static func load_from(path: String, expect_version: int) -> WorldMaps:
 	m.water_level = f.get_buffer(count * 4).to_float32_array()
 	m.temperature = f.get_buffer(count * 4).to_float32_array()
 	m.rainfall = f.get_buffer(count * 4).to_float32_array()
-	m.river_a = f.get_buffer(count * 16).to_float32_array()
-	m.river_b = f.get_buffer(count * 16).to_float32_array()
 	m.water_kind = f.get_buffer(count)
 	m.material = f.get_buffer(count)
 	m.owner = f.get_buffer(count)
@@ -182,7 +167,7 @@ static func load_from(path: String, expect_version: int) -> WorldMaps:
 	m.rivers.assign(extra.get("rivers", []))
 	m.lakes.assign(extra.get("lakes", []))
 	m.landmasses.assign(extra.get("landmasses", []))
-	if m.height.size() != count or m.river_b.size() != count * 4:
+	if m.height.size() != count or m.owner.size() != count:
 		return null
 	return m
 
@@ -215,10 +200,15 @@ func to_image(px := 512) -> Image:
 				# relief shading from the slope toward the north-west
 				var e := height[mini(i + 1 + n, n * n - 1)] - h
 				c = c.darkened(clampf(e / (cell * 1.5), -0.3, 0.4))
-			var hw := river_a[i * 4 + 3]
-			if hw > 0.0:
-				var off := Vector2(river_a[i * 4], river_a[i * 4 + 1]).length()
-				if off < maxf(hw, step * cell * 0.5):
-					c = Color(0.2, 0.45, 0.9) if river_b[i * 4 + 3] > 0.01 else Color(0.8, 0.68, 0.45)
 			img.set_pixel(qx, py, c)
+	# rivers on top: wet blue, dry beds tan, oxbows blue too
+	for river in rivers:
+		var pts: PackedVector3Array = river.points
+		var wet: PackedByteArray = river.wet
+		for k in pts.size():
+			var g := to_grid(pts[k].x, pts[k].z) / step
+			var gx := int(g.x)
+			var gy := int(g.y)
+			if gx >= 0 and gy >= 0 and gx < px and gy < px:
+				img.set_pixel(gx, gy, Color(0.2, 0.45, 0.9) if wet[k] == 1 else Color(0.8, 0.68, 0.45))
 	return img

@@ -127,11 +127,13 @@ func _load_or_bake(config: WorldConfig, cells: int, side: float) -> void:
 	var path := cache_path(config, cells)
 	var loaded := WorldMaps.load_from(path, WorldBake.VERSION)
 	if loaded and loaded.seed == config.world_seed and is_equal_approx(loaded.size, side):
+		loaded.network()   # index the rivers here, off the main thread
 		_maps = loaded
 		return
 	_bake = WorldBake.new(config, cells, side)
 	var baked := _bake.run()
 	baked.save(path)
+	baked.network()
 	_maps = baked
 
 
@@ -184,6 +186,7 @@ func _spawn_water() -> void:
 		add_child(body)
 	var rivers := RiverBody.new()
 	rivers.material = _river_material
+	rivers.ocean = ocean
 	if ocean:
 		rivers.set_sun(ocean.sun)
 	add_child(rivers)
@@ -385,8 +388,10 @@ func _create_gpu() -> void:
 	ground.resize(n * n * 4)
 	for i in n * n:
 		ground[i * 4 + mini(_maps.material[i], 3)] = 255
-	for data: PackedByteArray in [_height_mips().to_byte_array(), _maps.river_a.to_byte_array(),
-			_maps.river_b.to_byte_array(), ground, _maps.water_level.to_byte_array()]:
+	var net := _maps.network()
+	var segs := net.segments if net.segments.size() > 0 else PackedFloat32Array([0, 0, 1, 0, 0, 0, 1, 1, 0, 0, -1, -1])
+	for data: PackedByteArray in [_height_mips().to_byte_array(), segs.to_byte_array(),
+			net.tiles.to_byte_array(), ground, _maps.water_level.to_byte_array()]:
 		_buffers.append(_rd.storage_buffer_create(data.size(), data))
 	var fmt := RDTextureFormat.new()
 	fmt.texture_type = RenderingDevice.TEXTURE_TYPE_2D_ARRAY
@@ -461,7 +466,7 @@ func _dispatch_levels(changed: Array[int], origins: Array[Vector2], physics_laye
 	for mode in 2:
 		for k in changed:
 			var pc := PackedByteArray()
-			pc.resize(48)
+			pc.resize(64)
 			pc.encode_float(0, origins[k].x)
 			pc.encode_float(4, origins[k].y)
 			pc.encode_float(8, _spacing(k))
@@ -474,6 +479,8 @@ func _dispatch_levels(changed: Array[int], origins: Array[Vector2], physics_laye
 			pc.encode_float(36, detail)
 			pc.encode_float(40, _maps.center.x)
 			pc.encode_float(44, _maps.center.y)
+			pc.encode_s32(48, _maps.network().tiles_per_side)
+			pc.encode_float(52, RiverNetwork.TILE)
 			_rd.compute_list_set_push_constant(cl, pc, pc.size())
 			_rd.compute_list_dispatch(cl, LEVEL_SIZE / 16, LEVEL_SIZE / 16, 1)
 		_rd.compute_list_add_barrier(cl)

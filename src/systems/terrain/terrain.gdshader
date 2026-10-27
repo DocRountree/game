@@ -29,7 +29,7 @@ uniform vec3 sand_color : source_color = vec3(0.78, 0.7, 0.52);
 uniform vec3 dirt_color : source_color = vec3(0.4, 0.3, 0.21);
 uniform vec3 rock_color : source_color = vec3(0.33, 0.31, 0.3);
 uniform vec3 lakebed_color : source_color = vec3(0.5, 0.45, 0.37);
-uniform vec3 gravel_color : source_color = vec3(0.56, 0.52, 0.46);
+uniform vec3 gravel_color : source_color = vec3(0.38, 0.34, 0.29);
 
 varying vec3 world_pos;
 varying flat int lod;
@@ -92,20 +92,15 @@ void fragment() {
 	float mottle = vnoise(wp * 0.37) * 0.6 + vnoise(wp * 2.3) * 0.4;
 	col *= 0.86 + 0.28 * mottle;
 
-	float h = s.r;
 	float rough = 0.92;
-	float water = s.a;
-	if (water > 15000.0) {
+	float wetness = s.a;
+	if (wetness < 0.0) {
 		// dry riverbed: pale gravel
-		col = mix(col, gravel_color * (0.85 + 0.3 * vnoise(wp * 4.0)), clamp(water - 20000.0, 0.0, 1.0));
+		col = mix(col, gravel_color * (0.85 + 0.3 * vnoise(wp * 4.0)), clamp(-wetness, 0.0, 1.0));
 	} else {
-		// damp band just above the water (sea level, lakes, rivers)
-		float above = h - water;
-		float wet = 1.0 - smoothstep(0.0, 0.6, above);
-		if (above < 0.0)
-			wet = 1.0;
-		col *= mix(1.0, 0.62, wet);
-		rough = mix(rough, 0.35, wet);
+		// damp band at the water's edge (sea, lakes, rivers)
+		col *= mix(1.0, 0.62, wetness);
+		rough = mix(rough, 0.35, wetness);
 	}
 	ALBEDO = col;
 	ROUGHNESS = rough;
