@@ -182,19 +182,41 @@ func _run() -> void:
 			and storm_share > 0.06 and storm_share < 0.14,
 			"weather per 7 days: %.1f clear, %.1f normal, %.1f thunderhead; %d%% of thunderhead days stormy" % [per7[0], per7[1], per7[2], roundi(storm_share * 100.0)])
 	var lightning: Lightning = world.get_node("Lightning")
+	lightning._rng.seed = 12345   # reproducible counts
 	weather.override = 3
 	var f0 := lightning.flashes
 	var b0 := lightning.bolts
 	for i in 18000:   # 10 minutes of storm
 		lightning._process(1.0 / 30.0)
-	var nf := lightning.flashes - f0 - (lightning.bolts - b0)   # bolts also flash
+	var nf := lightning.flashes - f0
 	var nb := lightning.bolts - b0
 	weather.override = 0
 	for i in 3000:
 		lightning._process(1.0 / 30.0)
-	var quiet := lightning.flashes - f0 - nf - nb
+	var quiet := lightning.flashes - f0 - nf + lightning.bolts - b0 - nb
 	weather.override = -1
-	_check(nf > 90 and nf < 160 and nb >= 6 and nb <= 25 and quiet == 0,
+	# thunderhead days place real cells, and lightning comes from inside them
+	var clouds_node: Clouds = world.get_node("Clouds")
+	weather.override = 2
+	weather._process(0.0)
+	clouds_node._process(0.0)
+	var cell_rng := RandomNumberGenerator.new()
+	var inside := 0
+	for i in 50:
+		var pt := clouds_node.random_storm_point(cell_rng, player.global_position, 1e9)
+		for c in clouds_node.cells:
+			if Vector2(pt.x - c.x, pt.z - c.y).length() <= c.z and pt.y > clouds_node.altitude and pt.y < c.w:
+				inside += 1
+				break
+	var tall := clouds_node.cells.all(func(c: Vector4) -> bool: return c.w > 9000.0)
+	weather.override = 0
+	weather._process(0.0)
+	clouds_node._process(0.0)
+	var none_when_clear := clouds_node.cells.is_empty()
+	weather.override = -1
+	_check(inside == 50 and tall and none_when_clear,
+			"thunderhead days place tall cells and lightning starts inside them")
+	_check(nf > 85 and nf < 160 and nb >= 5 and nb <= 25 and quiet == 0,
 			"storm: %d cloud flashes and %d ground strokes in 10 minutes, none when clear" % [nf, nb])
 
 	# exploration: cells around the player are revealed, and survive a save/load

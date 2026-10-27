@@ -326,9 +326,13 @@ haze. Density = a 2D coverage map x a height profile (flat bases, rounded tops)
 x 3D billow noise, eroded by finer noise. Each sample is lit by sunlight traced
 toward the sun (self-shadowing), a two-lobe phase function (silver linings), the
 powder effect and sky light. Empty stretches are skipped using the coverage map
-alone. On thunderhead days the clouds are scattered cumulonimbus instead:
-billowing towers from 1.5 to ~11 km under flat, smoother anvils that spread
-wider than the tower and are blown downwind. Noise textures are generated at startup (`NoiseTexture3D`). Cost scales
+alone. On thunderhead days, 9-14 explicit cumulonimbus cells (from the world
+seed, drifting with the wind on a 160 km tile wrapped around the camera) are
+passed to the shader: each a billowing tower 2.2-4.2 km in radius from the 1.5
+km base to 9.5-13 km, bulging at mid height and leaning downwind, under a flat
+anvil ~2.5x the tower's radius, stretched and pushed downwind. Lightning comes
+from these cells: in-cloud flashes inside a tower, ground strokes from a
+tower's base to the sea beneath. Noise textures are generated at startup (`NoiseTexture3D`). Cost scales
 with `QualitySettings.cloud_steps`.
 
 ### Weather (`src/systems/weather/`)

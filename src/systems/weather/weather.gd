@@ -22,7 +22,7 @@ const BLEND_HOURS := 2.0           ## Each side of midnight.
 const LOOKS := {
 	Kind.CLEAR: [0.0, 0.0, 0.0, 1.0],
 	Kind.NORMAL: [0.6, 0.0, 0.0, 1.0],
-	Kind.THUNDERHEADS: [0.3, 1.0, 0.15, 1.0],
+	Kind.THUNDERHEADS: [0.25, 1.0, 0.15, 1.0],
 }
 
 @export var clock: GameClock
@@ -52,6 +52,12 @@ func _process(_delta: float) -> void:
 	sunlight = look[3]
 	if clouds:
 		clouds.set_weather(cloud_coverage, cloud_fill, cloud_grey)
+		# the thunderheads belong to the nearest thunderhead day (they fade in and
+		# out over midnight from a neighbouring day)
+		var storm_day := day
+		if kind_for(day) != Kind.THUNDERHEADS:
+			storm_day = day - 1 if t < 12.0 else day + 1
+		clouds.set_storm_day(storm_day)
 
 
 ## The weather of a day (override included).

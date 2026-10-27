@@ -24,9 +24,10 @@ uniform float fill = 0.0;             // 0 fair-weather cumulus .. 1 scattered t
 uniform float grey = 0.0;             // darker cloud (thunderhead underbellies)
 uniform float base_altitude = 1500.0; // m
 uniform float top_altitude = 3600.0;   // fair-weather cumulus tops
-uniform float storm_top = 11000.0;     // thunderhead anvils
-uniform float storm_scale = 70000.0;   // m: spacing pattern of thunderhead cells
-uniform float anvil_shear = 9000.0;    // m: how far anvils are blown downwind at the top
+uniform float storm_top = 13500.0;     // highest thunderhead anvils (cells set their own tops)
+#define MAX_CELLS 16
+uniform int cell_count = 0;            // thunderhead cells, placed by clouds.gd
+uniform vec4 cells[MAX_CELLS];         // centre x, centre z (m), tower radius (m), top altitude (m)
 uniform float planet_radius = 6371000.0;
 uniform vec2 wind = vec2(7.0, 2.5);   // m/s
 uniform float shape_scale = 9000.0;   // m per repeat of the billow noise
@@ -78,22 +79,20 @@ float cumulus_cover(vec2 xz) {
 	return clamp(remap(map, 1.0 - coverage * 1.1, 1.0, 0.0, 1.0), 0.0, 1.0);
 }
 
-// thunderhead cells: sparse, from a very low-frequency read of the noise. At
-// height, the anvil is read from upwind (so it is blown downwind) and from a
-// lower threshold (so it spreads wider than the tower).
-float storm_cell(vec2 xz, float spread, float shift) {
-	vec2 dirw = normalize(wind + vec2(1e-4));
-	vec2 m = (xz - dirw * shift + wind * TIME) / storm_scale;
-	float c = texture(shape_noise, vec3(m, 0.53)).r;
-	return clamp(remap(c, mix(0.74, 0.56, spread), 0.9, 0.0, 1.0), 0.0, 1.0);
+// thunderhead geometry: the tower leans and the anvil streams out downwind
+vec2 wind_dir() {
+	return normalize(wind + vec2(1e-4));
 }
 
 // whether any cloud can be here (cheap): for empty-space skipping
 float cover_at(vec2 xz, float h) {
-	float c = fill < 1.0 ? cumulus_cover(xz) * (1.0 - fill) : 0.0;
-	if (fill > 0.0) {
-		float hf = clamp((h - base_altitude) / (storm_top - base_altitude), 0.0, 1.0);
-		c = max(c, storm_cell(xz, smoothstep(0.7, 0.85, hf), anvil_shear * hf * hf) * fill);
+	float c = cumulus_cover(xz);
+	for (int i = 0; i < MAX_CELLS; i++) {
+		if (i >= cell_count)
+			break;
+		vec2 rel = xz - cells[i].xy - wind_dir() * cells[i].z * 1.3;
+		if (dot(rel, rel) < pow(cells[i].z * 4.2, 2.0))
+			return 1.0;
 	}
 	return c;
 }
@@ -111,28 +110,44 @@ float cumulus(vec3 q, float h) {
 	return clamp(remap(shape * profile, 1.0 - cover, 1.0, 0.0, 1.0), 0.0, 1.0) * cover;
 }
 
+// Cumulonimbus: a broad billowing tower from the flat base, bulging at mid
+// height and leaning a little downwind, under a flat anvil that spreads to ~2.5x
+// the tower's radius at the top and streams out downwind. Returns density.
 float thunderhead(vec3 q, float h) {
-	float hf = (h - base_altitude) / (storm_top - base_altitude);
-	if (hf <= 0.0 || hf >= 1.0)
+	vec2 dw = wind_dir();
+	vec2 side = vec2(-dw.y, dw.x);
+	float best = 0.0;
+	for (int i = 0; i < MAX_CELLS; i++) {
+		if (i >= cell_count)
+			break;
+		vec4 c = cells[i];
+		float hf = (h - base_altitude) / (c.w - base_altitude);
+		if (hf <= 0.0 || hf >= 1.0)
+			continue;
+		float r = c.z;
+		// tower
+		vec2 rel = q.xz - c.xy - dw * r * 0.35 * hf;
+		float radius = r * (0.75 + 0.3 * sin(hf * PI * 0.9));
+		float tower = (1.0 - smoothstep(radius * 0.5, radius, length(rel)))
+				* smoothstep(0.0, 0.02, hf) * (1.0 - smoothstep(0.84, 0.9, hf));
+		// anvil: a flat sheet at the top, elongated and pushed downwind
+		vec2 ra = q.xz - c.xy - dw * r * 1.3;
+		float da = length(vec2(dot(ra, dw) / 1.8, dot(ra, side)));
+		float a_r = r * 2.5;
+		float band = smoothstep(0.8, 0.86, hf) * (1.0 - smoothstep(0.95, 1.0, hf));
+		float anvil = (1.0 - smoothstep(a_r * 0.45, a_r, da)) * band * 0.85;
+		best = max(best, max(tower, anvil));
+	}
+	if (best <= 0.0)
 		return 0.0;
-	vec3 drift = vec3(wind.x, 0.0, wind.y) * TIME;
-	float shape = texture(shape_noise, (q + drift) / (shape_scale * 1.4)).r;
-	// the tower: a billowing column from the flat base, narrowing a little as it rises
-	float core = storm_cell(q.xz, 0.0, anvil_shear * hf * hf * 0.3);
-	float tower = clamp(remap(shape, 1.0 - core * (1.0 - 0.25 * hf), 1.0, 0.0, 1.0), 0.0, 1.0)
-			* smoothstep(0.0, 0.03, hf) * (1.0 - smoothstep(0.84, 0.93, hf));
-	// the anvil: a wide, flat, smoother sheet spreading at the top, blown downwind
-	float spread = storm_cell(q.xz, 1.0, anvil_shear * hf * hf);
-	float band = smoothstep(0.76, 0.84, hf) * (1.0 - smoothstep(0.93, 0.99, hf));
-	float anvil = clamp(remap(shape * 0.5 + 0.5, 1.0 - spread, 1.0, 0.0, 1.0), 0.0, 1.0) * band * 0.7;
-	return max(tower, anvil);
+	// billows: the noise eats into the edges, more on the tower than the anvil
+	float shape = texture(shape_noise, (q + vec3(wind.x, 0.0, wind.y) * TIME) / (shape_scale * 0.6)).r;
+	return clamp(best * 1.4 - (1.0 - shape) * 0.7, 0.0, 1.0);
 }
 
 float density(vec3 p, float h, bool cheap) {
-	float d = 0.0;
-	if (fill < 1.0)
-		d = cumulus(p, h) * (1.0 - fill);
-	if (fill > 0.0)
+	float d = cumulus(p, h);
+	if (cell_count > 0)
 		d = max(d, thunderhead(p, h) * fill);
 	if (d <= 0.0 || cheap)
 		return d;
@@ -156,7 +171,7 @@ void vertex() {
 void fragment() {
 	vec3 cam = CAMERA_POSITION_WORLD;
 	vec3 dir = normalize(world_pos - cam);
-	if (coverage <= 0.001 || dir.y < -0.02)
+	if ((coverage <= 0.001 && cell_count == 0) || dir.y < -0.02)
 		discard;
 	float ey = dir.y;
 	float cam_h = max(cam.y, 1.0);

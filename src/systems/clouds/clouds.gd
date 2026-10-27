@@ -14,6 +14,15 @@ const DOME_RADIUS := 2000.0     ## In front of the aurora (2300 m) and stars.
 @export var curvature_radius := 6371000.0   ## The real Earth (for lightning placement).
 @export var wind := Vector2(7.0, 2.5)       ## m/s.
 
+const CELL_TILE := 160000.0     ## m: thunderhead cells repeat on this square, wrapped around the camera.
+const MAX_CELLS := 16           ## Must match clouds.gdshader.
+
+## Thunderhead cells this frame: (x, z, tower radius, top altitude), world metres.
+var cells: Array[Vector4] = []
+var _storm_day := -2147483648
+var _cell_layout: Array[Vector4] = []   # (x, z) within the tile, radius, top
+var _fill := 0.0
+
 var _shape: NoiseTexture3D
 var _detail: NoiseTexture3D
 
@@ -42,6 +51,62 @@ func _process(_delta: float) -> void:
 	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
 	if cam:
 		global_position = cam.global_position
+	_update_cells(cam.global_position if cam else Vector3.ZERO)
+
+
+## Which day's thunderheads to show (the layout comes from the world seed).
+func set_storm_day(day: int) -> void:
+	if day == _storm_day:
+		return
+	_storm_day = day
+	var rng := RandomNumberGenerator.new()
+	rng.seed = WorldConfig.current().seed_for("thunderheads:%d" % day)
+	_cell_layout.clear()
+	for i in rng.randi_range(9, 14):
+		_cell_layout.append(Vector4(rng.randf() * CELL_TILE, rng.randf() * CELL_TILE,
+				rng.randf_range(2200.0, 4200.0), rng.randf_range(9500.0, 13000.0)))
+
+
+# Cells drift with the wind and wrap around the camera, nearest copy first.
+func _update_cells(cam: Vector3) -> void:
+	cells.clear()
+	if _fill <= 0.0:
+		_push_cells()
+		return
+	var drift := wind * (Time.get_ticks_msec() / 1000.0)
+	for c in _cell_layout:
+		var p := Vector2(c.x, c.y) + drift
+		var rel := Vector2(fposmod(p.x - cam.x + CELL_TILE * 0.5, CELL_TILE) - CELL_TILE * 0.5,
+				fposmod(p.y - cam.z + CELL_TILE * 0.5, CELL_TILE) - CELL_TILE * 0.5)
+		cells.append(Vector4(cam.x + rel.x, cam.z + rel.y, c.z, c.w))
+	_push_cells()
+
+
+func _push_cells() -> void:
+	var mat := material_override as ShaderMaterial
+	if mat == null:
+		return
+	var data: Array[Vector4] = cells.duplicate()
+	data.resize(MAX_CELLS)
+	for i in range(cells.size(), MAX_CELLS):
+		data[i] = Vector4.ZERO
+	mat.set_shader_parameter("cell_count", mini(cells.size(), MAX_CELLS))
+	mat.set_shader_parameter("cells", data)
+
+
+## A random point inside a thunderhead's tower (for in-cloud lightning), or
+## Vector3.INF if there are none. Prefers cells within max_dist of near.
+func random_storm_point(rng: RandomNumberGenerator, near: Vector3, max_dist := 40000.0) -> Vector3:
+	var pool: Array[Vector4] = []
+	for cell in cells:
+		if Vector2(cell.x - near.x, cell.y - near.z).length() < max_dist:
+			pool.append(cell)
+	if pool.is_empty():
+		return Vector3.INF
+	var c: Vector4 = pool[rng.randi() % pool.size()]
+	var a := rng.randf() * TAU
+	var r := rng.randf() * c.z * 0.6
+	return Vector3(c.x + cos(a) * r, lerpf(altitude + 800.0, c.w * 0.6, rng.randf()), c.y + sin(a) * r)
 
 
 static func _noise(size: int, kind: FastNoiseLite.NoiseType, octaves: int, frequency_cells: float) -> NoiseTexture3D:
@@ -80,7 +145,8 @@ func set_weather(coverage: float, fill: float, grey: float) -> void:
 		mat.set_shader_parameter("coverage", coverage)
 		mat.set_shader_parameter("fill", fill)
 		mat.set_shader_parameter("grey", grey)
-	visible = coverage > 0.001
+	_fill = fill
+	visible = coverage > 0.001 or fill > 0.001
 
 
 ## Lightning: light the clouds around a point (amount 0 = no flash).

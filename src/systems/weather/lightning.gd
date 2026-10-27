@@ -82,13 +82,14 @@ func _process(delta: float) -> void:
 
 ## An in-cloud flash somewhere over the deck.
 func flash(at := Vector3.INF, strength := -1.0) -> void:
-	flashes += 1
+	if at == Vector3.INF:
+		flashes += 1   # counts in-cloud flashes only, not the glow of a ground stroke
 	var cam := get_viewport().get_camera_3d()
 	var c := cam.global_position if cam else Vector3.ZERO
 	if at == Vector3.INF:
-		var a := _rng.randf() * TAU
-		var r := _rng.randf_range(1500.0, 9000.0)
-		at = Vector3(c.x + cos(a) * r, 1300.0, c.z + sin(a) * r)
+		at = clouds.random_storm_point(_rng, c) if clouds else Vector3.INF
+		if at == Vector3.INF:   # no thunderhead in reach: nothing to light
+			return
 	_flash_pos = at
 	_flash_strength = strength if strength >= 0.0 else _rng.randf_range(0.5, 1.4)
 	_flash_t = 0.0
@@ -102,11 +103,13 @@ func strike(azimuth := NAN) -> void:
 	if cam == null:
 		return
 	var c := cam.global_position
-	var a := _rng.randf() * TAU if is_nan(azimuth) else azimuth
-	var dist := _rng.randf_range(5500.0, 9500.0)
-	var foot := Vector3(c.x + cos(a) * dist, 0.0, c.z + sin(a) * dist)
-	var base_y := (clouds.altitude if clouds else 1300.0) - dist * dist / (2.0 * (clouds.curvature_radius if clouds else 38000.0))
-	var top := foot + Vector3(_rng.randf_range(-300.0, 300.0), base_y, _rng.randf_range(-300.0, 300.0))
+	# from the base of a thunderhead to the ground beneath it
+	var src: Vector3 = clouds.random_storm_point(_rng, c, 60000.0) if clouds else Vector3.INF
+	if src == Vector3.INF:
+		return
+	var top := Vector3(src.x, clouds.altitude, src.z)
+	var foot := top + Vector3(_rng.randf_range(-1200.0, 1200.0), -clouds.altitude, _rng.randf_range(-1200.0, 1200.0))
+	foot.y = 0.0
 	_build_bolt(c, top, foot)
 	_bolt_t = 0.0
 	flash(top, 1.6)
