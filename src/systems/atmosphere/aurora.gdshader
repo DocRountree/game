@@ -18,10 +18,12 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled, 
 //
 // Field lines tilt toward the equator as they rise, so pillars overhead
 // converge on the magnetic zenith. Per pixel the view ray is stepped through
-// the shell (jittered per pixel, so altitude steps show as fine grain rather
-// than stripes) and, per step, the length of ray inside each sheet's profile is
-// integrated in closed form (error functions), so edge-on sheets glow brighter
-// and neighbouring pixels never jump.
+// the shell; near or inside a sheet each step is refined into exact sub-steps,
+// and per sub-step the length of ray inside the sheet's profile is integrated
+// in closed form (error functions), with the light blended from both ends. So
+// edge-on sheets glow brighter and neighbouring pixels change smoothly: no
+// stripes, grain or moire, even where rays graze swirled sheets. Pillar detail
+// fades by its actual on-screen size (catching pillars seen end-on overhead).
 //
 // Colour by altitude, per curtain and drifting along it: green (yellow-green to
 // cyan), red or violet-blue tops, optional magenta (N2) lower parts. Only
@@ -29,6 +31,7 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled, 
 
 #define MAX_CURTAINS 4
 #define MAX_SWIRLS 5
+#define SUBSAMPLES 3   // extra exact sub-steps per step, only near or inside a sheet
 const float EARTH_R = 6371.0;
 const vec3 GREEN_YELLOW = vec3(0.55, 1.0, 0.22);
 const vec3 GREEN_CYAN = vec3(0.12, 1.0, 0.72);
@@ -93,6 +96,13 @@ float resolved(float size, float t, float pa) {
 	return smoothstep(2.0 + 4.0 * blur, 6.0 + 8.0 * blur, size / max(t * pa, 1e-4));
 }
 
+// fades pillar detail of this size (km along the curtain) once it is under a few
+// pixels on screen; dx_px is how far the along-curtain coordinate moves per
+// pixel here, which also catches pillars seen end-on near the magnetic zenith
+float on_screen(float size, float dx_px) {
+	return smoothstep(2.0 + 4.0 * blur, 6.0 + 8.0 * blur, size / dx_px);
+}
+
 // map a foot point back through the swirls (each undone by the opposite rotation)
 vec2 unwarp(vec2 q) {
 	for (int i = MAX_SWIRLS - 1; i >= 0; i--) {
@@ -133,7 +143,7 @@ float offset(int k, float t, vec2 track, float ey, float pa) {
 	return u.y - line(k, u.x, t, pa);
 }
 
-vec3 curtain_light(int k, float t, vec2 track, float ey, float pa) {
+vec3 curtain_light(int k, float t, vec2 track, float ey, float pa, float dx_px) {
 	float h = altitude(t, ey);
 	float x = unwarp(foot_point(t, track, ey)).x;   // along the curtain's own material
 	float s = c_style[k].y;
@@ -143,16 +153,16 @@ vec3 curtain_light(int k, float t, vec2 track, float ey, float pa) {
 	float sp = c_glow[k].w;
 	float big = noise(x / sp + s * 11.0 + clock * 0.05 * pace);
 	float fine = noise(x / (sp * 0.33) - clock * 0.25 * pace + s * 3.0);
-	float detail = resolved(sp * 0.33, t, pa);
+	float detail = on_screen(sp * 0.33, dx_px);
 	// softer profiles as blur rises: rounded pillars rather than sharp lines
 	float pillars = pow(big, mix(3.0, 1.8, clamp(blur, 0.0, 1.0))) * 2.0 + mix(0.35, pow(fine, 2.5) * 1.6, detail * (1.0 - 0.5 * blur)) * big;
-	pillars = mix(0.75, pillars, resolved(sp * (1.0 + 4.0 * blur), t, pa));   // far away, pillars merge into a glow
+	pillars = mix(0.75, pillars, on_screen(sp * (1.0 + 2.0 * blur), dx_px));   // too fine on screen: merge into a glow
 	pillars = mix(pillars, 0.75, 0.35 * blur);                                // and softer everywhere
 	float crowd = smoothstep(0.1, 0.9, noise(x / 180.0 + s * 5.0 + clock * 0.01 * pace));   // dense stretches
 	float sheet = c_style[k].w;
 	float amount = mix(pillars * (0.4 + 0.9 * crowd), 1.0, sheet) * mix(0.25, 1.0, crowd);
 	// each pillar has its own base height and length: ragged, staggered bottoms
-	float far = resolved(sp * (1.0 + 4.0 * blur), t, pa);   // 0 where pillars are too small to keep crisp
+	float far = on_screen(sp * (1.0 + 2.0 * blur), dx_px);   // 0 where pillars are too fine to keep crisp
 	float ragged = c_extent[k].w * (noise(x / (sp * 0.5) + s * 17.0) - 0.5) * 2.0 * far;
 	float base = c_shape[k].z + 8.0 * (noise(x / 160.0 + s * 7.0 + clock * 0.004) - 0.5) + ragged;
 	float decay = c_glow[k].x * mix(1.0, mix(0.5, 1.4, noise(x / sp + s * 23.0)), far);
@@ -186,8 +196,9 @@ void fragment() {
 	float t0 = ray_to(80.0, ey);
 	float t1 = ray_to(450.0, ey);
 	float dt = (t1 - t0) / float(steps);
-	// per-pixel jitter of the step grid: altitude steps become grain, not stripes
-	float jitter = fract(52.9829189 * fract(dot(FRAGCOORD.xy, vec2(0.06711056, 0.00583715))));
+	// how far the along-curtain coordinate moves per pixel, at a typical pillar height
+	float x_ref = unwarp(foot_point(ray_to(115.0, ey), track, ey)).x;
+	float dx_px = max(fwidth(x_ref), 1e-3);
 	vec3 light = vec3(0.0);
 
 	for (int k = 0; k < MAX_CURTAINS; k++) {
@@ -196,26 +207,52 @@ void fragment() {
 		float w = c_glow[k].y * (1.0 + blur);   // thicker sheets: softer edges
 		float ta = t0;
 		float ga = offset(k, ta, track, ey, pa);
-		for (int i = 0; i <= steps; i++) {
-			float tb = min(t0 + dt * (float(i) + jitter), t1);
-			if (tb <= ta)
-				continue;
+		vec3 la = vec3(0.0);   // light at ta, carried over from the previous step
+		bool has_la = false;
+		for (int i = 1; i <= steps; i++) {
+			float tb = t0 + dt * float(i);
 			float gb = offset(k, tb, track, ey, pa);
-			if (min(abs(ga), abs(gb)) < 4.0 * w || (ga < 0.0) != (gb < 0.0)) {
-				float seg = tb - ta;
-				float dg = gb - ga;
-				float inside;   // km of ray, weighted by the sheet's profile exp(-(g/w)^2)
-				if (abs(dg) < 1e-3 * w)
-					inside = seg * exp(-ga * ga / (w * w));
-				else
-					inside = abs(seg * w / dg) * 0.8862 * abs(erf_approx(gb / w) - erf_approx(ga / w));
-				if (inside > 1e-4) {
-					float tc = ta + seg * clamp(-ga / (abs(dg) > 1e-6 ? dg : 1e-6), 0.0, 1.0);
-					light += curtain_light(k, tc, track, ey, pa) * min(inside, 25.0);   // edge-on glow, capped
+			vec3 lb = vec3(0.0);
+			bool has_lb = false;
+			bool crossing = (ga < 0.0) != (gb < 0.0);
+			if (crossing || min(abs(ga), abs(gb)) < 4.0 * w) {
+				// Near or inside a sheet: split the step into sub-steps with the exact
+				// offset at each, integrate the length of ray inside the sheet's
+				// profile per sub-step in closed form, and blend the light at the
+				// sub-step ends by closeness. The offset is far from linear where rays
+				// graze swirled sheets; refining only here keeps that accurate (no
+				// stripes, grain or moire) without paying for it everywhere.
+				if (!has_la)
+					la = curtain_light(k, ta, track, ey, pa, dx_px);
+				float tp = ta;
+				float gp = ga;
+				vec3 lp = la;
+				float wp = exp(-gp * gp / (w * w));
+				float sub = dt / float(SUBSAMPLES + 1);
+				for (int j = 1; j <= SUBSAMPLES + 1; j++) {
+					float tj = j <= SUBSAMPLES ? ta + sub * float(j) : tb;
+					float gj = j <= SUBSAMPLES ? offset(k, tj, track, ey, pa) : gb;
+					vec3 lj = curtain_light(k, tj, track, ey, pa, dx_px);
+					float wj = exp(-gj * gj / (w * w));
+					float dg = gj - gp;
+					float inside;   // km of ray, weighted by the sheet's profile exp(-(g/w)^2)
+					if (abs(dg) < 1e-3 * w)
+						inside = sub * 0.5 * (wp + wj);
+					else
+						inside = abs(sub * w / dg) * 0.8862 * abs(erf_approx(gj / w) - erf_approx(gp / w));
+					light += (lp * wp + lj * wj) / max(wp + wj, 1e-6) * min(inside, 25.0);
+					tp = tj;
+					gp = gj;
+					lp = lj;
+					wp = wj;
 				}
+				lb = lp;
+				has_lb = true;
 			}
 			ta = tb;
 			ga = gb;
+			la = lb;
+			has_la = has_lb;
 		}
 	}
 
@@ -223,7 +260,7 @@ void fragment() {
 	if (red_glow > 0.0 || green_patches > 0.0) {
 		float ds = (t1 - t0) / 14.0;
 		for (int i = 0; i < 14; i++) {
-			float t = t0 + ds * (float(i) + jitter);
+			float t = t0 + ds * (float(i) + 0.5);
 			float h = altitude(t, ey);
 			vec2 f = foot_point(t, track, ey);
 			float high = smoothstep(220.0, 280.0, h) * (1.0 - smoothstep(380.0, 450.0, h));
