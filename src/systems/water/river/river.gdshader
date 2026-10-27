@@ -1,15 +1,15 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_always, cull_disabled;
 
-// Inland water (rivers, oxbow lakes and lakes), in the same look as the
-// ocean (water.gdshader): the
-// still ripple field (only the current moves it) for the surface detail, light from the bed refracted
-// and absorbed with depth, the same body colour. What makes
-// a river: the small waves are carried downstream by the current (two
-// copies, half a cycle apart, crossfaded so the drift never resets visibly),
-// they get choppier as the water speeds up. Lakes are the
-// same water with no current. At the very edge the water thins to nothing, so
-// shorelines are soft.
+// Inland water (rivers, oxbow lakes and lakes), in the same colours as the
+// ocean (water.gdshader): light from the bed refracted and absorbed with
+// depth, the same body colour. The surface detail is a still ripple field that
+// only the current moves (two copies, half a cycle apart, crossfaded so the
+// drift never resets visibly), so the water always runs downstream. The
+// current is read per pixel, so the flow sweeps smoothly round every bend,
+// and the ripples are drawn out along it into streaks, more so the faster it
+// runs; fast water is choppier too. Lakes are the same water with no current.
+// At the very edge the water thins to nothing, so shorelines are soft.
 //
 // Drawn on the terrain's own CDLOD patches: the sheet height and current come
 // from the river levels the terrain compute pass writes from the same channel
@@ -23,12 +23,9 @@ uniform vec3 sun_color = vec3(1.0);
 uniform float planet_radius = 6400000.0;
 
 group_uniforms detail;
-uniform sampler2D fft_0 : filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D fft_1 : filter_linear_mipmap_anisotropic, repeat_enable;
-uniform sampler2D fft_2 : filter_linear_mipmap_anisotropic, repeat_enable;
-uniform vec3 fft_sizes = vec3(97.0, 13.7, 2.31);
 uniform float detail_strength = 0.45;
-uniform float cycle = 3.0;            // seconds per flow-map cycle
+uniform float cycle = 2.0;            // seconds per flow-map cycle
+uniform float streak = 1.6;           // how far ripples are drawn out along the current (s)
 
 group_uniforms water;
 uniform vec3 deep_color = vec3(0.01, 0.035, 0.04);
@@ -47,7 +44,6 @@ uniform float grid_dim = 16.0;
 uniform float level_size = 256.0;
 uniform vec3 view_pos;
 
-varying vec2 flow;        // m/s
 varying vec3 wpos;
 varying flat int lod;
 varying float morph;
@@ -70,7 +66,6 @@ void vertex() {
 	vec4 w = textureLod(water_levels, vec3(level_uv(lod, wp), float(lod)), 0.0);
 	if (morph > 0.0)
 		w = mix(w, textureLod(water_levels, vec3(level_uv(lod + 1, wp), float(lod + 1)), 0.0), morph);
-	flow = w.yz;
 	float drop = dot(wp - view_pos.xz, wp - view_pos.xz) / (2.0 * planet_radius);   // the planet curves away
 	VERTEX = vec3(gp.x * cd.w, w.x - origin.y - drop, gp.y * cd.w);
 	NORMAL = vec3(0.0, 1.0, 0.0);
@@ -105,12 +100,12 @@ vec2 noise_slope(vec2 p) {
 			+ du * (u.yx * (va - vb - vc + vd) + vec2(vb, vc) - va);
 }
 
-vec2 fft_slope(vec2 p) {
+vec2 ripple_slope(vec2 p) {
 	vec2 s = vec2(0.0);
 	float freq = 0.35;
 	float amp = 0.05;
 	mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
-	for (int o = 0; o < 5; o++) {
+	for (int o = 0; o < 4; o++) {
 		s += noise_slope(p * freq) * amp;
 		p = rot * p;
 		freq *= 2.1;
@@ -119,8 +114,23 @@ vec2 fft_slope(vec2 p) {
 	return s;
 }
 
+// The current here (m/s), from the water levels, per pixel.
+vec2 current_at(vec2 p) {
+	vec2 c = texture(water_levels, vec3(level_uv(lod, p), float(lod))).yz;
+	if (morph > 0.0)
+		c = mix(c, texture(water_levels, vec3(level_uv(lod + 1, p), float(lod + 1))).yz, morph);
+	return c;
+}
+
+// The ripples, smeared back along the current: streaks in fast water.
+vec2 streaked(vec2 p, vec2 flow) {
+	vec2 back = flow * streak * 0.5;
+	return (ripple_slope(p) * 2.0 + ripple_slope(p - back) + ripple_slope(p + back)) * 0.25;
+}
+
 void fragment() {
 	vec2 p = wpos.xz;
+	vec2 flow = current_at(p);
 	float speed = length(flow);
 
 	// small waves carried by the current: two phases, crossfaded
@@ -130,8 +140,8 @@ void fragment() {
 	vec2 p0 = p - flow * t0 * cycle + vec2(17.3, 5.1) * floor(tm);
 	vec2 p1 = p - flow * t1 * cycle + vec2(-9.7, 13.9) * floor(tm + 0.5);
 	float w0 = 1.0 - abs(t0 - 0.5) * 2.0;
-	vec2 slope = fft_slope(p0) * w0 + fft_slope(p1) * (1.0 - w0);
-	slope *= detail_strength * (0.7 + 0.35 * speed);
+	vec2 slope = streaked(p0, flow) * w0 + streaked(p1, flow) * (1.0 - w0);
+	slope *= detail_strength * (0.7 + 0.45 * speed);
 
 	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);

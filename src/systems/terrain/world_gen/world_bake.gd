@@ -21,7 +21,7 @@ extends RefCounted
 ##    Lakes fill to their sills or shrink until evaporation matches inflow.
 ## 7. Rivers become smooth centrelines and a nearest-river field for Terrain.
 
-const VERSION := 17
+const VERSION := 18
 const YEAR := 31557600.0          ## Seconds per year (rain is in m / year).
 
 var n: int
@@ -1037,16 +1037,17 @@ func _smooth_river(pts: PackedVector3Array, flows: PackedFloat32Array, areas: Pa
 	var wet := PackedByteArray()
 	var speed := PackedFloat32Array()
 	for k in count:
-		# flow speed from the slope of the water surface (faster down rapids)
-		var a := maxi(k - 3, 0)
-		var b := mini(k + 3, count - 1)
-		var run := maxf(STEP * (b - a), 1.0)
-		var drop := sp[a].y - sp[b].y
-		speed.append(clampf(0.4 + 10.0 * sqrt(maxf(drop, 0.0) / run), 0.3, 4.0))
 		var q_past := sa[k] * past_runoff
 		var q := maxf(sq[k], 0.0)
 		var is_wet := q >= 0.04
 		var qw := maxf(q if is_wet else q_past, q_past * 0.6)
+		# flow speed: big rivers run at a metre or two a second even on a
+		# gentle plain, and anything runs faster down a steep surface
+		var a := maxi(k - 3, 0)
+		var b := mini(k + 3, count - 1)
+		var run := maxf(STEP * (b - a), 1.0)
+		var drop := sp[a].y - sp[b].y
+		speed.append(clampf(0.8 + 0.08 * sqrt(q) + 8.0 * sqrt(maxf(drop, 0.0) / run), 0.8, 4.5))
 		hw.append(clampf(9.0 * sqrt(qw) + 6.0, 6.0, 160.0))
 		depth.append(clampf(0.8 * pow(maxf(qw, 0.05), 0.35) + 0.8, 0.8, 8.0))
 		wet.append(1 if is_wet else 0)
@@ -1416,7 +1417,7 @@ func _scars(river: Dictionary, index: int) -> Array[Dictionary]:
 				var ok := true
 				for q in range(a, b + 1):
 					var c := Vector2(pts[q].x, pts[q].z) + shift
-					# clear of today's river and its levees, and on flat floor (no cutting into hills)
+					# clear of today's river and its banks, and on flat floor (no cutting into hills)
 					var ground := m.height_at(c.x, c.y)
 					if ground > level + 2.5 or ground < level - 0.3 or _near_river(pts, c, hw[apex] * 5.0, apex, span * 4):
 						ok = false

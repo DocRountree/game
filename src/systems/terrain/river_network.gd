@@ -9,7 +9,7 @@ extends RefCounted
 
 const TILE := 256.0          ## Tile side (m).
 const SEG_FLOATS := 16       ## p0.x, p0.z, p1.x, p1.z, s0, s1, hw0, hw1, d0, d1, v0, v1, f0, f1, 0, 0
-const REACH := 10.2          ## A segment is listed in tiles within this many half widths.
+const REACH := 7.2           ## A segment is listed in tiles within this many half widths (the valley's reach).
 
 ## Per segment: ends, water surface (or dry bed's would-be surface) at each
 ## end, half width, depth, speed (m/s; -1 = dry bed) and fill (0..1: how
@@ -86,34 +86,57 @@ func _build_tiles() -> void:
 	tiles.append_array(index)
 
 
-## The channel whose bank is nearest, relative to its width: "r" (distance /
-## half width, < 1 inside the channel), "distance", "half_width", "surface",
-## "depth", "flow_dir" (Vector2), "speed" and "wet". Empty if none is near.
+## The river field at a point, as the terrain compute shader works it out
+## (terrain_levels.glsl, rivers()): "r" (how far inside the nearest wet
+## channel, distance / half width, < 1 in the water), "half_width",
+## "surface" (the water level, blended smoothly between nearby reaches),
+## "flow_dir" (Vector2, turning smoothly round bends), "speed" (m/s, fastest
+## mid-channel) and "wet". Empty if no river is near.
 func query(x: float, z: float) -> Dictionary:
 	var g := ((Vector2(x, z) - corner) / TILE).floor()
 	if g.x < 0 or g.y < 0 or g.x >= tiles_per_side or g.y >= tiles_per_side:
 		return {}
 	var t := int(g.y) * tiles_per_side + int(g.x)
 	var base := tiles_per_side * tiles_per_side + 1
-	var best := {}
-	var best_r := INF
 	var p := Vector2(x, z)
+	var ws := 0.0
+	var wl := 0.0
+	var ww := 0.0
+	var wt := 0.0
+	var wh := 0.0
+	var wc := Vector2.ZERO
+	var wet_r := INF
+	var near := false
 	for k in range(tiles[t], tiles[t + 1]):
 		var o := tiles[base + k] * SEG_FLOATS
 		var a := Vector2(segments[o], segments[o + 1])
 		var ab := Vector2(segments[o + 2], segments[o + 3]) - a
 		var u := clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
-		var d := p.distance_to(a + ab * u)
 		var hw := lerpf(segments[o + 6], segments[o + 7], u)
-		var r := d / hw
-		if r < best_r:
-			best_r = r
-			var v := lerpf(segments[o + 10], segments[o + 11], u)
+		var r := p.distance_to(a + ab * u) / hw
+		if r > 7.0:
+			continue
+		near = true
+		var w := exp(-4.0 * r)
+		ws += w
+		wl += w * lerpf(segments[o + 4], segments[o + 5], u)
+		var v := lerpf(segments[o + 10], segments[o + 11], u)
+		if v >= 0.0 and minf(segments[o + 12], segments[o + 13]) > 0.02:
 			var fill := lerpf(segments[o + 12], segments[o + 13], u)
-			var depth := lerpf(segments[o + 8], segments[o + 9], u)
-			# a thin stream sits lower in its bed and is narrower
-			var surface := lerpf(segments[o + 4], segments[o + 5], u) - depth * (1.0 - fill)
-			best = {"r": r / sqrt(maxf(fill, 0.01)), "distance": d, "half_width": hw * sqrt(maxf(fill, 0.0)),
-					"surface": surface, "depth": depth * fill, "flow_dir": ab.normalized(),
-					"speed": maxf(v, 0.0), "wet": v > -0.5 and fill > 0.02}
-	return best
+			var wv := exp(-6.0 * r)
+			ww += wv
+			wt += wv * lerpf(segments[o + 8], segments[o + 9], u) * (1.0 - fill)
+			wh += wv * hw
+			wc += wv * ab.normalized() * v * (1.0 - 0.5 * minf(r * r, 1.0))
+			wet_r = minf(wet_r, r / sqrt(maxf(fill, 0.05)))
+	if not near:
+		return {}
+	var surface := wl / ws
+	var current := Vector2.ZERO
+	var half_width := 1.0
+	if ww > 0.0:
+		surface -= wt / ww
+		current = wc / ww
+		half_width = wh / ww
+	return {"r": wet_r, "half_width": half_width, "surface": surface,
+			"flow_dir": current.normalized(), "speed": current.length(), "wet": wet_r < 1.0}

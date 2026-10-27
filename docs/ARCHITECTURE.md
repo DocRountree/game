@@ -165,7 +165,7 @@ progress; until it finishes the world is open ocean.
    there is on both sides, and the curve is steered back toward
    the valley line so it never drifts. Beside big loops sit copies of loops
    the river used to have, moved out and downstream onto open floor clear of
-   today's channel and its levees: shallow dry meander scars (sometimes several, like scroll
+   today's channel and its banks: shallow dry meander scars (sometimes several, like scroll
    bars), the outermost sometimes still water, an oxbow lake. Water thins in
    from a trickle where a river starts to flow and out where it dries up, and
    channels narrow toward their heads. `RiverNetwork` turns all of it into straight
@@ -177,19 +177,18 @@ progress; until it finishes the world is open ocean.
 (0.5 m to 512 m spacing) centred on the camera: the baked height (cubic
 B-spline, read from a 2x2-averaged mip of the grid matching the level's
 spacing, so coarse levels never alias the grid and far mountains hold still),
-plus band-limited, derivative-damped fractal detail (a few metres) and the
-river channels carved from the exact distance to the river segments (found
-through the tile index): a rounded bed, banks rounding onto a floodplain just
-above the water, rising gently (no walls) and blending smoothly back into the
-ground ten half widths out, the lowest of all nearby channels so confluences
-merge. Widths grow with flow; below a confluence the river eases out to wider
-than either tributary (the root of their squared widths) and never narrows
-downstream. The bed still slopes where it meets the water
-and the banks carry that slope on up before rounding over: a bed meeting the
-water flat would turn tiny mesh errors into a sawtooth shoreline. Detail is
-calm for several widths around rivers, levees rise gradually from the
-waterline (their height blended over nearby reaches, so the neck of a loop
-has no step), and the terrain mesh alternates its quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
+plus band-limited, derivative-damped fractal detail (a few metres), then near
+rivers the river's valley, from one smooth field over the river segments
+(after Peytavie et al., "Procedural Riverscapes"; found through the tile
+index). The water level is blended over all nearby segments, weighted
+steeply to the nearest, so where two reaches are about as near (the neck of
+a loop) it crosses over smoothly instead of stepping. The ground relative to
+that level is the lowest of each channel's shape (a parabolic bed whose slope
+carries on up through the waterline and eases over onto a floodplain a
+little above the water), so channels merge at confluences. Within three half
+widths the valley replaces the land, blending back out by seven (it only
+ever lowers the land), so there are no walls; the water sheet is the same
+level, so the water always lies in its bed and runs downhill. and the terrain mesh alternates its quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
 patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
 the edge of its range. Ranges are four patch widths per LOD, so the farthest
 patch of LOD k - 1 ends before LOD k starts morphing, which keeps seams closed.
@@ -223,7 +222,10 @@ are soft curves. The look is the ocean's (colours, refraction, absorption), but 
 waves are a still ripple field (gradient noise) that only the current moves,
 so the water always visibly runs downstream (the ocean's own FFT waves travel
 by themselves and read as water running uphill): two phases, crossfaded,
-choppier in fast water;
+choppier in fast water. The current (blended between segments like the level,
+so it sweeps smoothly round bends) is read per pixel, and the ripples are
+smeared along it into streaks. Rivers run at 0.8 to 4.5 m/s (bigger and
+steeper is faster);
 lakes are the same water with no current. There is no foam anywhere. Currents push swimmers
 and boats.
 

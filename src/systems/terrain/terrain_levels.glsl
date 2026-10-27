@@ -9,9 +9,11 @@
 //     alias the 48 m grid (no shimmering or popping mountains as you move)
 //   + fractal detail, finer octaves only where the level can resolve them,
 //     damped on steep ground (derivative-damped fBm)
-//   then carved by the river channels: exact distances to the baked river,
-//   oxbow and meander-scar segments (found through a coarse tile index), so
-//   banks are smooth at any resolution and channels merge at confluences.
+//   then, near rivers, replaced by the river's valley: one smooth field from
+//   the exact distances to the baked river, oxbow and meander-scar segments
+//   (found through a coarse tile index), so banks are smooth at any
+//   resolution, channels merge at confluences and the water always lies in
+//   its bed.
 // Mode 0 writes height and water info; mode 1 fills in the gradient from the
 // neighbouring texels.
 //   r height (m)  g dh/dx  b dh/dz
@@ -156,46 +158,54 @@ vec4 bilinear_ground(vec2 p) {
 	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
-// Every channel near p: the lowest channel profile (carve), and the channel
-// p is most inside of (relative to its width), which owns the water there.
-struct Channel {
-	float r;        // distance / half width
-	float hw;
-	float surface;
-	float depth;
-	float speed;    // < 0: dry bed
-	float fill;     // how much of the channel holds water (0..1)
-	vec2 dir;
+// The rivers near p, as one smooth field (after Peytavie et al., "Procedural
+// Riverscapes"): every river, oxbow and scar segment within reach adds to
+//   level  the water level (or a dry bed's would-be level), blended over all
+//          nearby segments, weighted steeply to the one p is most inside of;
+//          where two reaches are about as near (the neck of a loop) it
+//          crosses over smoothly, so the ground there never steps
+//   shape  the ground relative to that level: each channel's bed below it,
+//          banks rounding up onto the floodplain a little above it; the
+//          lowest of all (channels merge at confluences)
+//   valley how much of the ground is the river's (1 near, 0 far out)
+// and for the water: the blended level drop of thin streams, the current
+// (direction blended too, so it turns smoothly round bends), and how far
+// inside the nearest wet channel p is. Ground and water both come from this,
+// so the water always lies in its bed and the bed always falls downstream.
+struct Rivers {
+	float level;
+	float shape;
+	float valley;
+	float r;          // nearest segment of any kind: distance / half width
+	bool dry;         // ... and it is a dry bed or scar
+	float wet_r;      // nearest wet channel
+	float wet_hw;
+	float thin;       // how far a thin stream sits below the level (m)
+	vec2 current;     // m/s
 };
 
-// Water level and half width blended over all nearby water channels, weighted
-// steeply by how far inside each p is: the nearest wins, but where two reaches
-// are about as near (the neck of a loop, upstream limb higher than downstream)
-// the level crosses over smoothly instead of stepping (a step there shows as
-// a jagged little cliff in the levees).
-float soft_level;
-float soft_hw;
+const float VALLEY_IN = 3.0;    // half widths of flat valley floor
+const float VALLEY_OUT = 7.0;   // ... blended back into the land by here
 
-// best: the channel p is most inside of (any); water: the same among channels
-// holding water, so a dry bed joining a river never punches a hole in it.
-float channels(vec2 p, out Channel best, out Channel water) {
-	best.r = 1e9;
-	best.hw = 1.0;
-	best.surface = 0.0;
-	best.depth = 0.0;
-	best.speed = -1.0;
-	best.fill = 0.0;
-	best.dir = vec2(1.0, 0.0);
-	water = best;
-	float carve = 1e9;
-	float ws = 0.0, wl = 0.0, wh = 0.0;
-	soft_level = 0.0;
-	soft_hw = 1.0;
+Rivers rivers(vec2 p) {
+	Rivers o;
+	o.level = 0.0;
+	o.shape = 1e9;
+	o.valley = 0.0;
+	o.r = 1e9;
+	o.dry = false;
+	o.wet_r = 1e9;
+	o.wet_hw = 1.0;
+	o.thin = 0.0;
+	o.current = vec2(0.0);
 	ivec2 tile = ivec2(floor((p - (pc.center - 0.5 * pc.world_size)) / pc.tile_size));
 	if (any(lessThan(tile, ivec2(0))) || any(greaterThanEqual(tile, ivec2(pc.tiles_per_side))))
-		return carve;
+		return o;
 	int t = tile.y * pc.tiles_per_side + tile.x;
 	int base = pc.tiles_per_side * pc.tiles_per_side + 1;
+	float ws = 0.0, wl = 0.0;            // level, over all segments
+	float ww = 0.0, wt = 0.0, wh = 0.0;  // water, over wet segments
+	vec2 wc = vec2(0.0);
 	for (int k = tiles[t]; k < tiles[t + 1]; k++) {
 		int i = tiles[base + k] * 4;
 		vec4 a = seg[i];
@@ -206,52 +216,45 @@ float channels(vec2 p, out Channel best, out Channel water) {
 		float u = clamp(dot(p - a.xy, ab) / dot(ab, ab), 0.0, 1.0);
 		float hw = mix(b.z, b.w, u);
 		float r = distance(p, a.xy + ab * u) / hw;
-		if (r > 10.0)
+		if (r > VALLEY_OUT)
 			continue;
 		float surface = mix(b.x, b.y, u);
 		float speed = mix(c.z, c.w, u);
-		float depth = mix(c.x, c.y, u) * (speed < 0.0 ? 0.7 : 1.0);
-		// A rounded bed whose sides still slope where they meet the water
-		// (a bed that met it flat would turn every tiny mesh error into a
-		// jagged shoreline metres wide); the banks carry on up at that slope,
-		// round over onto the floodplain a little above the water, which then
-		// rises gently; far out the ground fades back to the natural terrain
-		// (see main), so there are no walls. Every level carves every channel,
-		// so levels always agree.
-		float bank = 0.6 + 0.2 * depth;
-		float rise = 2.0 * depth * (r - 1.0);   // the bed's slope carried on up, straight for a while
-		float profile = r < 1.0 ? surface - depth * (1.0 - r * r)
-				: surface + rise / (1.0 + rise / bank) + max(0.0, r - 2.0) * hw * 0.06;
-		carve = min(carve, profile);
-		Channel here;
-		here.r = r;
-		here.hw = hw;
-		here.surface = surface;
-		here.depth = depth;
-		here.speed = speed;
-		here.fill = mix(e.x, e.y, u);
-		here.dir = normalize(ab);
-		if (r < best.r)
-			best = here;
-		if (speed >= 0.0 && here.fill > 0.02) {
-			if (r < water.r)
-				water = here;
-			float w = exp(-8.0 * r);
-			ws += w;
-			wl += w * (surface - depth * (1.0 - here.fill));
-			wh += w * hw;
+		bool wet = speed >= 0.0 && min(e.x, e.y) > 0.02;
+		float depth = mix(c.x, c.y, u) * (wet ? 1.0 : 0.7);
+		// bed: a parabola, its slope carried on up through the waterline,
+		// easing over onto the floodplain, which rises very gently
+		float bank = 0.5 + 0.15 * depth;
+		float shape = r < 1.0 ? -depth * (1.0 - r * r)
+				: bank * (1.0 - exp(-2.0 * depth * (r - 1.0) / bank)) + max(0.0, r - VALLEY_IN) * hw * 0.01;
+		o.shape = min(o.shape, shape);
+		o.valley = max(o.valley, 1.0 - smoothstep(VALLEY_IN, VALLEY_OUT, r));
+		float w = exp(-4.0 * r);
+		ws += w;
+		wl += w * surface;
+		if (r < o.r) {
+			o.r = r;
+			o.dry = !wet;
+		}
+		if (wet) {
+			float fill = mix(e.x, e.y, u);
+			float wv = exp(-6.0 * r);
+			ww += wv;
+			wt += wv * depth * (1.0 - fill);
+			wh += wv * hw;
+			// fastest mid-channel, slower toward the banks
+			wc += wv * normalize(ab) * speed * (1.0 - 0.5 * min(r * r, 1.0));
+			o.wet_r = min(o.wet_r, r / sqrt(max(fill, 0.05)));
 		}
 	}
-	if (ws > 0.0) {
-		soft_level = wl / ws;
-		soft_hw = wh / ws;
+	if (ws > 0.0)
+		o.level = wl / ws;
+	if (ww > 0.0) {
+		o.thin = wt / ww;
+		o.wet_hw = wh / ww;
+		o.current = wc / ww;
 	}
-	return carve;
-}
-
-float smin(float a, float b, float k) {
-	float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
-	return mix(b, a, h) - k * h * (1.0 - h);
+	return o;
 }
 
 void main() {
@@ -284,11 +287,9 @@ void main() {
 	float rough = dot(gw, vec4(0.15, 0.55, 1.0, 0.15));
 	rough *= sea ? 0.25 : mix(0.25, 1.0, smoothstep(1.0, 40.0, h));
 
-	Channel ch;
-	Channel wc;
-	float carve = channels(p, ch, wc);
+	Rivers rv = rivers(p);
 	// detail calms down in and right beside channels
-	float calm = smoothstep(2.5, 6.0, ch.r);
+	float calm = smoothstep(2.5, 6.0, rv.r);
 
 	// fractal detail, band-limited to what this level can show
 	float amp = 6.0 * rough * calm * pc.detail;
@@ -309,35 +310,25 @@ void main() {
 		pp = rot * pp;
 	}
 
-	// river channels: a parabolic bed below the water surface, banks rising out
-	float water = 0.0;
+	// the river's valley: its floor and channels replace the land (only ever
+	// lowering it), blending back out over several widths, so no walls
 	float lake = lake_level[idx(ivec2(floor(grid_of(p) + 0.5)))];
 	bool in_lake = lake > NO_WATER * 0.5;
-	if (carve < 1e8)
-		h = mix(smin(h, carve, 0.4), h, smoothstep(5.0, 10.0, ch.r));   // blend out gently: no walls
-	bool wet = wc.speed >= 0.0 && wc.fill > 0.02 && wc.r < 4.0;
-	// where a river starts to flow it is a thin stream low in its bed
-	float level = soft_level;
+	if (rv.valley > 0.0)
+		h = mix(h, min(h, rv.level + rv.shape), rv.valley);
+	// One water sheet for rivers, oxbow lakes and lakes: the river level
+	// across the water and a little past its edge (the ground cuts the
+	// shoreline, exactly), then diving under the ground. Where a river meets a
+	// lake the higher of the two wins, which is continuous because the river
+	// ends at lake level.
+	bool wet = rv.wet_r < 2.2;
+	float level = rv.level - rv.thin;
 	// at the mouth the river water slips under the sea's surface, so the two
 	// meet without a seam
 	level -= 0.8 * (1.0 - smoothstep(0.3, 1.6, level));
-	if (wet && wc.r > 1.0) {
-		// natural levees: the banks never dip below the water beside them,
-		// fading out into the floodplain well before the river's reach ends
-		// (rising gradually from the waterline: a step there would serrate it)
-		float levee = max(h, level + 0.5 * smoothstep(1.0, 1.8, wc.r) - max(0.0, wc.r - 2.2) * soft_hw * 0.25);
-		h = mix(levee, h, smoothstep(2.4, 3.6, wc.r));
-	}
-	// One water sheet for rivers, oxbow lakes and lakes: level across the
-	// water and a little past its edge (the ground cuts the shoreline, exactly),
-	// then diving under the ground. Where a river meets a lake the higher of
-	// the two wins, which is continuous because the river ends at lake level.
 	vec4 sheet = vec4(h - 5.0, 0.0, 0.0, 0.0);
-	if (wet) {
-		float y = level - max(0.0, wc.r - 1.8) * soft_hw * 1.5;
-		vec2 current = wc.dir * wc.speed * (1.0 - 0.6 * min(wc.r * wc.r, 1.0));
-		sheet = vec4(max(y, h - 5.0), current, 0.0);
-	}
+	if (wet)
+		sheet = vec4(max(level - max(0.0, rv.wet_r - 1.6) * rv.wet_hw * 1.5, h - 5.0), rv.current, 0.0);
 	if (in_lake && lake >= sheet.x)
 		sheet = vec4(lake, 0.0, 0.0, 0.0);
 	// damp ground just above the water (or under it); dry beds pale instead
@@ -346,14 +337,13 @@ void main() {
 		surface = max(surface, lake);
 	if (wet)
 		surface = max(surface, level);
-	water = 1.0 - smoothstep(0.0, 0.3, h - surface);
+	float water = 1.0 - smoothstep(0.0, 0.3, h - surface);
 	// (eased in and out over a wide band, several texels even on coarse
 	// levels, so the gravel's edge is a smooth curve, not a staircase)
-	if (ch.speed < 0.0 && ch.r < 1.8) {
-		float gravel = 0.7 * (1.0 - smoothstep(0.4, 1.8, ch.r));
-		if (wet)
-			gravel *= smoothstep(1.0, 2.0, wc.r);
-		water = mix(water, -gravel, step(0.001, gravel));
+	if (rv.dry && rv.r < 1.8) {
+		float gravel = 0.7 * (1.0 - smoothstep(0.4, 1.8, rv.r)) * smoothstep(1.0, 2.0, rv.wet_r);
+		if (gravel > 0.001)
+			water = -gravel;
 	}
 
 	imageStore(levels, at, vec4(h, 0.0, 0.0, water));
