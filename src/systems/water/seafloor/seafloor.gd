@@ -63,13 +63,14 @@ static func _ensure_noise() -> void:
 func _ready() -> void:
 	_mesh.material_override = material
 	add_child(_mesh)
-	# dense underfoot (10 cm), ~300 m out: stays inside the 384 m half-patch
-	_mesh.rings = 150
-	_mesh.segments = 192
+	# ~30 cm spacing out to ~17 m (sand ripples are real geometry there), ~7 m at
+	# the far edge ~600 m out; ~185k vertices
+	_mesh.rings = 360
+	_mesh.segments = 512
 	_mesh.inner_spacing = 0.1
-	_mesh.growth = 0.03
+	_mesh.growth = 0.012
 	_mesh.mesh = _mesh.build_mesh()
-	_mesh.custom_aabb = AABB(Vector3(-400, -200, -400), Vector3(800, 220, 800))
+	_mesh.custom_aabb = AABB(Vector3(-650, -200, -650), Vector3(1300, 220, 1300))
 	_body.collision_layer = 1   # world
 	_body.collision_mask = 0
 	_body.add_child(_shape)

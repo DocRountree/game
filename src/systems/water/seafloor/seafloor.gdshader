@@ -12,9 +12,9 @@ uniform sampler2D heights : filter_linear, repeat_disable;   // r: height (m)
 uniform vec3 patch_rect = vec3(0.0, 0.0, 768.0);             // corner x, corner z, size (m)
 uniform float relief = 0.55;          // m of fine relief on top of the coarse field
 uniform float relief_wavelength = 9.0; // m: longest fine octave
-uniform float ripple_height = 0.035;    // m: small sand ripples
-uniform float ripple_wavelength = 0.7;  // m
-uniform float wave_height = 0.12;       // m: larger sand waves (megaripples)
+uniform float ripple_height = 0.06;     // m: small sand ripples
+uniform float ripple_wavelength = 1.0;  // m
+uniform float wave_height = 0.2;        // m: larger sand waves (megaripples)
 uniform float wave_wavelength = 6.0;    // m
 uniform vec2 current = vec2(0.8, 0.6);  // direction the bottom current runs (ripple crests lie across it)
 uniform vec3 sand_deep = vec3(0.55, 0.5, 0.38);
@@ -120,7 +120,9 @@ void fragment() {
 	float footprint = max(length(fwidth(wpos.xz)), 0.003);
 	vec3 r = relief_at(wpos.xz, footprint * 2.0);
 	float sandy = flatness(wpos.xz);
-	g += r.yz + ripples_at(wpos.xz, footprint * 2.0).yz * sandy;
+	// ripples shade only where they are real geometry (same limit as the vertex
+	// shader), so they never turn into drawn-on lines beyond the mesh's reach
+	g += r.yz + ripples_at(wpos.xz, spacing * 3.0).yz * sandy;
 	vec3 n = normalize(vec3(-g.x, 1.0, -g.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n, 0.0)).xyz);
 	float rocky = 1.0 - smoothstep(0.65, 0.85, n.y);
