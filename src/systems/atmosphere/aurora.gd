@@ -28,6 +28,7 @@ const MIN_GAP := 15.0           ## km between neighbouring curtains' fold envelo
 @export_range(0.0, 1.0) var chance := 0.02    ## About one night in fifty.
 @export var time_scale := 1.0   ## How fast the display moves and evolves (0 = frozen; for tuning).
 
+var forced := false             ## Debug: an aurora every night (F6).
 var strength := 0.0             ## This night's display, 0 = none.
 var style := {}                 ## This night's character: storm, oval, curtains (see _style_for).
 var display_time := 0.0         ## Seconds of display animation (drives the shader).
@@ -52,7 +53,15 @@ func _process(delta: float) -> void:
 func strength_for(night_id: int) -> float:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = WorldConfig.current().seed_for("aurora:%d" % night_id)
-	return rng.randf_range(0.5, 1.0) if rng.randf() < chance else 0.0
+	var roll := rng.randf()
+	var amount := rng.randf_range(0.5, 1.0)
+	return amount if forced or roll < chance else 0.0
+
+
+## Debug: show an aurora every night (on) or only by chance (off); applies now.
+func set_forced(on: bool) -> void:
+	forced = on
+	_night_id = -2147483648   # re-roll the current night
 
 
 ## night: 0 by day, 1 at night; night_id: the day the current night began.

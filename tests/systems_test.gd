@@ -156,6 +156,10 @@ func _run() -> void:
 		var q := Vector2(prng.randf_range(-800, 800), prng.randf_range(-200, 900))
 		worst = maxf(worst, Aurora.unwarp_point(Aurora.warp_point(q, swirl_set), swirl_set).distance_to(q))
 	_check(worst < 1e-3, "aurora swirls are exact bijections (round trip error %.6f km)" % worst)
+	aurora.set_forced(true)
+	var forced_all := aurora.strength_for(3) > 0.0 and aurora.strength_for(4) > 0.0
+	aurora.set_forced(false)
+	_check(forced_all and aurora.strength_for(7) == aurora.strength_for(7), "debug key forces an aurora every night")
 	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
 			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
 

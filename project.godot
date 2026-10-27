@@ -90,6 +90,10 @@ toggle_view={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":4194336)]
 }
+debug_aurora={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":4194337)]
+}
 quit={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":4194305)]
