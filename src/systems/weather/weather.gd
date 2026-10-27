@@ -15,14 +15,14 @@ extends Node
 
 enum Kind { CLEAR, NORMAL, THUNDERHEADS }
 
-const STORM_CHANCE := 0.1
+const STORM_CHANCE := 0.0   # storms disabled
 const BLEND_HOURS := 2.0           ## Each side of midnight.
 ## Per kind: coverage (share of clouds forming), fill (fuller, longer-lived,
 ## bigger puffs), grey (darker cloud colour), sunlight (direct light factor).
 const LOOKS := {
 	Kind.CLEAR: [0.0, 0.0, 0.0, 1.0],
 	Kind.NORMAL: [0.6, 0.0, 0.0, 1.0],
-	Kind.THUNDERHEADS: [0.25, 1.0, 0.15, 1.0],
+	Kind.THUNDERHEADS: [0.8, 0.0, 0.0, 1.0],   # just more cumulus
 }
 
 @export var clock: GameClock

@@ -26,7 +26,6 @@
 [ext_resource type="Script" path="res://src/systems/atmosphere/aurora.gd" id="27_aurora"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/aurora.gdshader" id="28_aurora_shader"]
 [ext_resource type="Script" path="res://src/systems/weather/weather.gd" id="29_weather"]
-[ext_resource type="Script" path="res://src/systems/weather/lightning.gd" id="30_lightning"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -146,11 +145,6 @@ script = ExtResource("15_clouds")
 [node name="Weather" type="Node" parent="." node_paths=PackedStringArray("clock", "clouds")]
 script = ExtResource("29_weather")
 clock = NodePath("../Clock")
-clouds = NodePath("../Clouds")
-
-[node name="Lightning" type="Node3D" parent="." node_paths=PackedStringArray("weather", "clouds")]
-script = ExtResource("30_lightning")
-weather = NodePath("../Weather")
 clouds = NodePath("../Clouds")
 
 [node name="Ocean" parent="." node_paths=PackedStringArray("focus", "sun") instance=ExtResource("2_ocean")]
