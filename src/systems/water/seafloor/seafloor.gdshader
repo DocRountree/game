@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_back;
+render_mode cull_disabled;   // the shared polar grid is wound for viewing from either side
 
 // The sea floor on a camera-centred polar grid (dense underfoot, coarse far
 // away). Vertices take the coarse height from the CPU heightfield texture (the
