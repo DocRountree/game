@@ -5,10 +5,14 @@ extends Node3D
 ## patch around the focus that is rebuilt as it moves. Seafloor.height_at()
 ## answers anywhere, so other systems (depth readouts, sampling, spawning) can
 ## ask for the bottom without the mesh.
+##
+## Patches are generated on a worker thread and swapped in when ready, so
+## swimming never waits for terrain: a new patch is started once the focus is
+## REBUILD_DISTANCE from the current centre, far inside the patch's edge.
 
-const SIZE := 128                  ## Cells per side of the patch.
-const CELL := 3.0                  ## m per cell: the patch is ~384 m across.
-const REBUILD_DISTANCE := 60.0     ## Rebuild once the focus is this far from the patch centre.
+const SIZE := 192                  ## Cells per side of the patch.
+const CELL := 4.0                  ## m per cell: the patch is ~768 m across.
+const REBUILD_DISTANCE := 120.0    ## Start the next patch this far from the current centre (edge is 384 m out).
 
 @export var focus: Node3D
 @export var material: Material
@@ -22,6 +26,9 @@ var _mesh := MeshInstance3D.new()
 var _body := StaticBody3D.new()
 var _shape := CollisionShape3D.new()
 var _centre := Vector2(INF, INF)
+var _task := -1                    # WorkerThreadPool task building the next patch
+var _pending_centre := Vector2.ZERO
+var _result := {}                  # filled by the worker
 
 
 ## Height of the sea floor (m, negative = below sea level) at world (x, z).
@@ -59,27 +66,45 @@ func _ready() -> void:
 	_body.collision_mask = 0
 	_body.add_child(_shape)
 	add_child(_body)
-	_rebuild(Vector2.ZERO if focus == null else Vector2(focus.global_position.x, focus.global_position.z))
+	# the first patch is built right away, so there is a floor from the start
+	var at := Vector2.ZERO if focus == null else Vector2(focus.global_position.x, focus.global_position.z)
+	_pending_centre = (at / CELL).round() * CELL
+	_generate()
+	_apply()
 
 
 func _physics_process(_delta: float) -> void:
 	if focus == null:
 		return
+	if _task >= 0:
+		if WorkerThreadPool.is_task_completed(_task):
+			WorkerThreadPool.wait_for_task_completion(_task)
+			_task = -1
+			_apply()
+		return
 	var p := Vector2(focus.global_position.x, focus.global_position.z)
 	if p.distance_to(_centre) > REBUILD_DISTANCE:
-		_rebuild(p)
+		# snap to whole cells so the floor never swims as the patch moves
+		_pending_centre = (p / CELL).round() * CELL
+		_task = WorkerThreadPool.add_task(_generate)
 
 
-func _rebuild(at: Vector2) -> void:
-	# snap to whole cells so the floor never swims as the patch moves
-	_centre = (at / CELL).round() * CELL
+func _exit_tree() -> void:
+	if _task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_task)
+		_task = -1
+
+
+# Worker thread: heights and mesh arrays only (no scene or server calls).
+func _generate() -> void:
+	var c := _pending_centre
 	var n := SIZE + 1
 	var half := SIZE * CELL * 0.5
 	var heights := PackedFloat32Array()
 	heights.resize(n * n)
 	for j in n:
 		for i in n:
-			heights[j * n + i] = height_at(_centre.x - half + i * CELL, _centre.y - half + j * CELL)
+			heights[j * n + i] = height_at(c.x - half + i * CELL, c.y - half + j * CELL)
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colours := PackedColorArray()
@@ -115,14 +140,22 @@ func _rebuild(at: Vector2) -> void:
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colours
 	arrays[Mesh.ARRAY_INDEX] = idx
+	_result = {"centre": c, "arrays": arrays, "heights": heights}
+
+
+# Main thread: swap the finished patch in.
+func _apply() -> void:
+	var c: Vector2 = _result.centre
+	var n := SIZE + 1
 	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _result.arrays)
 	_mesh.mesh = mesh
-	_mesh.position = Vector3(_centre.x, 0.0, _centre.y)
+	_mesh.position = Vector3(c.x, 0.0, c.y)
 	var hm := HeightMapShape3D.new()
 	hm.map_width = n
 	hm.map_depth = n
-	hm.map_data = heights
+	hm.map_data = _result.heights
 	_shape.shape = hm
 	_shape.scale = Vector3(CELL, 1.0, CELL)
-	_body.position = Vector3(_centre.x, 0.0, _centre.y)
+	_body.position = Vector3(c.x, 0.0, c.y)
+	_centre = c

@@ -350,8 +350,10 @@ storm days. F7 cycles a weather override.
 
 `Seafloor.height_at(x, z)` gives the bottom anywhere from the world seed:
 broad basins and rises (~16-60 m deep), sharp-crested ridges and fine ripples.
-A 384 m patch around the player is meshed (sand on flats, rock on slopes) and
-given heightmap collision, rebuilt when the player moves 60 m. `Ocean.floor_depth_at`
+A 768 m patch around the player is meshed (sand on flats, rock on slopes) and
+given heightmap collision. The next patch is generated on a worker thread once
+the player is 120 m from the centre (the edge is 384 m out) and swapped in when
+ready, so there is no hitch and no waiting. `Ocean.floor_depth_at`
 reads it. Underwater, the level swaps the fog for a dense blue-green murk.
 
 ## Entities
