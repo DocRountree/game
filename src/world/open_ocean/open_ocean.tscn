@@ -75,6 +75,7 @@ render_priority = 1
 shader = ExtResource("24_planet_shader")
 
 [sub_resource type="ShaderMaterial" id="Cloud_material"]
+render_priority = 2
 shader = ExtResource("16_clouds_shader")
 
 [node name="OpenOcean" type="Node3D"]
@@ -137,7 +138,7 @@ script = ExtResource("13_moon")
 light_color = Color(0.75, 0.83, 1, 1)
 light_energy = 0.0
 
-[node name="Clouds" type="MultiMeshInstance3D" parent="."]
+[node name="Clouds" type="MeshInstance3D" parent="."]
 material_override = SubResource("Cloud_material")
 cast_shadow = 0
 script = ExtResource("15_clouds")

@@ -117,7 +117,7 @@ func _run() -> void:
 			"moon phase changes every day through all 8 phases (%s, ...) and is up by day on %d of 16 days" % [names[0], up_at_noon])
 	clock.day = 0
 	var clouds: Clouds = world.get_node("Clouds")
-	_check(clouds.multimesh.instance_count == clouds.cloud_count * clouds.puffs_per_cloud, "cloud puffs laid out")
+	_check(clouds.mesh != null and (clouds.material_override as ShaderMaterial).get_shader_parameter("shape_noise") != null, "volumetric clouds set up with their noise")
 	# starts in first person: camera at the head, own model hidden; F5 goes to third person and back
 	# (headless runs don't route synthetic input, so the action goes straight to the handler)
 	var f5_bound := InputMap.action_get_events(&"toggle_view").any(

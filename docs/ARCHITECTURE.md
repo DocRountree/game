@@ -318,31 +318,26 @@ culling. `Perf` keeps smoothed frame time and render counts.
 
 ### Clouds (`src/systems/clouds/`)
 
-Highly stylised cumulus made of round puffs ("dots"): 40 small puffs per cloud,
-40,000 in one `MultiMesh`. Puff size scales with the puff count so a cloud's
-overall size stays put when the count changes. The CPU lays them out once; the vertex shader does the rest:
+Volumetric, ray-marched clouds (after Schneider's Nubis clouds in Horizon Zero
+Dawn), drawn on a dome around the camera after the stars, moon and aurora, so
+they cover them. The layer is a spherical shell (base 1.5 km) over the real
+Earth, so it curves and compresses toward the horizon by itself and fades into
+haze. Density = a 2D coverage map x a height profile (flat bases, rounded tops)
+x 3D billow noise, eroded by finer noise. Each sample is lit by sunlight traced
+toward the sun (self-shadowing), a two-lobe phase function (silver linings), the
+powder effect and sky light. Empty stretches are skipped using the coverage map
+alone. Noise textures are generated at startup (`NoiseTexture3D`). Cost scales
+with `QualitySettings.cloud_steps`.
 
-- **Wind** drifts the whole layer, which wraps around the camera (24 km square,
-  1.3 km up) and shrinks clouds away near the wrap edge instead of popping.
-- **Life cycle.** Each cloud cycles through condensing, maturing and evaporating
-  (`life_seconds`), with a fresh random strength each cycle. Some cycles never
-  form (`coverage`). Base puffs condense first and the tower builds last, so
-  clouds grow upward and evaporate from the top down. Puffs appear by growing,
-  not fading, so they stay crisp opaque dots with correct overlap (alpha scissor).
-- **Depth squeeze.** Most clouds lie far beyond the camera's 4 km far plane.
-  The vertex shader pulls each puff in along its line of sight (scaled to
-  match, so it looks the same) with a monotonic squeeze into 2.2 km. That keeps
-  puffs ordered, unclipped and in front of the star and moon spheres. (Clipping
-  is by view depth, so puffs in the middle of the view were cut before ones
-  at the edges.)
-- **Lighting.** Three-band toon shading of each puff as a sphere, darker toward
-  the cloud base. The sunlight colour is computed per frame for the cloud
-  layer's height, which still sees the sun a little after sunset at sea level.
-  Each puff's direct light fades smoothly from a sun about 7 degrees up until
-  the planet's shadow passes that puff (a puff h metres up sees the sun until
-  it is sqrt(2h/R) below the horizon), so bases darken first and tops glow last.
-  That light is kept fully saturated (stylised), so clouds glow orange and pink
-  through the afterglow, then go slate-grey.
+### Weather (`src/systems/weather/`)
+
+`Weather` schedules clear, normal (scattered cumulus) and overcast days from the
+world seed: blocks of 6-8 days with one overcast day flanked by normal days,
+clear otherwise (about 4/2/1 per 7); 1 overcast day in 10 is stormy. It blends
+over the hours around midnight and drives cloud coverage, overcast fullness and
+greyness, and dims sun and moonlight and greys the sky. `Lightning` adds
+in-cloud flashes (~5 s apart) and distant cloud-to-ground strokes (~45 s) on
+storm days. F7 cycles a weather override.
 
 ## Entities
 

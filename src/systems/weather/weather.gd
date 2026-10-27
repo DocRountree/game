@@ -21,7 +21,7 @@ const BLEND_HOURS := 2.0           ## Each side of midnight.
 ## bigger puffs), grey (darker cloud colour), sunlight (direct light factor).
 const LOOKS := {
 	Kind.CLEAR: [0.0, 0.0, 0.0, 1.0],
-	Kind.NORMAL: [0.6, 0.0, 0.0, 1.0],
+	Kind.NORMAL: [0.45, 0.0, 0.0, 1.0],
 	Kind.OVERCAST: [1.0, 1.0, 0.65, 0.35],
 }
 

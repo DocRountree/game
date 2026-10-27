@@ -1,108 +1,173 @@
 shader_type spatial;
-render_mode unshaded, cull_disabled, shadows_disabled;
+render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled, fog_disabled, shadows_disabled;
 
-// Puffy dot clouds. One camera-facing disc per puff, shaded as a sphere.
-// INSTANCE_CUSTOM = (cloud site x, site z, cloud seed, formation order 0..1);
-// COLOR.r = height within the cloud; the instance basis scale is the puff radius.
-// Puffs appear and vanish by growing and shrinking (never fading), so they can
-// stay crisp, opaque dots with correct overlap.
+// Volumetric clouds, ray marched (after Schneider's "Nubis" clouds in Horizon
+// Zero Dawn and Hillaire's energy-conserving integration). Drawn on a dome
+// around the camera, after the stars, moon and aurora, so clouds cover them.
+//
+// The cloud layer is a spherical shell over the real Earth, so it curves away
+// and compresses toward the horizon on its own. Density = a 2D coverage map
+// (where clouds are) x a height profile (flat bases, rounded tops) x 3D noise
+// (billows), eroded at the edges by finer noise. Each sample is lit by sunlight
+// traced a few steps toward the sun (self-shadowing), with a two-lobe phase
+// function (bright silver linings toward the sun), the "powder" darkening of
+// thick cloud edges, and sky light. Output is premultiplied: light added, and
+// what is behind dimmed by the transmittance.
 
-uniform float area = 30000.0;
-// The layer curves down with distance like clouds over a round planet, until
-// the horizon cuts it off. Real curvature would only do that ~130 km out, far
-// past the simulated patch, so it is exaggerated: with this radius the cloud
-// base sinks below the horizon ~10 km away, while puffs are still clearly
-// visible, instead of shrinking into dots. The wrap edge lies beyond it.
-uniform float curvature_radius = 38000.0;
-uniform float fill = 0.0;                // overcast: fuller, longer-lived, bigger clouds
-uniform float grey = 0.0;                // overcast: darker, greyer cloud colour
-uniform vec3 flash_pos = vec3(0.0);      // lightning: where the current flash is
-uniform float flash = 0.0;               // and how bright
-uniform float altitude = 1300.0;
-uniform vec2 wind = vec2(7.0, 2.5);
-uniform float life_seconds = 150.0;
-uniform float coverage = 0.6;
+uniform sampler3D shape_noise : filter_linear_mipmap, repeat_enable;    // r: billowy fBm
+uniform sampler3D detail_noise : filter_linear_mipmap, repeat_enable;   // r: fine cellular
+uniform float coverage = 0.45;        // 0 clear .. 1 overcast
+uniform float fill = 0.0;             // overcast: flatter, lower, more uniform deck
+uniform float grey = 0.0;             // overcast: darker
+uniform float base_altitude = 1500.0; // m
+uniform float top_altitude = 3600.0;
+uniform float planet_radius = 6371000.0;
+uniform vec2 wind = vec2(7.0, 2.5);   // m/s
+uniform float shape_scale = 9000.0;   // m per repeat of the billow noise
+uniform float detail_scale = 1400.0;
+uniform float map_scale = 26000.0;    // m: size of the coverage pattern
+uniform float extinction = 0.045;     // per metre at density 1
+uniform int steps = 56;
+uniform int light_steps = 5;
+uniform float max_distance = 70000.0;
 uniform vec3 sun_direction = vec3(0.0, 1.0, 0.0);
-uniform vec3 sun_colour = vec3(1.0);   // sunlight as it reaches the clouds
+uniform vec3 sun_colour = vec3(1.0);
 uniform vec3 ambient = vec3(0.2, 0.27, 0.4);
-uniform float brightness = 1.5;
-uniform float depth_squeeze = 2200.0;   // puffs end up within this distance (stars sit at 2500 m)
-uniform float planet_radius = 6400000.0;
-uniform float dim_start = 0.12;          // sun height (sine) at which cloud light starts to wane
+uniform float brightness = 1.0;
+uniform float dim_start = 0.12;
+uniform vec3 flash_pos = vec3(0.0);
+uniform float flash = 0.0;
 
-varying float lit;
-varying float flash_glow;
+varying vec3 world_pos;
 
-varying vec2 q;
-varying float height;
+float remap(float v, float a, float b, float c, float d) {
+	return c + (v - a) / max(b - a, 1e-4) * (d - c);
+}
 
-float hash(float x) {
-	return fract(sin(x * 12.9898) * 43758.5453);
+// distance along a ray from height above the planet's surface to a sphere of radius r
+vec2 sphere_hits(float cam_h, float ey, float r) {
+	float o = planet_radius + cam_h;
+	float b = o * ey;
+	float c = o * o - r * r;
+	float disc = b * b - c;
+	if (disc < 0.0)
+		return vec2(-1.0);
+	float s = sqrt(disc);
+	return vec2(-b - s, -b + s);
+}
+
+float height_at(float cam_h, float ey, float t) {
+	float o = planet_radius + cam_h;
+	return sqrt(o * o + 2.0 * o * t * ey + t * t) - planet_radius;
+}
+
+// coverage map: where clouds are (two octaves of the billow noise, read as 2D)
+float cover_at(vec2 xz) {
+	vec2 m = (xz + wind * TIME) / map_scale;
+	float map = texture(shape_noise, vec3(m, 0.37)).r * 0.65 + texture(shape_noise, vec3(m * 2.7, 0.71)).r * 0.35;
+	float cover = clamp(remap(map, 1.0 - coverage * 1.1, 1.0, 0.0, 1.0), 0.0, 1.0);
+	return mix(cover, 0.85 + 0.15 * map, fill);
+}
+
+float density(vec3 p, float h, bool cheap) {
+	float top = mix(top_altitude, base_altitude + 700.0, fill);
+	float hf = (h - base_altitude) / (top - base_altitude);
+	if (hf <= 0.0 || hf >= 1.0)
+		return 0.0;
+	vec3 drift = vec3(wind.x, 0.0, wind.y) * TIME;
+	float cover = cover_at(p.xz);
+	if (cover <= 0.0)
+		return 0.0;
+	// height profile: flat base, rounded top that rises where clouds are dense
+	float profile = smoothstep(0.0, 0.08, hf) * smoothstep(1.0, mix(0.35, 0.75, fill), hf / max(cover, 0.2));
+	vec3 q = (p + drift) / shape_scale;
+	float shape = texture(shape_noise, q).r;
+	float d = clamp(remap(shape * profile, 1.0 - cover, 1.0, 0.0, 1.0), 0.0, 1.0) * cover;
+	if (d <= 0.0 || cheap)
+		return d;
+	// erode the edges with fine noise: wispy at the base, billowy at the top
+	float detail = texture(detail_noise, (p + drift * 1.3) / detail_scale).r;
+	float erode = mix(detail, 1.0 - detail, clamp(hf * 2.0, 0.0, 1.0)) * 0.35;
+	return clamp(remap(d, erode, 1.0, 0.0, 1.0), 0.0, 1.0);
+}
+
+float hg(float g, float mu) {
+	float g2 = g * g;
+	return (1.0 - g2) / (4.0 * PI * pow(1.0 + g2 - 2.0 * g * mu, 1.5));
 }
 
 void vertex() {
-	vec2 site0 = INSTANCE_CUSTOM.xy;
-	float seed = INSTANCE_CUSTOM.z;
-	float order = INSTANCE_CUSTOM.w;
-	vec2 cam = CAMERA_POSITION_WORLD.xz;
-	// drift with the wind; the layer wraps around the camera
-	vec2 site = mod(site0 + wind * TIME - cam + area * 0.5, area) - area * 0.5 + cam;
-
-	// life cycle: condense, mature, evaporate; each cycle gets a fresh strength,
-	// and some cycles never form at all
-	float cycle = TIME / life_seconds + seed * 13.0;
-	float phase = fract(cycle);
-	float roll = hash(floor(cycle) + seed * 97.0);
-	float strength = roll < coverage ? mix(0.55, 1.0, roll / coverage) : 0.0;
-	float water = smoothstep(0.0, 0.4, phase) * (1.0 - smoothstep(0.6, 1.0, phase)) * strength;
-	water = mix(water, max(water, 0.85 + 0.15 * roll), fill * step(roll, coverage));   // overcast: clouds stay formed
-	// base puffs condense first; the tower builds last and evaporates first
-	float grow = clamp((water * 1.15 - order * 0.9) / 0.18, 0.0, 1.0);
-	// shrink away near the wrap edge instead of popping
-	vec2 rel = abs(site - cam);
-	float edge = 1.0 - smoothstep(area * 0.42, area * 0.49, max(rel.x, rel.y));
-
-	// overcast: puffs swell until neighbouring clouds merge into a deck
-	float radius = length(MODEL_MATRIX[0].xyz) * grow * edge * (1.0 + 2.2 * fill);
-	vec3 centre = vec3(site.x, altitude, site.y) + MODEL_MATRIX[3].xyz;
-	float lift = centre.y;   // height above the ground, for lighting
-	vec2 off = centre.xz - cam;
-	centre.y -= dot(off, off) / (2.0 * curvature_radius);   // the layer curves away over the horizon
-	vec3 fd = centre - flash_pos;
-	flash_glow = flash * exp(-dot(fd, fd) / (2500.0 * 2500.0));
-	vec3 view = (VIEW_MATRIX * vec4(centre, 1.0)).xyz;
-	// Most clouds lie beyond the camera's far plane (and behind the star and
-	// moon spheres). Pull each puff in along its line of sight, scaling it to
-	// match, so it looks identical but its depth fits: a monotonic squeeze
-	// that keeps puffs in the right order and in front of the night sky.
-	float d = length(view);
-	float k = depth_squeeze * d / (d + depth_squeeze) / d;
-	view *= k;
-	radius *= k;
-	POSITION = PROJECTION_MATRIX * vec4(view + vec3(VERTEX.xy * 2.0 * radius, 0.0), 1.0);
-	q = VERTEX.xy * 2.0;
-	// Light fades smoothly from a sun ~7 degrees up (longer, redder, dimmer path)
-	// until the planet's shadow passes this puff: a puff h metres up still sees
-	// the sun until it is sqrt(2h/R) below the horizon, so bases go dark first
-	// and tops glow last.
-	float dip = sqrt(2.0 * max(lift, 1.0) / planet_radius);
-	float sun_y = normalize(sun_direction).y;
-	float x = clamp((sun_y + dip) / (dim_start + dip), 0.0, 1.0);
-	lit = x * x * (3.0 - 2.0 * x);
-	height = COLOR.r;
+	world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 }
 
 void fragment() {
-	float r2 = dot(q, q);
-	vec3 n = normalize((INV_VIEW_MATRIX * vec4(q, sqrt(max(1.0 - r2, 0.0)), 0.0)).xyz);
-	// stylised: soft wrap lighting quantised into three bands
-	float wrap = clamp(dot(n, normalize(sun_direction)) * 0.55 + 0.45, 0.0, 1.0);
-	float band = wrap < 0.35 ? 0.3 : (wrap < 0.7 ? 0.65 : 1.0);
-	float self_shadow = mix(mix(0.5, 0.3, grey), 1.0, height);   // cloud bottoms sit in the cloud's own shadow
-	vec3 colour = sun_colour * band * self_shadow * lit + ambient * (0.6 + 0.4 * n.y);
-	colour = mix(colour, vec3(dot(colour, vec3(0.3, 0.55, 0.15))) * mix(0.75, 0.5, height), grey);
-	colour += vec3(0.8, 0.85, 1.0) * flash_glow * mix(1.0, 0.6, height) * 2.0;   // lit from within
-	ALBEDO = colour * brightness;
-	ALPHA = 1.0 - smoothstep(0.9, 1.0, r2);
-	ALPHA_SCISSOR_THRESHOLD = 0.5;
+	vec3 cam = CAMERA_POSITION_WORLD;
+	vec3 dir = normalize(world_pos - cam);
+	if (coverage <= 0.001 || dir.y < -0.02)
+		discard;
+	float ey = dir.y;
+	float cam_h = max(cam.y, 1.0);
+	float top = mix(top_altitude, base_altitude + 700.0, fill);
+	vec2 inner = sphere_hits(cam_h, ey, planet_radius + base_altitude);
+	vec2 outer = sphere_hits(cam_h, ey, planet_radius + top);
+	float t0 = max(inner.y, 0.0);
+	float t1 = min(outer.y, max_distance);
+	if (outer.y <= 0.0 || t1 <= t0)
+		discard;
+	vec3 sun = normalize(sun_direction);
+	float mu = dot(dir, sun);
+	float phase = mix(hg(0.75, mu), hg(-0.25, mu), 0.35) * 4.0 * PI * 0.6 + 0.25;
+	// sunlight fades as the planet's shadow climbs through the layer
+	float dip = sqrt(2.0 * base_altitude / planet_radius);
+	float lit = smoothstep(0.0, 1.0, clamp((sun.y + dip) / (dim_start + dip), 0.0, 1.0));
+	vec3 sunlight = sun_colour * lit;
+	float jitter = fract(52.9829189 * fract(dot(FRAGCOORD.xy, vec2(0.06711056, 0.00583715))));
+	float span = t1 - t0;
+	float dt = span / float(steps);
+	float t = t0 + dt * jitter;
+	float trans = 1.0;
+	vec3 light = vec3(0.0);
+	int budget = steps * 3;   // empty stretches are skipped in long strides
+	for (int i = 0; i < budget && t < t1; i++) {
+		vec3 p = cam + dir * t;
+		// empty-space skipping: where the coverage map says no cloud, stride on
+		// (cheap 2D lookups only); the full 3D noise and light march run only
+		// inside clouds
+		if (cover_at(p.xz) <= 0.0) {
+			t += dt * 2.5;
+			continue;
+		}
+		float h = height_at(cam_h, ey, t);
+		float d = density(p, h, false);
+		if (d > 0.002) {
+			// light march toward the sun
+			float od = 0.0;
+			float ls = 90.0;
+			vec3 lp = p;
+			for (int j = 0; j < light_steps; j++) {
+				lp += sun * ls;
+				od += density(lp, lp.y + h - p.y, j > 2) * ls;
+				ls *= 1.8;
+			}
+			float tl = exp(-od * extinction * 0.9);
+			float powder = 1.0 - exp(-d * dt * extinction * 2.0);
+			vec3 direct = sunlight * phase * tl * mix(0.6, 1.0, powder);
+			float hf = clamp((h - base_altitude) / (top - base_altitude), 0.0, 1.0);
+			vec3 sky = ambient * mix(0.45, 1.25, hf);
+			vec3 fd = p - flash_pos;
+			vec3 bolt = vec3(0.8, 0.85, 1.0) * flash * 6.0 * exp(-dot(fd, fd) / (2600.0 * 2600.0));
+			vec3 s = (direct + sky + bolt) * brightness * mix(1.0, 0.55, grey);
+			float sigma = d * extinction;
+			float step_t = exp(-sigma * dt);
+			light += trans * s * (1.0 - step_t);
+			trans *= step_t;
+			if (trans < 0.01)
+				break;
+		}
+		t += dt;
+	}
+	// distant cloud fades into the haze toward the horizon
+	float haze = exp(-t0 / 45000.0);
+	ALBEDO = light * haze;
+	ALPHA = (1.0 - trans) * haze;
 }
