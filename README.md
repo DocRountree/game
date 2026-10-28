@@ -48,6 +48,7 @@ and gameplay still work, just without ripples.
 | W A S D | walk (on deck); swim, relative to the camera (look down while swimming to dive) |
 | Left Ctrl | sprint (hold with W) |
 | Space | jump (hold to keep hopping); swim up / tread water (do nothing and you sink) |
+| E | climb ground too steep to walk on (WASD on the rock, E again lets go) |
 | Space Space | debug: fly (Space up, Shift down, Ctrl faster; double-tap again or land to stop) |
 | Right mouse | board the boat |
 | W / S, A / D | on the boat: throttle / reverse, steer |

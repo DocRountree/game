@@ -7,6 +7,11 @@ extends CharacterBody3D
 ## Carries three inventories: one per hand and a knapsack. Equipment that
 ## changes abilities (snorkel, scuba tank) is read through gear_stat(), so
 ## breath, depth limits and the like stay data-driven.
+##
+## E grabs ground too steep to walk on (if there is some in front of you) and
+## climbs it: WASD moves up, down and across the rock, you pull yourself over
+## the top when it turns walkable, and E lets go. The body (CharacterRig) is
+## animated procedurally for every state.
 
 signal drowned
 
@@ -23,8 +28,10 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 @export var run_factor := 1.3               ## Ctrl on land (Minecraft's sprint)
 @export var jump_speed := 4.95              ## About a 1.25 m hop under land gravity
 @export var fly_speed := 120.0              ## Debug flight (double-tap Space)
+@export var climb_speed := 3.0              ## m/s on rock (Ctrl: faster)
 
 const LAND_GRAVITY := 9.8                   ## Real gravity (m/s^2)
+const CLIMBABLE_Y := 0.72                   ## Ground steeper than this (normal.y below it, ~44 deg) can't be walked: it's climbed.
 @export var traits: CharacterTraits
 
 var state := &"TREADING"
@@ -34,6 +41,8 @@ var water: WaterBody      ## The body the player is in or over (null on land).
 var boat: Boat            ## Set while driving.
 var head_under := false   ## Head below the surface (snorkels, scuba, the camera's underwater look).
 var flying := false       ## Debug flight, toggled by double-tapping Space.
+var climbing := false     ## On the rock (E).
+var climb_normal := Vector3.BACK   ## The rock's normal where you're holding on.
 
 @onready var left_hand: Inventory = $LeftHand
 @onready var right_hand: Inventory = $RightHand
@@ -48,14 +57,17 @@ var _last_space := -10.0
 
 @onready var model: Node3D = $Model
 @onready var _collision: CollisionShape3D = $Collision
+@onready var _collision_rest := _collision.transform
 
 
 func _ready() -> void:
 	add_to_group(&"ripple_sources")
 	floor_snap_length = 1.2   # stay on the ground running downhill
-	var legs := ProceduralLegs.new()
-	legs.player = self
-	add_child(legs)
+	var rig := CharacterRig.new()
+	rig.name = "Rig"
+	rig.player = self
+	add_child(rig)
+	rig.build()
 	if traits:
 		traits.apply_to(model)
 	var game := WorldConfig._game()
@@ -69,11 +81,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		var now := Time.get_ticks_msec() / 1000.0
 		if now - _last_space < 0.3:
 			flying = not flying
+			climbing = false
 			if not flying:
 				velocity = Vector3.ZERO   # stop dead and fall from rest, not carried on by the flight
 			_last_space = -10.0
 		else:
 			_last_space = now
+	if event.is_action_pressed(&"climb") and not boat and not flying:
+		if climbing:
+			climbing = false
+			velocity = climb_normal * 1.0   # let go: push off and fall
+		else:
+			try_climb()
 	# Minecraft-style: right-click boards, Shift dismounts
 	if event.is_action_pressed(&"interact") and not boat:
 		_try_board()
@@ -89,6 +108,10 @@ func _physics_process(delta: float) -> void:
 	if flying:
 		_fly(delta)
 		return
+	if climbing:
+		_climb(delta)
+		return
+	_collision.transform = _collision_rest
 	_set_water(Water.body_at(pos.x, pos.z))
 	if water == null:
 		_on_land(delta)
@@ -220,6 +243,59 @@ func _fly(delta: float) -> void:
 	breath = 1.0
 
 
+## Grab the rock in front of you if it's too steep to walk on. True if you did.
+func try_climb() -> bool:
+	var face := Basis(Vector3.UP, _facing) * Vector3.FORWARD
+	for drop: float in [0.0, -0.6, 0.4]:
+		var from := global_position + Vector3.UP * drop
+		var hit := _ray(from, from + face * 1.4)
+		if hit and hit.normal.y < CLIMBABLE_Y:
+			climbing = true
+			climb_normal = hit.normal
+			velocity = Vector3.ZERO
+			_set_water(null)
+			return true
+	return false
+
+
+# On the rock: no gravity; WASD moves up, down and across it (relative to the
+# rock, not the camera), the body held a little off it, following its turns.
+func _climb(delta: float) -> void:
+	state = &"CLIMBING"
+	water_height = -INF
+	_set_head_under(false)
+	breath = minf(1.0, breath + delta / 3.0)
+	var hit := _ray(global_position + climb_normal * 0.5, global_position - climb_normal * 2.0)
+	if hit.is_empty() or hit.normal.y >= CLIMBABLE_Y:
+		# the rock ends or turns walkable: pull over the top if there's ground
+		# up there, otherwise there's nothing to hold
+		var over := global_position + Vector3.UP * 1.6 - climb_normal * 0.8
+		var ground := _ray(over, over + Vector3.DOWN * 3.5)
+		climbing = false
+		if ground and ground.normal.y >= CLIMBABLE_Y:
+			velocity = Vector3.UP * 4.5 - climb_normal * 2.5
+		return
+	climb_normal = climb_normal.slerp(hit.normal, minf(1.0, 10.0 * delta)).normalized()
+	var up_dir := (Vector3.UP - climb_normal * Vector3.UP.dot(climb_normal)).normalized()
+	var right_dir := up_dir.cross(climb_normal).normalized()
+	var input := Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
+	var speed := climb_speed * (1.6 if Input.is_action_pressed(&"sprint") else 1.0)
+	var move := (up_dir * input.y + right_dir * input.x).limit_length(1.0) * speed
+	# hold the chest about 0.45 m off the rock
+	var off: float = (global_position - (hit.position as Vector3)).dot(climb_normal)
+	velocity = move + climb_normal * (0.45 - off) * 8.0
+	# the body (and its capsule) lies along the rock, not upright into it
+	var lie := Basis.from_euler(Vector3(-asin(clampf(climb_normal.y, -0.9, 0.9)), atan2(climb_normal.x, climb_normal.z), 0.0))
+	_collision.transform = Transform3D(lie, lie * _collision_rest.origin)
+	move_and_slide()
+
+
+func _ray(a: Vector3, b: Vector3) -> Dictionary:
+	var q := PhysicsRayQueryParameters3D.create(a, b)
+	q.exclude = [get_rid()]
+	return get_world_3d().direct_space_state.intersect_ray(q)
+
+
 func _camera_relative(input: Vector2) -> Vector2:
 	var cam := get_viewport().get_camera_3d()
 	if cam == null or input == Vector2.ZERO:
@@ -234,6 +310,12 @@ func _camera_relative(input: Vector2) -> Vector2:
 func _process(delta: float) -> void:
 	# face where the camera looks; aboard, only the body turns, not the boat
 	var cam := get_viewport().get_camera_3d()
+	if climbing:
+		# face the rock, the body parallel to it
+		_facing = atan2(climb_normal.x, climb_normal.z)
+		model.rotation = Vector3(-asin(clampf(climb_normal.y, -0.9, 0.9)), _facing, 0.0)
+		_lean = 0.0
+		return
 	if cam:
 		var look := -cam.global_basis.z
 		if Vector2(look.x, look.z).length() > 0.01:
@@ -283,6 +365,7 @@ func head_depth() -> float:
 func respawn(at: Vector3) -> void:
 	if boat:
 		_leave_boat()
+	climbing = false
 	global_position = at
 	velocity = Vector3.ZERO
 	breath = 1.0
@@ -308,6 +391,7 @@ func _try_board() -> void:
 	for b: Boat in get_tree().get_nodes_in_group(&"boats"):
 		if b.driver == null and global_position.distance_to(b.global_position) < board_range \
 				and head_depth() < 1.5:
+			climbing = false
 			boat = b
 			b.driver = self
 			b.helm.occupant = self

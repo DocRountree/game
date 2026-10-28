@@ -156,10 +156,15 @@ what make it read as big.
   across, reaching just past the banks, where the ground cuts its edge. The
   water is substantial: its body colour is always there (only a little of
   the bed shows through), so it never thins away in the shallows or with
-  the viewing angle. Its ripples are laid out in world space and carried
-  along the current by two crossfaded phases (a flow map), so they follow
-  every bend without stretching, and fade out where they would be finer than
-  a pixel. Cross-sections are 2 m apart, so waterfalls stay sheer, and the
+  the viewing angle. The surface is after P_Malin's "Adrift" (without its
+  foam): a fractal of value noise with analytic derivatives, each octave
+  carried by the current and the next the other way at 3/4 speed, each
+  warped up its own gradient, which gives the boils and slicks of real river
+  water. It is laid out in world space and carried along the current by two
+  crossfaded phases, so it follows every bend without stretching; it runs
+  fastest mid-channel and flattens where the water is fast, and it and the
+  gloss fade out where they would be finer than a pixel. Light through the
+  water dies away red and green last. Cross-sections are 2 m apart, so waterfalls stay sheer, and the
   surface's frame follows the flow in 3D: over a fall the water faces
   downstream and its streaks run down it. The ribbons are drawn smallest
   stream first and trunk last, so where a tributary's mouth lies under its
@@ -329,9 +334,28 @@ The same component optionally registers the body as a ripple source.
 little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
 holding Space hops whenever the feet touch down. Gravity is a real 9.8 m/s^2.
 Double-tapping Space toggles a fast debug flight; stopping it drops you from
-rest, so you fall straight down, accelerating. `ProceduralLegs` plants each foot on whatever is below
-(a ray down) and steps it in an arc when the body has moved on, alternating
-feet, with a two-bone solver bending the knees. No animation clips.
+rest, so you fall straight down, accelerating.
+
+**Climbing**: E grabs ground too steep to walk on (normal.y below 0.72,
+about 44 degrees) if there is some just in front of you. On the rock there
+is no gravity; WASD moves up, down and across it (relative to the rock), Ctrl
+faster, the chest held 0.45 m off it and the body turning with it. Where the
+rock ends or turns walkable you pull yourself over the top (or fall, if
+there's nothing up there); E lets go.
+
+**The body** (`CharacterRig`, `src/entities/player/character_rig.gd`) is a
+stylized explorer built from primitives (hat, hair, knapsack and bedroll,
+sleeved arms, trousers, boots; `CharacterTraits.apply_to()` recolours the
+parts tagged skin, hair, shirt and shorts) and animated entirely
+procedurally, with two-bone solvers for arms and legs. Walking plants each
+foot on whatever is below (a ray down) and steps it in an arc when the body
+has moved on; faster than feet can be planted it becomes a running cycle
+around the hips, still on the ground below; the arms swing against the legs.
+Swimming is a front crawl with a flutter kick, treading sculls, a sinking
+body's limbs drift. Climbing holds hands and feet on points of the rock
+(rays onto the collider) and moves them in a diagonal gait, left hand with
+right foot, each pair reaching on when it has fallen behind. No animation
+clips.
 
 `PlayerCamera` has two modes, toggled with F5; the game starts in first person.
 Third person orbits the target and never dips below the water surface. The view

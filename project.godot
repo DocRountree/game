@@ -50,6 +50,10 @@ tread={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":32)]
 }
+climb={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":69)]
+}
 interact={
 "deadzone": 0.2,
 "events": [Object(InputEventMouseButton,"button_index":2,"pressed":true)]

@@ -253,7 +253,7 @@ func _run() -> void:
 	# double-tapping Space flies (and the procedural legs come along)
 	var legs_ok := false
 	for ch in player.get_children():
-		legs_ok = legs_ok or ch is ProceduralLegs
+		legs_ok = legs_ok or ch is CharacterRig
 	for _tap in 2:
 		var ev := InputEventAction.new()
 		ev.action = &"tread"
@@ -270,7 +270,7 @@ func _run() -> void:
 	await _frames(60)
 	Input.action_release(&"tread")
 	_check(legs_ok and player.flying and player.state == &"FLYING" and player.global_position.y - fly_y > 20.0,
-			"double-tapping Space flies, fast (rose %.0f m in 1 s); the player has procedural legs" % (player.global_position.y - fly_y))
+			"double-tapping Space flies, fast (rose %.0f m in 1 s); the player has a procedural body" % (player.global_position.y - fly_y))
 	player.flying = false
 
 	# land: you start on the beach, standing on the generated ground
@@ -301,6 +301,44 @@ func _run() -> void:
 			river_ok = f.length() > 0.2 and Vector2(f.x, f.z).dot(down) > 0.0 and absf(rb.surface_height(pts[k].x, pts[k].z) - pts[k].y) < 0.5
 			break
 	_check(river_ok, "rivers are water bodies at their level, whose current runs downstream")
+
+	# E climbs ground too steep to walk on; WASD moves on the rock; E lets go
+	var c: Array = w.landmasses[0].center
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var wall := Vector3.ZERO
+	var uphill := Vector2.ZERO
+	for k in 20000:
+		var x := float(c[0]) + rng.randf_range(-3000.0, 3000.0)
+		var z := float(c[1]) + rng.randf_range(-3000.0, 3000.0)
+		var g := Vector2(Terrain.height_at(x + 2.0, z) - Terrain.height_at(x - 2.0, z),
+				Terrain.height_at(x, z + 2.0) - Terrain.height_at(x, z - 2.0)) / 4.0
+		if g.length() > 1.6 and g.length() < 3.0 and Terrain.height_at(x, z) > 20.0:
+			wall = Vector3(x, Terrain.height_at(x, z), z)
+			uphill = g.normalized()
+			break
+	var at := wall - Vector3(uphill.x, 0.0, uphill.y)
+	terrain.prepare_at(at)
+	player.respawn(Vector3(at.x, Terrain.height_at(at.x, at.z) + 1.0, at.z))
+	camera.yaw = atan2(-uphill.x, -uphill.y)   # look at the rock (the body faces where the camera looks)
+	camera.pitch = 0.0
+	await _frames(10)
+	var e_key := InputEventAction.new()
+	e_key.action = &"climb"
+	e_key.pressed = true
+	Input.parse_input_event(e_key)
+	await _frames(5)
+	var grabbed := player.climbing and player.climb_normal.y < Player.CLIMBABLE_Y
+	var climb_y := player.global_position.y
+	Input.action_press(&"move_forward")
+	await _frames(60)
+	Input.action_release(&"move_forward")
+	var rose := player.global_position.y - climb_y
+	var held := player.climbing and player.state == &"CLIMBING"
+	Input.parse_input_event(e_key)
+	await _frames(5)
+	_check(wall != Vector3.ZERO and grabbed and held and rose > 1.0 and not player.climbing,
+			"E grabs a slope too steep to walk (normal.y %.2f), W climbs it (%.1f m in 1 s), E lets go" % [player.climb_normal.y, rose])
 
 	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	quit(1 if _failures else 0)

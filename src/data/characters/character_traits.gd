@@ -2,8 +2,8 @@
 class_name CharacterTraits
 extends Resource
 ## How a person looks (and later, how they are): the player styles theirs in a
-## character creator, NPCs get theirs from generate(). apply_to() dresses the
-## simple capsule model; a real character model will read the same fields.
+## character creator, NPCs get theirs from generate(). apply_to() dresses a
+## model (the player's CharacterRig) in them.
 
 @export var display_name := ""
 @export_range(1.4, 2.1) var height := 1.75      ## m
@@ -34,20 +34,19 @@ static func generate(rng: RandomNumberGenerator) -> CharacterTraits:
 	return t
 
 
-## Recolour and scale a capsule model (children named Head, Torso, Shorts, Arm*, Leg*).
+## Scale a model and recolour its parts tagged with a "tint" meta (skin,
+## hair, shirt, shorts); other parts (hat, boots, pack) keep their own.
 func apply_to(model: Node3D, reference_height := 1.7) -> void:
 	var s := height / reference_height
 	model.scale = Vector3(s * build, s, s * build)
-	for child in model.get_children():
-		var mesh := child as MeshInstance3D
-		if mesh == null:
-			continue
-		var color := skin_color
-		if child.name == &"Torso":
-			color = shirt_color
-		elif child.name == &"Shorts":
-			color = shorts_color
+	var colors := {"skin": skin_color, "hair": hair_color, "shirt": shirt_color, "shorts": shorts_color}
+	var mats := {}
+	for key: String in colors:
 		var mat := StandardMaterial3D.new()
-		mat.albedo_color = color
+		mat.albedo_color = colors[key]
 		mat.roughness = 0.85
-		mesh.material_override = mat
+		mats[key] = mat
+	for node in model.find_children("*", "MeshInstance3D", true, false):
+		var tint := String(node.get_meta(&"tint", ""))
+		if mats.has(tint):
+			(node as MeshInstance3D).material_override = mats[tint]
