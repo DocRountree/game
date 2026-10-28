@@ -121,7 +121,7 @@ an object would sink into its own displacement trough.
 
 **The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
 `(seed, WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
-`user://worlds/`. `Terrain` runs it on a worker thread at start (about 12 s for
+`user://worlds/`. `Terrain` runs it on a worker thread at start (about 22 s for
 the default 1600 x 1600 grid of 51 m cells, an 82 km world), and the HUD shows
 progress; until it finishes the world is open ocean.
 
@@ -132,13 +132,28 @@ progress; until it finishes the world is open ocean.
    picked offshore, away from both, and the whole world is shifted so it is the
    origin (`WorldMaps.center` is the grid centre in world coordinates).
 2. Each gives a land shape (warped, noisy coastline) and an uplift rate.
-3. Mountains and valleys are the steady state of stream-power erosion: a
-   channel's slope is `U / (K sqrt(A))` (A = drained area), so heights follow
-   from the drainage tree in one pass upstream from the coast. Six rounds of
-   re-routing water down the new slopes give dendritic valleys and sharp ridges.
-   Heights are scaled per landmass to its target peak (continent 0.7-1.3 km),
-   slopes capped at 30 deg so mountains can be climbed.
-4. Seafloor: shelf, slope and deep sea by distance from the coast.
+3. Rivers first, then the land (`RiverGraph`, after Génevaux et al. 2013,
+   "Terrain Generation Using Procedural Models Based on Hydrology"). River
+   mouths are scattered along every coast and each grows a drainage network
+   inland, node by node (300 m steps), continuing and sometimes branching,
+   never crowding another node; basins grow with random vigour (the vigorous
+   ones branch more and claim the interior), so a few rivers get big and
+   most stay small. Land the growth never reached gets short streams from the
+   nearest node. Each node's drained area is the land its upstream nodes
+   cover, and channel slope is the steady state of stream-power erosion,
+   `uplift / sqrt(area)`, summed up from the mouth. The network splits into
+   streams (each follows its biggest branch upstream), smoothed by corner
+   cutting; tributaries end exactly on the stream they join. Then every land
+   cell takes the elevation of its nearest stream segment (a vector distance
+   transform over the grid) plus a hillslope rising with distance (steeper
+   where uplift is higher), after a flat floodplain for big gentle rivers
+   (wider the more land drains through). Heights and stream elevations are
+   scaled together per landmass to its target peak, so every river lies
+   exactly on its valley floor and falls all the way to the sea.
+4. Seafloor: shelf, slope and deep sea by distance from the coast. Water on
+   the grid is routed by a priority flood from the coast (each cell drains
+   into the cell that reached it; hollows filled a centimetre a cell), so it
+   finds the network's valleys.
 5. Lakes are placed on river valleys: a basin is scooped around an outlet and
    flooded to a level held by a rock sill, so every lake is fed by its river
    (wet or dry). Some (more in dry places) have no outlet.
@@ -147,29 +162,24 @@ progress; until it finishes the world is open ocean.
 7. Water today: runoff accumulates downstream, channels lose water in dry
    country, so beds carved in a wetter past can run dry; lakes fill to their
    sill or shrink until evaporation matches inflow (or dry out).
-8. Rivers: every channel draining more than about 0.3 km^2 is traced, so
-   rivers have many tributaries. Each path is resampled every 24 m and
-   smoothed; width and depth come from today's flow (past flow for dry beds).
-   Big rivers lay down alluvial plains: every cell within ~32 widths of a
-   river takes its floor from the nearby river points of any river, blended
-   steeply toward the nearest so the floor never steps between reaches (just
-   above that water, curving up to the valley sides), never below a nearby
-   lake. No river then runs above the ground beneath it (its water is clamped
-   to the ground, only ever lowered, and steps eased into ramps). The
-   centreline then meanders as a sine-generated (Kinoshita) curve traced in
-   12 m steps: direction swings by omega sin(phase) plus a skewing third
-   harmonic, wavelength ~16 widths at every size (big rivers make big, open loops),
-   with wavelength and swing wandering so no two bends match; omega (up to
-   1.35 rad: horseshoes, less where a bend is short for its width, so a
-   loop's limbs never crowd together) is limited by how much flat floor
-   there is on both sides, and the curve is steered back toward
-   the valley line so it never drifts. Beside big loops sit copies of loops
-   the river used to have, moved out and downstream onto open floor clear of
-   today's channel and its banks: shallow dry meander scars (sometimes several, like scroll
-   bars), the outermost sometimes still water, an oxbow lake. Water thins in
-   from a trickle where a river starts to flow and out where it dries up, and
-   channels narrow toward their heads. `RiverNetwork` turns all of it into straight
-   segments with a 256 m tile index, for the GPU and for physics alike.
+8. Rivers: the streams draining more than about 0.3 km^2, resampled every
+   24 m and split where they run through a lake; width and depth come from
+   today's flow (from the grid cell beside the channel whose drained area
+   matches the stream's), past flow for dry beds; the water surface is the
+   stream's elevation. Then `MeanderSim` lets rivers on floodplains migrate
+   (Howard & Knutson 1984, as in Paris et al. 2023): from moderate bends of
+   varying length and swing, every bit of channel moves toward its outer bank
+   at a rate set by its own curvature and, more, the curvature upstream (so
+   bends lean and wander downstream), slowing as it nears the valley sides,
+   until the river is 1.7 to 2.6 times as long as its valley. Where a loop's
+   neck closes the river cuts through and the loop stays behind as an oxbow
+   lake (or a dry scar); courses it has moved away from stay as shallow dry
+   meander scars (scroll bars). Narrow valleys keep their rivers as they are.
+   Water thins in from a trickle where a river starts to flow and out where
+   it dries up, channels narrow toward their heads, and below a confluence a
+   river is wider than either stream above it. `RiverNetwork` turns all of it
+   into straight segments with a 256 m tile index, for the GPU and for
+   physics alike.
 9. Ground: sand on archipelagos, beaches and the seafloor, rock on volcanoes,
    dirt on continents, lake beds.
 
