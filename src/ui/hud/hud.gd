@@ -12,8 +12,9 @@ var _message_time := 0.0
 
 func refresh(player: Player, boat: Boat, time_text: String) -> void:
 	var depth := player.head_depth()
-	_status.text = "state  %s\nhead   %s\nboat   %.1f kn\ntime   %s" % [
-		player.state, ("%.1f m under" % depth) if depth > 0.0 else "above water", boat.speed() * 1.944, time_text]
+	_status.text = "state  %s\nhead   %s\nfall   %.1f m/s\nboat   %.1f kn\ntime   %s" % [
+		player.state, ("%.1f m under" % depth) if depth > 0.0 else "above water", maxf(-player.velocity.y, 0.0),
+		boat.speed() * 1.944, time_text]
 	_breath.value = player.breath
 	_help.text = ("W/S throttle   A/D steer   SHIFT jump off" if player.boat else
 			("WASD fly   SPACE up   SHIFT down   CTRL faster   SPACE SPACE stop flying" if player.flying else

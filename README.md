@@ -34,6 +34,8 @@ lift and shove whatever they reach.
 shader and need one of those; under the Compatibility renderer the ocean, buoyancy
 and gameplay still work, just without ripples.
 
+Starting the project opens a menu: **Debug mode** enters the sandbox world (Start game is not made yet).
+
 ## Controls
 
 | | |
