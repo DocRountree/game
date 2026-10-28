@@ -121,7 +121,7 @@ an object would sink into its own displacement trough.
 
 **The world is hand-painted.** `world/` holds the maps, edited in Krita or
 GIMP (see `world/README.md`), and `world/layout.json` places each landmass's
-maps in the 30 km world: the main island (a desert mesa in the west, a range
+maps in the 300 km world: the main island (about 120 km across) (a desert mesa in the west, a range
 down the middle, one river system draining the north-east), the peripheral
 island across the sea, the main archipelago (about a hundred small islands
 along a 20 km arc between them), the volcanic chain to the north and the
@@ -132,8 +132,8 @@ covers everything.
 
 **The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
 `(WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
-`user://worlds/`. `Terrain` runs it on a worker thread at start: about 20 s
-for the default 1600 x 1600 grid of 19 m cells. `MapImage` reads the PNGs,
+`user://worlds/`. `Terrain` runs it on a worker thread at start: about 30 s
+for the default 2048 x 2048 grid of 146 m cells (the GPU adds the detail). `MapImage` reads the PNGs,
 decoding 16-bit grayscale itself, since Godot's loader cuts it to 8 bits.
 
 1. Land: every height map is sampled onto the world grid.
@@ -145,9 +145,10 @@ decoding 16-bit grayscale itself, since Godot's loader cuts it to 8 bits.
    system's listed mouth open to the sea, so each stroke network fills from
    its mouth and drains through it. Each stroke is traced
    from its head to the sea, or to the river it touches, which it then joins.
-   The path is smoothed (zigzag averaged out, then corners cut), and the water
-   surface is the lowest ground beside the channel, only ever falling
-   downstream. Widths and depths grow with the land draining in, and water
+   The path is smoothed (zigzag averaged out, then corners cut). The water
+   surface is the downhill profile closest to the ground along the channel
+   (isotonic regression by pool-adjacent-violators, lightly smoothed), so it
+   neither perches above the ground nor sinks far below it. Widths and depths grow with the land draining in, and water
    thins in from a trickle at the head.
 4. Biomes: the painted world map. Every landmass but the main island, with
    the water nearest it, is its own biome where nothing is painted (its land
@@ -180,8 +181,9 @@ that level is the lowest of each channel's shape (a parabolic bed whose slope
 carries on up through the waterline and eases over onto a floodplain a
 little above the water), so channels merge at confluences. The valley's
 ground blends smoothly into the land from about one half width out to nine.
-It only ever lowers the land, and is rounded where it meets it, so there are
-no walls or creases. The water sheet uses the same level, so the water
+It shapes the ground both ways: higher land is cut down to the channel
+(rounded where they meet, so there are no walls or creases), and lower land
+close to the river is built up into banks, so the water never floats. The water sheet uses the same level, so the water
 always lies in its bed and runs downhill. The terrain mesh alternates its
 quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
 patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at

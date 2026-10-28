@@ -19,7 +19,7 @@ extends RefCounted
 ## The fine detail (the erosion filter's gullies, mesa cliffs, river
 ## valleys) is added on the GPU by Terrain.
 
-const VERSION := 30
+const VERSION := 31
 const LAYOUT := "res://world/layout.json"
 const MAPS := "res://world/maps/"
 const YEAR := 31557600.0
@@ -48,11 +48,13 @@ var _nb := PackedInt32Array()
 var _t0 := 0
 
 
-func _init(world_config: WorldConfig, cells := 1600, world_size := 30000.0) -> void:
+## The world's size comes from world/layout.json.
+func _init(world_config: WorldConfig, cells := 2048) -> void:
 	config = world_config
 	n = cells
-	size = world_size
-	cell = world_size / cells
+	layout = JSON.parse_string(FileAccess.get_file_as_string(LAYOUT))
+	size = layout.get("world_size", 300000.0)
+	cell = size / cells
 	_nb = PackedInt32Array([-n - 1, -n, -n + 1, -1, 1, n - 1, n, n + 1])
 
 
@@ -61,8 +63,6 @@ func run() -> WorldMaps:
 	m.setup(n, size)
 	m.seed = config.world_seed
 	m.version = VERSION
-	_step("layout", 0.0)
-	layout = JSON.parse_string(FileAccess.get_file_as_string(LAYOUT))
 	_step("land", 0.05)
 	_land()
 	_step("coastlines", 0.3)
@@ -215,23 +215,25 @@ func _seafloor() -> void:
 	bumps.seed = config.seed_for("seafloor")
 	bumps.fractal_octaves = 4
 	# the whole grid at once (natively; 8 bits is plenty for bumps)
-	bumps.frequency = cell / 1500.0
+	bumps.frequency = cell / 9000.0
 	bumps.offset = Vector3(-size * 0.5 / cell + 0.5, -size * 0.5 / cell + 0.5, 0.0)
 	var bump := bumps.get_image(n, n, false, false, false).get_data()
 	for i in n * n:
 		if _is_land[i] == 1:
 			continue
-		var d := _dist[i]
 		var b := bump[i] / 127.5 - 1.0
+		# (the distance warped by the noise, so shelves and banks wander
+		# instead of tracing the distance metric's octagons)
+		var d := maxf(_dist[i] * (1.0 + 0.3 * b) + 2500.0 * b * smoothstep(0.0, 3000.0, _dist[i]), 0.0)
 		# shelf, slope, deep sea
-		var depth := 1.0 + 40.0 * (1.0 - exp(-d / 1100.0)) + 900.0 * smoothstep(2500.0, 9000.0, d)
+		var depth := 1.0 + 40.0 * (1.0 - exp(-d / 3000.0)) + 1500.0 * smoothstep(6000.0, 30000.0, d)
 		depth *= 1.0 + 0.25 * b
 		var nearest := KINDS.find(layout.landmasses[_near[i] - 1].get("kind", "island")) if _near[i] > 0 else -1
 		match nearest:
 			2:   # among an archipelago's islands: a shallow sandy bank
-				depth = lerpf(depth, minf(depth, 2.0 + 7.0 * (b * 0.5 + 0.5) + d * 0.004), 1.0 - smoothstep(1200.0, 2600.0, d))
+				depth = lerpf(depth, minf(depth, 2.0 + 7.0 * (b * 0.5 + 0.5) + d * 0.0015), 1.0 - smoothstep(4000.0, 9000.0, d))
 			3:   # volcanoes plunge steeply into deep water
-				depth = lerpf(depth, maxf(depth, 1.0 + 160.0 * (1.0 - exp(-d / 500.0)) + 900.0 * smoothstep(800.0, 5000.0, d)), 1.0 - smoothstep(3000.0, 6000.0, d))
+				depth = lerpf(depth, maxf(depth, 1.0 + 160.0 * (1.0 - exp(-d / 1500.0)) + 1500.0 * smoothstep(3000.0, 15000.0, d)), 1.0 - smoothstep(10000.0, 20000.0, d))
 		h[i] = -maxf(depth, 0.5)
 
 
@@ -268,7 +270,7 @@ func _rivers() -> void:
 			var best := -1
 			var best_d := INF
 			var g := ((Vector2(mw[0], mw[1]) + Vector2.ONE * size * 0.5) / cell).floor()
-			var r := ceili(600.0 / cell)
+			var r := maxi(ceili(600.0 / cell), 4)
 			for y in range(maxi(int(g.y) - r, 1), mini(int(g.y) + r, n - 2) + 1):
 				for x in range(maxi(int(g.x) - r, 1), mini(int(g.x) + r, n - 2) + 1):
 					var i := y * n + x
@@ -399,18 +401,7 @@ func _make_river(cells: PackedInt32Array) -> Dictionary:
 	var ar := PackedFloat32Array()
 	for c in cells:
 		pts.append(Vector2(_cx(c), _cz(c)))
-		# the water sits no higher than the lowest ground beside the channel,
-		# so it never spills over a low bank
-		var low := m.height[c]
-		if _is_land[c] == 1:
-			var cx := c % n
-			var cy := c / n
-			for dy in range(-2, 3):
-				for dx in range(-2, 3):
-					var j := clampi(cy + dy, 0, n - 1) * n + clampi(cx + dx, 0, n - 1)
-					if _is_land[j] == 1:
-						low = minf(low, m.height[j])
-		el.append(maxf(low, 0.0))
+		el.append(maxf(m.height[c], 0.0))
 		ar.append(_area[c] if _is_land[c] == 1 or ar.is_empty() else ar[ar.size() - 1])
 	# the cell-to-cell zigzag smoothed out first (ends fixed), then the
 	# corners cut into a flowing line
@@ -436,19 +427,12 @@ func _make_river(cells: PackedInt32Array) -> Dictionary:
 		el = ne
 		ar = na
 	var count := pts.size()
-	for k in range(1, count):
-		el[k] = minf(el[k], el[k - 1])
-	# ease the steps into ramps (only ever lowering the water)
-	var eased := el.duplicate()
-	for k in count:
-		var sum := 0.0
-		var cnt := 0
-		for q in range(maxi(k - 6, 0), mini(k + 6, count - 1) + 1):
-			sum += el[q]
-			cnt += 1
-		eased[k] = minf(el[k], sum / cnt)
-	for k in range(1, count):
-		eased[k] = minf(eased[k], eased[k - 1])
+	# the water surface: the downhill profile closest to the ground along the
+	# channel (isotonic regression, pool adjacent violators), so it neither
+	# perches above the ground nor sinks far below it; the terrain then
+	# shapes the channel to it, cutting where the ground is higher and
+	# building banks where it is lower
+	var eased := _downhill_fit(el)
 	var p3 := PackedVector3Array()
 	var hw := PackedFloat32Array()
 	var depth := PackedFloat32Array()
@@ -459,8 +443,8 @@ func _make_river(cells: PackedInt32Array) -> Dictionary:
 		p3.append(Vector3(pts[k].x, eased[k], pts[k].y))
 		var km2 := ar[k] / 1e6
 		var q := ar[k] * 0.4 / YEAR   # runoff: ~0.4 m of each year's rain
-		hw.append(clampf(4.0 + 7.0 * sqrt(km2), 4.0, 45.0))
-		depth.append(clampf(0.6 + 0.6 * sqrt(km2), 0.6, 5.0))
+		hw.append(clampf(4.0 + 2.2 * sqrt(km2), 4.0, 110.0))
+		depth.append(clampf(0.6 + 0.12 * sqrt(km2), 0.6, 6.0))
 		var lo := maxi(k - 3, 0)
 		var hi := mini(k + 3, count - 1)
 		var run := maxf(pts[lo].distance_to(pts[hi]), 1.0)
@@ -469,6 +453,38 @@ func _make_river(cells: PackedInt32Array) -> Dictionary:
 		wet.append(1)
 	return {"points": p3, "half_width": hw, "depth": depth, "speed": speed, "flow": flow,
 			"wet": wet, "kind": RIVER, "joins": -1}
+
+
+# The non-increasing sequence closest (least squares) to v: pool adjacent
+# violators, then lightly smoothed (only ever lowering) so its corners are
+# ramps.
+static func _downhill_fit(v: PackedFloat32Array) -> PackedFloat32Array:
+	var sums := PackedFloat32Array()
+	var counts := PackedInt32Array()
+	for x in v:
+		sums.append(x)
+		counts.append(1)
+		while sums.size() > 1 and sums[sums.size() - 1] / counts[counts.size() - 1] > sums[sums.size() - 2] / counts[counts.size() - 2]:
+			sums[sums.size() - 2] += sums[sums.size() - 1]
+			counts[counts.size() - 2] += counts[counts.size() - 1]
+			sums.resize(sums.size() - 1)
+			counts.resize(counts.size() - 1)
+	var out := PackedFloat32Array()
+	for b in sums.size():
+		for _q in counts[b]:
+			out.append(sums[b] / counts[b])
+	var count := out.size()
+	var smooth := out.duplicate()
+	for k in count:
+		var sum := 0.0
+		var cnt := 0
+		for q in range(maxi(k - 8, 0), mini(k + 8, count - 1) + 1):
+			sum += out[q]
+			cnt += 1
+		smooth[k] = sum / cnt
+	for k in range(1, count):
+		smooth[k] = minf(smooth[k], smooth[k - 1])
+	return smooth
 
 
 # Water thins in from a trickle where a river starts, and every channel
@@ -481,8 +497,8 @@ func _fill(river: Dictionary) -> void:
 	for k in pts.size():
 		if k > 0:
 			arc += Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length()
-		fill.append(smoothstep(0.0, 300.0, arc))
-		hw[k] *= lerpf(0.5, 1.0, smoothstep(0.0, 300.0, arc))
+		fill.append(smoothstep(0.0, 1500.0, arc))
+		hw[k] *= lerpf(0.5, 1.0, smoothstep(0.0, 1500.0, arc))
 	river.fill = fill
 	river.half_width = hw
 
@@ -494,7 +510,7 @@ func _biomes() -> void:
 	# each island group, and the water nearest it, is its own biome...
 	var own := [WorldMaps.Biome.NONE, WorldMaps.Biome.ISLAND, WorldMaps.Biome.ARCHIPELAGO, WorldMaps.Biome.VOLCANIC]
 	for i in n * n:
-		var o := m.owner[i] if _is_land[i] == 1 else (_near[i] if _dist[i] < 1200.0 else 0)
+		var o := m.owner[i] if _is_land[i] == 1 else (_near[i] if _dist[i] < 4000.0 else 0)
 		if o > 0:
 			m.biome[i] = own[KINDS.find(layout.landmasses[o - 1].get("kind", "island"))]
 	# ...and the painted map says the rest (over the island groups' water

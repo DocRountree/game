@@ -13,7 +13,7 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	Terrain.bake_resolution = 256   # a small world: quick to bake
+	Terrain.bake_resolution = 512   # a coarse world: quick to bake
 	var world: Node3D = load("res://src/world/open_ocean/open_ocean.tscn").instantiate()
 	root.add_child(world)
 	await _frames(2)

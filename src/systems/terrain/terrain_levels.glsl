@@ -340,10 +340,10 @@ float erosion(vec2 p, vec2 slope) {
 	float h = 0.0;
 	vec2 dh = vec2(0.0);
 	float amp = 1.0;
-	const float WL0 = 320.0;   // gully spacing of the first octave (m)
+	const float WL0 = 700.0;   // gully spacing of the first octave (m)
 	float wl = WL0;
 	// a gentle warp, so even a long even slope isn't combed straight
-	p += vec2(noised(p / 1100.0, 71u).x, noised(p / 1100.0 + 19.0, 72u).x) * 200.0;
+	p += vec2(noised(p / 2400.0, 71u).x, noised(p / 2400.0 + 19.0, 72u).x) * 450.0;
 	vec2 down = slope / max(length(slope), 0.02);
 	for (int o = 0; o < 6; o++) {
 		float fade = clamp((wl - 4.0 * pc.spacing) / (4.0 * pc.spacing), 0.0, 1.0);
@@ -416,7 +416,7 @@ void main() {
 		rough *= mix(1.0, 0.35, bl.y) * mix(1.0, 1.25, bl.x) * mix(1.0, 1.15, bl.z) * mix(1.0, 0.7, bl.w * gw.r) * mix(1.0, 0.25, bs.w);
 		float slope = length(base.yz);
 		float ero = erosion(p, base.yz);
-		h += ero * 60.0 * rough * smoothstep(0.02, 0.35, slope) * (1.0 - 0.85 * table) * calm * shore * pc.detail;
+		h += ero * 60.0 * rough * smoothstep(0.004, 0.15, slope) * (1.0 - 0.85 * table) * calm * shore * pc.detail;
 		// broad swells everywhere (the plains' rolling ground), the
 		// forest's hills, dunes on sandy islands; the wetlands lie low and
 		// flat, dimpled with hollows and pools
@@ -442,11 +442,17 @@ void main() {
 	// lowering it), blending back out over several widths, so no walls
 	float lake = lake_level[idx(ivec2(floor(grid_of(p) + 0.5)))];
 	bool in_lake = lake > NO_WATER * 0.5;
-	if (rv.valley > 0.0)
-		// (rounded where it meets the land up at the rim, where a hard crease
-		// would render jagged; sharp at the waterline, where rounding would
-		// flatten the banks)
-		h = mix(h, smin(h, rv.level + rv.shape, clamp(rv.shape * 0.6, 0.01, 4.0)), rv.valley);
+	if (rv.valley > 0.0) {
+		// The channel shapes the ground both ways: where the land is higher
+		// it is cut down to the channel (rounded where it meets the land up
+		// at the rim, where a hard crease would render jagged; sharp at the
+		// waterline); where it is lower, banks are built up to the channel
+		// close to the river, so the water never floats above the ground.
+		float target = rv.level + rv.shape;
+		float cut = smin(h, target, clamp(rv.shape * 0.6, 0.01, 4.0));
+		float built = max(cut, target);
+		h = mix(h, mix(cut, built, 1.0 - smoothstep(1.6, 3.5, rv.r)), rv.valley);
+	}
 	// One water sheet for rivers, oxbow lakes and lakes: the river level
 	// across the water and a little past its edge (the ground cuts the
 	// shoreline, exactly), then diving under the ground. Where a river meets a

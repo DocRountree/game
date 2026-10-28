@@ -21,12 +21,12 @@ const LEVEL_SIZE := 256
 const S0 := 0.5
 const GRID := 16                    ## Quads per patch side.
 const MAX_PATCHES := 5000
-const VIEW_RADIUS := 30000.0        ## Draw terrain out to here (m): the whole world, to the horizon.
+const VIEW_RADIUS := 60000.0        ## Draw terrain out to here (m): to the horizon.
 const DEEP := -4000.0               ## Height reported before the world exists.
 
 ## Grid cells per side for the bake (fixed per world version; tests use fewer).
-static var bake_resolution := 1600
-static var world_size := 30000.0
+static var bake_resolution := 2048
+
 static var _current: Terrain
 
 @export var focus: Node3D           ## The collider follows this (the player).
@@ -111,7 +111,7 @@ func _ready() -> void:
 	_body.add_child(cs)
 	add_child(_body)
 	var config := WorldConfig.current()
-	_task = WorkerThreadPool.add_task(_load_or_bake.bind(config, bake_resolution, world_size), true, "world bake")
+	_task = WorkerThreadPool.add_task(_load_or_bake.bind(config, bake_resolution), true, "world bake")
 
 
 ## Bake (or load) right now, on this thread. For tests and tools.
@@ -120,18 +120,18 @@ func generate_now() -> void:
 		WorkerThreadPool.wait_for_task_completion(_task)
 		_task = -1
 	if _maps == null:
-		_load_or_bake(WorldConfig.current(), bake_resolution, world_size)
+		_load_or_bake(WorldConfig.current(), bake_resolution)
 	_on_maps()
 
 
-func _load_or_bake(config: WorldConfig, cells: int, side: float) -> void:
+func _load_or_bake(config: WorldConfig, cells: int) -> void:
 	var path := cache_path(config, cells)
 	var loaded := WorldMaps.load_from(path, WorldBake.VERSION)
-	if loaded and loaded.seed == config.world_seed and is_equal_approx(loaded.size, side):
+	if loaded and loaded.seed == config.world_seed:
 		loaded.network()   # index the rivers here, off the main thread
 		_maps = loaded
 		return
-	_bake = WorldBake.new(config, cells, side)
+	_bake = WorldBake.new(config, cells)
 	var baked := _bake.run()
 	baked.save(path)
 	baked.network()

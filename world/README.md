@@ -11,7 +11,7 @@ reads the PNGs directly, so 16-bit heights keep their full precision.
 
 ## Layout: `layout.json`
 
-- `world_size`: the world is a square this many metres across (30000). The origin is its
+- `world_size`: the world is a square this many metres across (300000, i.e. 300 km). The origin is its
   centre, x runs east and z south, so north is -z.
 - `sea_value`: in height maps, values at or below this are sea (0.02).
 - `spawn`: where the player starts, world x and z. Put it in open water.
