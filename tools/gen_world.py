@@ -790,6 +790,15 @@ for cells, joins in traces:
     ss = np.arange(0, s[-1], 6.0).tolist() + [s[-1]]
     pts = np.stack([np.interp(ss, s, pts[:, 0]), np.interp(ss, s, pts[:, 1])], 1)
     ar = np.interp(ss, s, ar)
+    # and smoothed over about its own width, so a big river carries no jogs
+    # of the grid it was traced on (it would kink where its tributaries join);
+    # the ends stay put
+    hw_ = 4.5 + 60.0 * np.sqrt(np.clip(ar / a_mouth, 0, 1))
+    for sig in (2.0, 4.0, 7.0):
+        sm = ndimage.gaussian_filter1d(pts, sig, axis=0, mode="nearest")
+        wgt = np.clip((hw_ / 6.0 - sig * 0.6) / (sig * 0.6), 0, 1)[:, None]
+        wgt *= np.clip(np.minimum(np.arange(len(pts)), np.arange(len(pts))[::-1]) / 12.0, 0, 1)[:, None]
+        pts = pts + (sm - pts) * wgt
     rivers.append({"pts": pts, "area": ar, "joins": int(joins), "s": np.array(ss)})
 
 # widths for game scale: 9 m across at the heads, ~130 m at the mouth
@@ -814,6 +823,13 @@ for rv in rivers:
     ph = np.cumsum(np.concatenate([[0], np.diff(s) / lam[1:]])) * 2 * math.pi + rng.uniform(0, 6.3)
     taper = np.clip(s / 300.0, 0, 1) * np.clip((s[-1] - s) / 300.0, 0, 1)
     a_t = 0.18 * lam * flat * taper
+    # (never more than half the radius of the bend it's laid round, or the
+    # offset folds over itself into a knot on the inside of the bend)
+    sm = ndimage.gaussian_filter1d(pts, 8.0, axis=0, mode="nearest")
+    ts = np.gradient(sm, axis=0)
+    ts /= np.maximum(np.linalg.norm(ts, axis=1, keepdims=True), 1e-9)
+    kappa = np.linalg.norm(np.gradient(ts, axis=0), axis=1) / 6.0
+    a_t = np.minimum(a_t, 0.5 / np.maximum(ndimage.maximum_filter1d(kappa, 31), 1e-6))
     pts += nrm * (a_t * np.sin(ph))[:, None] + tan * (0.3 * a_t * np.cos(ph))[:, None]
 
 
@@ -825,38 +841,110 @@ def resample(pts, attrs, step=6.0):
     return out, [np.interp(ss, s, a) for a in attrs]
 
 
-# confluences: each tributary's last stretch curves round into its river's
-# downstream direction and meets it on its centreline, as real tributaries
-# join: at an acute angle, the two currents running together
+# confluences: each tributary's last stretch curves round into its river and
+# meets it as real tributaries do, crossing the bank at 30-45 degrees and
+# easing in alongside, the two currents running together. The approach is
+# laid out in the main river's frame (along its bends): a parabola from its
+# centreline out to the bank, then straight on at the crossing angle; the
+# tributary's own course is joined onto it with a smooth curve.
+def unloop(pts, attrs):
+    """Drop the points where a centreline doubles back on itself (progress
+    measured along a smoothed copy of it), then round off what's left."""
+    sm = ndimage.gaussian_filter1d(pts, 12.0, axis=0, mode="nearest")
+    ts = np.gradient(sm, axis=0)
+    ts /= np.maximum(np.linalg.norm(ts, axis=1, keepdims=True), 1e-9)
+    arc = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(sm, axis=0), axis=1))])
+    q = arc + np.sum((pts - sm) * ts, axis=1)
+    keep = [0]
+    for i in range(1, len(pts) - 1):
+        if q[i] > q[keep[-1]] + 1.0:
+            keep.append(i)
+    keep.append(len(pts) - 1)
+    pts = pts[keep].copy()
+    for _ in range(3):   # (ends fixed)
+        pts[1:-1] = 0.25 * pts[:-2] + 0.5 * pts[1:-1] + 0.25 * pts[2:]
+    return pts, [a[keep] for a in attrs]
+
+
 for rv in rivers:
     if rv["joins"] < 0:
         continue
     main = rivers[rv["joins"]]
     mp = main["pts"]
+    m_arc = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(mp, axis=0), axis=1))])
     pts = rv["pts"]
     k = int(np.argmin(np.linalg.norm(mp - pts[-1], axis=1)))
     hw_m = float(half_width(main["area"][k]))
-    ke = min(k + max(int(0.8 * hw_m / 6.0), 1), len(mp) - 1)
-    t_m = mp[min(ke + 3, len(mp) - 1)] - mp[max(ke - 3, 0)]
-    t_m /= max(np.linalg.norm(t_m), 1e-9)
     seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
     total = seg.sum()
-    lb = float(np.clip(4.0 * hw_m + 40.0, 60.0, 0.45 * total))
+
+    def on_main(sv):
+        sv = float(np.clip(sv, 0.0, m_arc[-1]))
+        c = np.array([np.interp(sv, m_arc, mp[:, 0]), np.interp(sv, m_arc, mp[:, 1])])
+        a = np.array([np.interp(sv - hw_m, m_arc, mp[:, 0]), np.interp(sv - hw_m, m_arc, mp[:, 1])])
+        b = np.array([np.interp(sv + hw_m, m_arc, mp[:, 0]), np.interp(sv + hw_m, m_arc, mp[:, 1])])
+        t = (b - a) / max(np.linalg.norm(b - a), 1e-9)
+        return c, t, np.array([-t[1], t[0]])
+
+    # which side it comes in from (where its course is, well back from the end)
+    lb = float(np.clip(5.0 * hw_m + 80.0, 90.0, 0.5 * total))
     back = np.cumsum(seg[::-1])
-    s_i = len(pts) - 1 - int(np.searchsorted(back, lb)) - 1
-    s_i = max(s_i, 2)
+    s_i = max(len(pts) - 1 - int(np.searchsorted(back, lb)) - 1, 2)
+    c0, _, n0 = on_main(m_arc[k])
+    side = 1.0 if np.dot(pts[s_i] - c0, n0) >= 0.0 else -1.0
+    slope = math.tan(math.radians(rng.uniform(30.0, 45.0)))
+    xc = 2.0 * hw_m / slope              # the parabola meets the bank at that slope
+    x_out = xc + 1.2 * hw_m              # the straight run beyond the bank
+    s_e = min(m_arc[k] + xc, m_arc[-1] - 1.0)
+    approach = []
+    for x in np.linspace(x_out, 0.0, max(int(x_out / 3.0), 8)):
+        y = hw_m * (x / xc) ** 2 if x <= xc else hw_m + slope * (x - xc)
+        c, t, nn = on_main(s_e - x)
+        approach.append(c + nn * side * y)
+    approach = np.array(approach)
+    a0 = approach[0]
+    ta = approach[1] - approach[0]
+    ta /= max(np.linalg.norm(ta), 1e-9)
     p0 = pts[s_i]
     t0 = pts[s_i] - pts[s_i - 2]
     t0 /= max(np.linalg.norm(t0), 1e-9)
-    e = mp[ke]
-    c1 = p0 + t0 * lb * 0.35
-    c2 = e - t_m * lb * 0.45
-    u = np.linspace(0, 1, max(int(lb / 3.0), 8))[:, None]
-    curve = (1 - u) ** 3 * p0 + 3 * (1 - u) ** 2 * u * c1 + 3 * (1 - u) * u ** 2 * c2 + u ** 3 * e
-    pts = np.concatenate([pts[:s_i], curve])
-    ar = np.concatenate([rv["area"][:s_i], np.full(len(curve), rv["area"][s_i])])
+    L = float(np.linalg.norm(a0 - p0))
+    u = np.linspace(0, 1, max(int(L / 3.0), 8))[:-1, None]
+    c1 = p0 + t0 * L * 0.4
+    c2 = a0 - ta * L * 0.4
+    link = (1 - u) ** 3 * p0 + 3 * (1 - u) ** 2 * u * c1 + 3 * (1 - u) * u ** 2 * c2 + u ** 3 * a0
+    pts = np.concatenate([pts[:s_i], link, approach])
+    ar = np.concatenate([rv["area"][:s_i], np.full(len(link) + len(approach), rv["area"][s_i])])
     rv["pts"], (rv["area"],) = resample(pts, [ar])
-    rv["join_k"] = ke
+    rv["join_xy"] = on_main(s_e)[0]
+
+def ease_bends(pts, hw, iters=240):
+    """Ease every bend tighter than a river that wide can turn (a radius of
+    2.5 half widths) by smoothing it locally; the ends stay put."""
+    pts = pts.copy()
+    for _ in range(iters):
+        d0 = pts[1:-1] - pts[:-2]
+        d1 = pts[2:] - pts[1:-1]
+        turn = np.abs((np.arctan2(d1[:, 1], d1[:, 0]) - np.arctan2(d0[:, 1], d0[:, 0]) + np.pi) % (2 * np.pi) - np.pi)
+        ds = 0.5 * (np.linalg.norm(d0, axis=1) + np.linalg.norm(d1, axis=1))
+        over = np.clip(turn / np.maximum(ds, 1e-6) * hw[1:-1] / 0.4 - 1.0, 0, 1)
+        if over.max() <= 0.0:
+            break
+        over = ndimage.maximum_filter1d(over, 9)
+        pts[1:-1] += (0.5 * (pts[:-2] + pts[2:]) - pts[1:-1]) * (0.5 * over)[:, None]
+    return pts
+
+
+# no centreline doubles back on itself (meanders, joins), nor bends tighter
+# than it could
+for rv in rivers:
+    pts, (ar,) = unloop(rv["pts"], [rv["area"]])
+    pts, (ar,) = resample(pts, [ar])
+    pts = ease_bends(pts, half_width(ar))
+    rv["pts"], (rv["area"],) = resample(pts, [ar])
+for rv in rivers:
+    if rv["joins"] >= 0:
+        rv["join_k"] = int(np.argmin(np.linalg.norm(rivers[rv["joins"]]["pts"] - rv["join_xy"], axis=1)))
 
 
 def with_waterfall(g, base, rid):
@@ -885,6 +973,11 @@ def with_waterfall(g, base, rid):
 falls = 0
 for ri_, rv in enumerate(rivers):
     rv["hw"] = half_width(rv["area"])   # (never narrower than the 2.5 m grid can carve cleanly)
+    if rv["joins"] < 0:
+        # the trunk opens out into the sea over its last 500 m, a funnel-shaped mouth
+        arc_ = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(rv["pts"], axis=0), axis=1))])
+        x = np.clip(1.0 - (arc_[-1] - arc_) / 500.0, 0, 1)
+        rv["hw"] = rv["hw"] * (1.0 + 0.6 * x * x)
     rv["depth"] = 1.6 + 5.4 * np.sqrt(np.clip(rv["area"] / a_mouth, 0, 1))   # (deep enough to read as a river)
     g = bilinear(hf, rv["pts"][:, 0], rv["pts"][:, 1])
     g = ndimage.minimum_filter1d(g, 5)
@@ -1027,11 +1120,13 @@ def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
 
 
 @njit(cache=True)
-def blend_in(T, W, R, x0, z0, trib, SW, ST, WM, RM):
+def blend_in(T, W, R, x0, z0, trib, SW, ST, WM, RM, CUT):
     """Add one river's ground to the network's: weighted by its claim on the
     ground (W^8), so where two rivers' valleys overlap the stronger takes over
     smoothly; a tributary's channel fades out inside the water of the rivers
-    already carved (it ends inside one of them)."""
+    already carved (it ends inside one of them). Each river's own channel is
+    kept in CUT, so that it can be cut through the others' banks afterwards
+    (a tributary keeps its width right into its river)."""
     hz, hx = T.shape
     for j in range(hz):
         for i in range(hx):
@@ -1042,6 +1137,8 @@ def blend_in(T, W, R, x0, z0, trib, SW, ST, WM, RM):
             if trib:   # (only inside the other river's water, so the two channels meet)
                 x = min(max((RM[jj, ii] - 0.55) / 0.45, 0.0), 1.0)
                 w *= x * x * (3.0 - 2.0 * x)
+            if R[j, i] < 1.1:
+                CUT[jj, ii] = min(CUT[jj, ii], T[j, i])
             o = w ** 8
             SW[jj, ii] += o
             ST[jj, ii] += o * T[j, i]
@@ -1056,6 +1153,7 @@ SW = np.zeros((N, N), np.float32)
 ST = np.zeros((N, N), np.float32)
 Wt = np.zeros((N, N), np.float32)
 RM = np.full((N, N), 1e9, np.float32)
+CUT = np.full((N, N), 1e9, np.float32)
 for ri, rv in enumerate(rivers):
     p = rv["pts"]
     reach = 9.0 * rv["hw"].max() + 10.0
@@ -1071,9 +1169,11 @@ for ri, rv in enumerate(rivers):
         np.linalg.norm(np.gradient(p, axis=0), axis=1), 0.5)
     vr = 3.0 + 6.0 * np.clip(1.0 - (sl - 0.02) / 0.06, 0, 1)
     carve_river(p[:, 0].copy(), p[:, 1].copy(), rv["level"], rv["smooth"], rv["hw"], rv["depth"], vr, WORLD, N, x0, z0, Tw, Ww, Rw)
-    blend_in(Tw, Ww, Rw, x0, z0, rv["joins"] >= 0, SW, ST, Wt, RM)
+    blend_in(Tw, Ww, Rw, x0, z0, rv["joins"] >= 0, SW, ST, Wt, RM, CUT)
 T = np.where(SW > 0, ST / np.maximum(SW, 1e-30), 0.0).astype(np.float32)
-del ST, RM
+T = np.minimum(T, CUT)   # every channel cut through the banks of the others
+channel = CUT < 1e8      # (the rivers' beds: sand and gravel, below)
+del ST, RM, CUT
 # blended in (the land beside the river pulled toward its floodplain, both
 # ways), except out at sea
 hf = np.where((SW > 0) & ((hf > -1.0) | (T < hf)), hf + (T - hf) * Wt, hf)
@@ -1094,6 +1194,10 @@ rock = np.clip((slope - 30.0) / 10.0, 0, 1)
 rock = np.maximum(rock, np.clip((hg - 760.0) / 140.0, 0, 1) * np.clip((slope - 18.0) / 10.0, 0, 1))
 sand = np.where(land_g, np.clip(1.0 - (hg - 1.5) / 2.5, 0, 1) * np.clip(1.0 - (sea_d - 25.0) / 50.0, 0, 1), 1.0)
 sand = np.maximum(sand, np.where(land_g, 0.0, 1.0))
+# the rivers' beds are sand and gravel (so the bed shows through the water)
+bed = ndimage.gaussian_filter(channel.reshape(G, 2, G, 2).mean(axis=(1, 3)).astype(np.float32), 0.8)
+sand = np.maximum(sand, np.clip(bed * 1.3, 0, 1) * 0.85)
+del channel
 clump = field_fbm(XG, ZG, 650.0, 4, SEED + 11) + 0.35 * field_fbm(XG, ZG, 120.0, 3, SEED + 12)
 forest = np.clip((clump + 0.15) / 0.45, 0, 1) * np.clip(1.0 - (slope - 24.0) / 10.0, 0, 1) \
     * np.clip((hg - 4.0) / 6.0, 0, 1) * np.clip(1.0 - (hg - 560.0) / 160.0, 0, 1) \

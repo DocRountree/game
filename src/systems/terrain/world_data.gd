@@ -28,6 +28,7 @@ var landmasses: Array = []
 var trees := PackedByteArray()      ## 8 bytes per tree: uint16 x, uint16 z, uint16 ground height (as the heights), uint8 height (dm), uint8 spare.
 
 static var _shared: WorldData
+var _river_mask: ImageTexture
 
 
 ## The world, loaded on first use (null if it hasn't been generated).
@@ -73,15 +74,83 @@ func _load() -> bool:
 			pts.append(Vector3(p[0], p[1], p[2]))
 		var hw := PackedFloat32Array(r.half_width)
 		var depth := PackedFloat32Array(r.depth)
-		# the current: faster where the water falls, bigger rivers a little faster
-		var speed := PackedFloat32Array()
-		for k in pts.size():
-			var a := pts[maxi(k - 4, 0)]
-			var b := pts[mini(k + 4, pts.size() - 1)]
-			var run := maxf(Vector2(b.x - a.x, b.z - a.z).length(), 1.0)
-			speed.append(clampf(0.5 + 0.02 * hw[k] + 9.0 * sqrt(maxf(a.y - b.y, 0.0) / run), 0.5, 6.0))
-		rivers.append({"points": pts, "half_width": hw, "depth": depth, "speed": speed, "joins": int(r.joins)})
+		rivers.append({"points": pts, "half_width": hw, "depth": depth, "speed": _current(pts, hw), "joins": int(r.joins)})
 	return true
+
+
+## Where the rivers' water stands above the sea, for the ocean (which isn't
+## drawn under it): an R8 texture of the world at 1/4 the height resolution,
+## each texel the level of the nearest reach (0..2 m as 0..1; 0 outside the rivers).
+## Only the reaches low enough to have sea-level ground under them count.
+func river_mask() -> ImageTexture:
+	if _river_mask:
+		return _river_mask
+	var n := texels / 4
+	var cell := size / n
+	var data := PackedByteArray()
+	data.resize(n * n)
+	var near := PackedFloat32Array()
+	near.resize(n * n)
+	near.fill(INF)
+	for r in rivers:
+		var pts: PackedVector3Array = r.points
+		var hw: PackedFloat32Array = r.half_width
+		for k in pts.size() - 1:
+			if pts[k].y > 12.0 or pts[k].y < 0.2:
+				continue
+			var steps := maxi(ceili(Vector2(pts[k + 1].x - pts[k].x, pts[k + 1].z - pts[k].z).length() / 5.0), 1)
+			for st in steps:
+				var t := float(st) / steps
+				var p := pts[k].lerp(pts[k + 1], t)
+				var rad := lerpf(hw[k], hw[k + 1], t) * 1.2 + 5.0
+				var v := int(clampf(p.y / 2.0, 0.0, 1.0) * 255.0)
+				var cx := (p.x + size * 0.5) / cell
+				var cz := (p.z + size * 0.5) / cell
+				var rc := rad / cell
+				for iz in range(maxi(int(cz - rc), 0), mini(int(cz + rc) + 1, n)):
+					for ix in range(maxi(int(cx - rc), 0), mini(int(cx + rc) + 1, n)):
+						var dd := Vector2(ix + 0.5 - cx, iz + 0.5 - cz).length()
+						var i := iz * n + ix
+						if dd <= rc and dd < near[i]:
+							near[i] = dd
+							data[i] = v
+	_river_mask = ImageTexture.create_from_image(Image.create_from_data(n, n, false, Image.FORMAT_R8, data))
+	return _river_mask
+
+
+## A river's current (m/s) at each point: faster where the water falls (the
+## drop over 80 m of it), bigger rivers a little faster, and smoothed over
+## about 120 m, so it never changes abruptly from one point to the next
+## (however unevenly the points are spaced).
+static func _current(pts: PackedVector3Array, hw: PackedFloat32Array) -> PackedFloat32Array:
+	var n := pts.size()
+	var arc := PackedFloat32Array([0.0])
+	for k in range(1, n):
+		arc.append(arc[k - 1] + Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length())
+	var raw := PackedFloat32Array()
+	var a := 0
+	var b := 0
+	for k in n:
+		while a < k and arc[k] - arc[a] > 40.0:
+			a += 1
+		while b < n - 1 and arc[b] - arc[k] < 40.0:
+			b += 1
+		var slope := maxf(pts[a].y - pts[b].y, 0.0) / maxf(arc[b] - arc[a], 1.0)
+		raw.append(clampf(0.5 + 0.02 * hw[k] + 9.0 * sqrt(slope), 0.5, 6.0))
+	var out := PackedFloat32Array()
+	a = 0
+	b = 0
+	var sum := 0.0
+	for k in n:
+		# a running mean over +-60 m
+		while b < n and arc[b] - arc[k] <= 60.0:
+			sum += raw[b]
+			b += 1
+		while arc[k] - arc[a] > 60.0:
+			sum -= raw[a]
+			a += 1
+		out.append(sum / (b - a))
+	return out
 
 
 ## The 16-bit height sample (ix, iz) of mip level 0, in metres.

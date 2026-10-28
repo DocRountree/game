@@ -31,6 +31,7 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 @export var climb_speed := 3.0              ## m/s on rock (Ctrl: faster)
 
 const LAND_GRAVITY := 9.8                   ## Real gravity (m/s^2)
+const MANTLE_TIME := 0.45                   ## s to pull up over the top of a climb.
 const CLIMBABLE_Y := 0.72                   ## Ground steeper than this (normal.y below it, ~44 deg) can't be walked: it's climbed.
 @export var traits: CharacterTraits
 
@@ -43,6 +44,9 @@ var head_under := false   ## Head below the surface (snorkels, scuba, the camera
 var flying := false       ## Debug flight, toggled by double-tapping Space.
 var climbing := false     ## On the rock (E).
 var climb_normal := Vector3.BACK   ## The rock's normal where you're holding on.
+var _mantle_t := -1.0              ## Progress pulling up over the top (-1: not).
+var _mantle_from := Vector3.ZERO
+var _mantle_to := Vector3.ZERO
 
 @onready var left_hand: Inventory = $LeftHand
 @onready var right_hand: Inventory = $RightHand
@@ -81,7 +85,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var now := Time.get_ticks_msec() / 1000.0
 		if now - _last_space < 0.3:
 			flying = not flying
-			climbing = false
+			let_go()
 			if not flying:
 				velocity = Vector3.ZERO   # stop dead and fall from rest, not carried on by the flight
 			_last_space = -10.0
@@ -89,8 +93,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_last_space = now
 	if event.is_action_pressed(&"climb") and not boat and not flying:
 		if climbing:
-			climbing = false
-			velocity = climb_normal * 1.0   # let go: push off and fall
+			if _mantle_t < 0.0:
+				let_go()
 		else:
 			try_climb()
 	# Minecraft-style: right-click boards, Shift dismounts
@@ -199,6 +203,13 @@ func _on_land(delta: float) -> void:
 	velocity.y -= LAND_GRAVITY * delta
 	_walk(delta, is_on_floor())
 	move_and_slide()
+	# never under the ground (if something ever pushes the body through the
+	# collider, it's put back on top rather than falling into the void)
+	if Terrain.current():
+		var g := Terrain.height_at(global_position.x, global_position.z)
+		if global_position.y - CHEST < g - 0.6:
+			global_position.y = g + CHEST
+			velocity.y = maxf(velocity.y, 0.0)
 	state = &"WALKING" if is_on_floor() else &"AIRBORNE"
 	_set_head_under(false)
 	breath = minf(1.0, breath + delta / 3.0)
@@ -266,14 +277,21 @@ func _climb(delta: float) -> void:
 	_set_head_under(false)
 	breath = minf(1.0, breath + delta / 3.0)
 	var hit := _ray(global_position + climb_normal * 0.5, global_position - climb_normal * 2.0)
+	if _mantle_t >= 0.0:
+		_mantle(delta)
+		return
 	if hit.is_empty() or hit.normal.y >= CLIMBABLE_Y:
 		# the rock ends or turns walkable: pull over the top if there's ground
 		# up there, otherwise there's nothing to hold
 		var over := global_position + Vector3.UP * 1.6 - climb_normal * 0.8
 		var ground := _ray(over, over + Vector3.DOWN * 3.5)
-		climbing = false
 		if ground and ground.normal.y >= CLIMBABLE_Y:
-			velocity = Vector3.UP * 4.5 - climb_normal * 2.5
+			_mantle_from = global_position
+			_mantle_to = (ground.position as Vector3) + Vector3.UP * (CHEST + 0.05)
+			_mantle_t = 0.0
+			_collision.disabled = true   # (the body passes over the edge)
+		else:
+			let_go()
 		return
 	climb_normal = climb_normal.slerp(hit.normal, minf(1.0, 10.0 * delta)).normalized()
 	var up_dir := (Vector3.UP - climb_normal * Vector3.UP.dot(climb_normal)).normalized()
@@ -288,6 +306,36 @@ func _climb(delta: float) -> void:
 	var lie := Basis.from_euler(Vector3(-asin(clampf(climb_normal.y, -0.9, 0.9)), atan2(climb_normal.x, climb_normal.z), 0.0))
 	_collision.transform = Transform3D(lie, lie * _collision_rest.origin)
 	move_and_slide()
+
+
+# Pulling up over the top: up first, then over onto the ground, standing.
+func _mantle(delta: float) -> void:
+	_mantle_t = minf(_mantle_t + delta / MANTLE_TIME, 1.0)
+	var t := _mantle_t
+	var p := _mantle_from.lerp(_mantle_to, t * t)
+	p.y = lerpf(_mantle_from.y, _mantle_to.y, 1.0 - (1.0 - t) * (1.0 - t)) + sin(PI * t) * 0.25
+	global_position = p
+	velocity = Vector3.ZERO
+	if _mantle_t >= 1.0:
+		_mantle_t = -1.0
+		climbing = false
+		_collision.disabled = false
+		_collision.transform = _collision_rest
+		var on := Vector3(-climb_normal.x, 0.0, -climb_normal.z)
+		velocity = on.normalized() * 1.0 if on.length() > 0.01 else Vector3.ZERO
+
+
+## Let go of the rock: the body stands upright again, moved off the rock first
+## so it doesn't stand up into it, and falls.
+func let_go() -> void:
+	if not climbing:
+		return
+	climbing = false
+	_mantle_t = -1.0
+	_collision.disabled = false
+	global_position += climb_normal * maxf(0.0, 1.05 * climb_normal.y - 0.05)
+	_collision.transform = _collision_rest
+	velocity = climb_normal * 1.0   # push off
 
 
 func _ray(a: Vector3, b: Vector3) -> Dictionary:
@@ -365,7 +413,7 @@ func head_depth() -> float:
 func respawn(at: Vector3) -> void:
 	if boat:
 		_leave_boat()
-	climbing = false
+	let_go()
 	global_position = at
 	velocity = Vector3.ZERO
 	breath = 1.0
@@ -391,7 +439,7 @@ func _try_board() -> void:
 	for b: Boat in get_tree().get_nodes_in_group(&"boats"):
 		if b.driver == null and global_position.distance_to(b.global_position) < board_range \
 				and head_depth() < 1.5:
-			climbing = false
+			let_go()
 			boat = b
 			b.driver = self
 			b.helm.occupant = self

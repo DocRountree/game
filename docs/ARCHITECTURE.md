@@ -163,8 +163,21 @@ what make it read as big.
   water. It is laid out in world space and carried along the current by two
   crossfaded phases, so it follows every bend without stretching; it runs
   fastest mid-channel and flattens where the water is fast, and it and the
-  gloss fade out where they would be finer than a pixel. Light through the
-  water dies away red and green last. Cross-sections are 2 m apart, so waterfalls stay sheer, and the
+  gloss fade out where they would be finer than a pixel; each octave is
+  turned from the last, so no grid shows. Light through the water dies away
+  red and green last. The bed (sand and gravel) shows through, fading with
+  the water over it, but never more than 60% of it, so the water never
+  vanishes at its edges. The water's thickness comes from the depth texture,
+  or, where there is none (with MSAA on there isn't), from the channel's own
+  depth profile and the viewing angle.
+  Falls: the ribbon's sheet leaves the lip level and curves down (a
+  parabola, a cross-section every 0.5 m of the drop), smooth and glassy over
+  the lip, then streaming, its streaks stretching as the water speeds up and
+  banded where the sheet runs thicker and thinner; below it the plunge pool
+  is stirred up, with ripples running out from the foot. Where a river runs
+  down to the sea it fades out into it, and the ocean fades in
+  (`WorldData.river_mask()`: the sea isn't drawn under river water above sea
+  level, where a riverbed lies below it). Cross-sections are 2 m apart, so waterfalls stay sheer, and the
   surface's frame follows the flow in 3D: over a fall the water faces
   downstream and its streaks run down it. The ribbons are drawn smallest
   stream first and trunk last, so where a tributary's mouth lies under its
@@ -340,8 +353,13 @@ rest, so you fall straight down, accelerating.
 about 44 degrees) if there is some just in front of you. On the rock there
 is no gravity; WASD moves up, down and across it (relative to the rock), Ctrl
 faster, the chest held 0.45 m off it and the body turning with it. Where the
-rock ends or turns walkable you pull yourself over the top (or fall, if
-there's nothing up there); E lets go.
+rock ends or turns walkable you pull yourself up over the top onto the
+ground there (or fall, if there's nothing up there); E lets go. While you
+climb the capsule lies along the rock, and it stands upright again only once
+the body is clear of the rock, so it can't be pushed through the ground (and
+if anything ever does push the body under the ground it's put back on top).
+The view switches to third person while you climb, and back to the view you
+had once you're off the rock.
 
 **The body** (`CharacterRig`, `src/entities/player/character_rig.gd`) is a
 stylized explorer built from primitives (hat, hair, knapsack and bedroll,

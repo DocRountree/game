@@ -47,6 +47,11 @@ uniform int texels = 4096;
 uniform float h_min = -300.0;
 uniform float h_scale = 0.0213623;
 uniform bool has_seabed = false;
+// Where the rivers' water stands above the sea (WorldData.river_mask(): the
+// level, 0..2 m as 0..1): the sea isn't drawn under it, and fades out where
+// a river comes down to meet it.
+uniform sampler2D river_mask : filter_linear, repeat_disable;
+uniform bool has_river_mask = false;
 
 group_uniforms body;
 uniform float swell_scale = 1.0;
@@ -179,4 +184,8 @@ void fragment() {
 	SPECULAR = 0.5;
 	EMISSION = refracted * (1.0 - fresnel);
 	ALPHA = 1.0;
+	if (has_river_mask)
+		ALPHA = 1.0 - smoothstep(0.35, 0.9, texture(river_mask, x0 / world_size + 0.5).r);
+	if (ALPHA < 0.02)
+		discard;   // (it writes depth: none where it isn't)
 }

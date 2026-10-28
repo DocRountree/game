@@ -33,10 +33,14 @@ How it's made:
 4. **Rivers**: the main island's biggest catchment drains through one mouth. The system is
    built as a drainage hierarchy: the trunk traced up from the mouth, its six biggest side
    branches and up to two branches off each of those, every stream traced up its own valley
-   (by the biggest donor) to where it starts. Smoothed, meandering where the valley floor is
-   flat; each tributary's last stretch curves round into its river's downstream direction
-   and meets it on its centreline. Widths are set for game scale (9 m wide at the heads,
-   about 130 m at the mouth), and depths too (1.6 m at the heads to 7 m at the mouth). The
+   (by the biggest donor) to where it starts. Smoothed over about its own width (no jogs
+   from the grid it was traced on), meandering where the valley floor is flat (never so
+   much round a bend that the course folds over itself); each tributary's last stretch
+   curves round into its river, crossing the bank at 30-45 degrees and easing in alongside
+   to meet it on its centreline. No centreline doubles back on itself or bends tighter
+   than a radius of 2.5 half widths. Widths are set for game scale (9 m wide at the heads,
+   about 130 m at the mouth, where the trunk opens out into the sea over its last 500 m),
+   and depths too (1.6 m at the heads to 7 m at the mouth). The
    water level is the downhill profile closest to the ground, smoothed into one continuous
    run of gentle reaches and rapids. Each tributary gets at most one waterfall, at its
    steepest spot where the ground drops at least 8 m over 60 m: the pool below is carried
@@ -44,8 +48,10 @@ How it's made:
    2.5 m heights to match, so the water always lies in its bed: each river's ground is one
    continuous field (nearby reaches blended), the floodplain wide in the lowlands and narrow
    beside mountain streams, and where valleys overlap the river with the stronger claim
-   takes over smoothly.
-5. **Masks and trees**: rock on steep and high ground, sand on beaches and the seafloor,
+   takes over smoothly; every channel is then cut through the others' banks, so a
+   tributary keeps its width right into its river.
+5. **Masks and trees**: rock on steep and high ground, sand on beaches, the seafloor and
+   the rivers' beds,
    forest in clumps on gentle slopes below 700 m, ambient occlusion from the hollows; trees
    scattered by the forest mask.
 6. **Start**: a beach on the main island near the river mouth, the boat in 7 m of water

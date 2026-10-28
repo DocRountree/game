@@ -96,6 +96,8 @@ func _process(delta: float) -> void:
 		_material.set_shader_parameter("h_min", t.world.h_min)
 		_material.set_shader_parameter("h_scale", t.world.h_scale)
 		_material.set_shader_parameter("has_seabed", true)
+		_material.set_shader_parameter("river_mask", t.world.river_mask())
+		_material.set_shader_parameter("has_river_mask", true)
 	if sun:
 		_material.set_shader_parameter("sun_direction", sun.global_basis.z)
 		_material.set_shader_parameter("sun_color", Vector3(sun.light_color.r, sun.light_color.g, sun.light_color.b) * sun.light_energy)

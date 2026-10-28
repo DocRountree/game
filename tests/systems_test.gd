@@ -323,6 +323,7 @@ func _run() -> void:
 	camera.yaw = atan2(-uphill.x, -uphill.y)   # look at the rock (the body faces where the camera looks)
 	camera.pitch = 0.0
 	await _frames(10)
+	var view_before := camera.first_person
 	var e_key := InputEventAction.new()
 	e_key.action = &"climb"
 	e_key.pressed = true
@@ -335,10 +336,35 @@ func _run() -> void:
 	Input.action_release(&"move_forward")
 	var rose := player.global_position.y - climb_y
 	var held := player.climbing and player.state == &"CLIMBING"
+	var third := not camera.first_person and player.model.visible
 	Input.parse_input_event(e_key)
 	await _frames(5)
-	_check(wall != Vector3.ZERO and grabbed and held and rose > 1.0 and not player.climbing,
-			"E grabs a slope too steep to walk (normal.y %.2f), W climbs it (%.1f m in 1 s), E lets go" % [player.climb_normal.y, rose])
+	var let_go_ok := not player.climbing
+	var view_back := camera.first_person == view_before
+	await _frames(90)
+	var after := player.global_position.y - Player.CHEST - Terrain.height_at(player.global_position.x, player.global_position.z)
+	_check(wall != Vector3.ZERO and grabbed and held and rose > 1.0 and let_go_ok and after > -0.3,
+			"E grabs a slope too steep to walk (normal.y %.2f), W climbs it (%.1f m in 1 s), E lets go (and you land, %.2f m above the ground)"
+			% [player.climb_normal.y, rose, after])
+
+	# climbing on up to the top pulls you over it, standing on the ground
+	player.respawn(Vector3(at.x, Terrain.height_at(at.x, at.z) + 1.0, at.z))
+	await _frames(10)
+	Input.parse_input_event(e_key)
+	await _frames(5)
+	var regrabbed := player.climbing
+	Input.action_press(&"move_forward")
+	var climb_frames := 0
+	while player.climbing and climb_frames < 1800:
+		await physics_frame
+		climb_frames += 1
+	Input.action_release(&"move_forward")
+	await _frames(90)
+	var stand := player.global_position.y - Player.CHEST - Terrain.height_at(player.global_position.x, player.global_position.z)
+	_check(third and view_back, "climbing switches to third person, and back to the view you had once you let go")
+	_check(regrabbed and not player.climbing and player.state == &"WALKING" and absf(stand) < 0.4,
+			"climbing to the top pulls you over it, standing on the ground (%s after %.1f s, feet %.2f m above it)"
+			% [player.state, climb_frames / 60.0, stand])
 
 	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	quit(1 if _failures else 0)

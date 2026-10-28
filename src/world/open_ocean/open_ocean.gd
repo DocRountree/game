@@ -79,8 +79,21 @@ func _underwater_view() -> void:
 	env.fog_sky_affect = 1.0 if under else _air_fog.s
 
 
+var _climbing := false
+var _view_before_climb := true
+
+
 func _process(_delta: float) -> void:
 	_underwater_view()
+	# climbing is seen from behind (third person), and the view goes back to
+	# what it was once you're off the rock
+	if player.climbing != _climbing:
+		_climbing = player.climbing
+		if _climbing:
+			_view_before_climb = camera.first_person
+			_set_first_person(false)
+		else:
+			_set_first_person(_view_before_climb)
 	var driving := player.boat != null
 	camera.target = boat if driving else player
 	camera.turn_with_target = driving
