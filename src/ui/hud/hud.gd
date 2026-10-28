@@ -1,9 +1,9 @@
 class_name Hud
 extends CanvasLayer
-## Status readout, breath bar, contextual controls and flash messages.
+## Status readout, breath gauge, contextual controls and flash messages.
 
 @onready var _status: Label = $Status
-@onready var _breath: ProgressBar = $Breath
+@onready var _breath: BreathGauge = $Breath
 @onready var _help: Label = $Help
 @onready var _message: Label = $Message
 

@@ -1,6 +1,7 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://src/ui/hud/hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://src/ui/hud/breath_gauge.gd" id="2_breath"]
 
 [sub_resource type="LabelSettings" id="Text"]
 font_size = 16
@@ -12,12 +13,6 @@ font_size = 24
 outline_size = 6
 outline_color = Color(0, 0, 0, 0.8)
 
-[sub_resource type="StyleBoxFlat" id="Bar_bg"]
-bg_color = Color(0.08, 0.08, 0.08, 0.7)
-
-[sub_resource type="StyleBoxFlat" id="Bar_fill"]
-bg_color = Color(0.35, 0.78, 1, 1)
-
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
 
@@ -28,16 +23,19 @@ offset_right = 400.0
 offset_bottom = 140.0
 label_settings = SubResource("Text")
 
-[node name="Breath" type="ProgressBar" parent="."]
-offset_left = 14.0
-offset_top = 148.0
-offset_right = 174.0
-offset_bottom = 158.0
-theme_override_styles/background = SubResource("Bar_bg")
-theme_override_styles/fill = SubResource("Bar_fill")
-max_value = 1.0
-value = 1.0
-show_percentage = false
+[node name="Breath" type="Control" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -80.0
+offset_top = -80.0
+offset_right = -24.0
+offset_bottom = -24.0
+grow_horizontal = 0
+grow_vertical = 0
+script = ExtResource("2_breath")
 
 [node name="Help" type="Label" parent="."]
 anchors_preset = 1

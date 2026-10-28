@@ -416,7 +416,7 @@ void main() {
 		rough *= mix(1.0, 0.35, bl.y) * mix(1.0, 1.25, bl.x) * mix(1.0, 1.15, bl.z) * mix(1.0, 0.7, bl.w * gw.r) * mix(1.0, 0.25, bs.w);
 		float slope = length(base.yz);
 		float ero = erosion(p, base.yz);
-		h += ero * 60.0 * rough * smoothstep(0.004, 0.15, slope) * (1.0 - 0.85 * table) * calm * shore * pc.detail;
+		h += ero * 110.0 * rough * smoothstep(0.004, 0.15, slope) * (1.0 - 0.85 * table) * calm * shore * pc.detail;
 		// broad swells everywhere (the plains' rolling ground), the
 		// forest's hills, dunes on sandy islands; the wetlands lie low and
 		// flat, dimpled with hollows and pools

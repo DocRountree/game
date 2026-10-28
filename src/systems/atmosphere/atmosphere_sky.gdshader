@@ -63,7 +63,7 @@ vec2 ray_sphere(float radius, vec3 origin, vec3 dir) {
 
 // air (Rayleigh), low haze and high aerosol (Mie) densities
 vec3 density_at(vec3 p) {
-	float h01 = (length(p) - 1.0) / atmosphere_scale;
+	float h01 = max((length(p) - 1.0) / atmosphere_scale, 0.0);   // (never below the surface: no overflow)
 	float s = (h01 - strat_height) / strat_width;
 	return vec3(exp(-h01 * density_falloff), exp(-h01 * mie_falloff), exp(-s * s)) * (1.0 - h01);
 }
@@ -82,9 +82,21 @@ float henyey_greenstein(float g, float mu) {
 
 void sky() {
 	vec3 dir = EYEDIR;
+	// The sea's horizon dips below level the higher you are (the planet curves
+	// away): sin(dip) = sqrt(1 - (R / (R + h))^2).
+	float rel = planet_radius / (planet_radius + max(POSITION.y, 1.0));
+	float horizon_y = -sqrt(max(1.0 - rel * rel, 0.0));
 	// The ocean covers everything below the horizon, so look along the horizon
 	// instead: reflections and distance haze below it get the horizon colour.
-	dir.y = max(dir.y, 0.0015);
+	// (Keeping the ray's heading: a ray straight down has none, so it takes
+	// one, or it would stay pointing into the planet.)
+	float ylim = horizon_y + 0.0015;
+	if (dir.y < ylim) {
+		vec2 hd = dir.xz;
+		float hl = length(hd);
+		hd = hl > 1e-5 ? hd / hl : vec2(1.0, 0.0);
+		dir = vec3(hd.x, 0.0, hd.y) * sqrt(1.0 - ylim * ylim) + vec3(0.0, ylim, 0.0);
+	}
 	dir = normalize(dir);
 	vec3 sun = normalize(sun_direction);
 
@@ -134,7 +146,7 @@ void sky() {
 
 	// the sun itself, dimmed and reddened by the air in front of it
 	vec3 view_transmittance = exp(-(view_depth.x * air_extinction + view_depth.y * haze_extinction + view_depth.z * strat_extinction));
-	if (!AT_CUBEMAP_PASS && EYEDIR.y > -0.002) {
+	if (!AT_CUBEMAP_PASS && EYEDIR.y > horizon_y - 0.002) {   // (it sets at the true horizon)
 		float disc = smoothstep(sun_disc_size - 0.00004, sun_disc_size + 0.00004, mu);
 		light += view_transmittance * disc * sun_disc_brightness;
 	}

@@ -15,7 +15,7 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	Terrain.bake_resolution = 512   # a coarse world: quick to bake
+	Terrain.bake_resolution = 1024   # a coarse world: quick to bake
 	var world: Node3D = load("res://src/world/open_ocean/open_ocean.tscn").instantiate()
 	root.add_child(world)
 	var ocean: Ocean = world.get_node("Ocean")
@@ -25,6 +25,12 @@ func _run() -> void:
 	_check(_shader_compiles("res://src/systems/water/ocean/ripple_sim.glsl"), "ripple compute shader compiles to SPIR-V")
 	_check(_shader_compiles("res://src/systems/water/ocean/ocean_fft.glsl"), "FFT ocean compute shader compiles to SPIR-V")
 	_check(_lookup_consistent(ocean), "surface_height() inverts the Gerstner displacement")
+	# (checked in deep water, before the world exists: waves shrink in the shallows)
+	world.get_node("Terrain").generate_now()   # the world first: then the player and boat spawn
+	for _f in 600:
+		if world._spawn_spot != Vector3.INF and world._loading == null:
+			break
+		await process_frame
 	await _frames(2)   # let the scene enter the tree and run _ready()
 	var atmosphere: Atmosphere = world.get_node("Atmosphere")
 	var clock: GameClock = world.get_node("Clock")
@@ -154,6 +160,7 @@ func _run() -> void:
 	var crate_top := crate.global_position.y + 0.5 - ocean.surface_height(crate.global_position.x, crate.global_position.z)
 	_check(crate_top > 0.0 and crate_top < 1.0, "crate floats (%.2f m above water)" % crate_top)
 
+	player.respawn(boat.global_position + Vector3(4.0, 0.0, 0.0))   # (you start ashore: into the water beside the boat)
 	await _frames(360)   # idle: should sink
 	_check(player.state == &"SINKING" and player.head_depth() > 1.0,
 			"idle player sinks (head %.1f m under)" % player.head_depth())

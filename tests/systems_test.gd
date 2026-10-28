@@ -13,9 +13,14 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	Terrain.bake_resolution = 512   # a coarse world: quick to bake
+	Terrain.bake_resolution = 1024   # a coarse world: quick to bake
 	var world: Node3D = load("res://src/world/open_ocean/open_ocean.tscn").instantiate()
 	root.add_child(world)
+	world.get_node("Terrain").generate_now()   # the world first: then the player and boat spawn
+	for _f in 600:
+		if world._spawn_spot != Vector3.INF and world._loading == null:
+			break
+		await process_frame
 	await _frames(2)
 	var player: Player = world.get_node("Player")
 	var boat: Boat = world.get_node("Boat")
@@ -36,6 +41,8 @@ func _run() -> void:
 	world.add_child(lake)
 	_check(Water.body_at(0.0, 0.0) == lake and Water.body_at(100.0, 0.0) is Ocean
 			and lake.density() < ocean_here.density(), "a fresher, higher-priority lake overrides the ocean inside it")
+	player.respawn(Vector3(0.0, 0.0, 0.0))   # (in the lake for a moment, for the stats below)
+	await _frames(20)
 	lake.queue_free()
 	await process_frame
 
@@ -182,8 +189,8 @@ func _run() -> void:
 	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
 			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
 
-	# diving by looking down
-	player.respawn(Vector3(20, 0, 20))
+	# diving by looking down (out in deeper water, beyond the bay's shallows)
+	player.respawn(Vector3(750, 0, 1300))
 	await _frames(30)
 	var start_depth := player.head_depth()
 	camera.pitch = 1.2   # look steeply down

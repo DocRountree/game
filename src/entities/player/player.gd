@@ -21,10 +21,10 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 @export var sprint_factor := 1.6           ## Ctrl: faster swimming
 @export var walk_speed := 20.0              ## m/s on land
 @export var run_factor := 1.3               ## Ctrl on land (Minecraft's sprint)
-@export var jump_speed := 9.0               ## About a 1.25 m hop under land gravity
+@export var jump_speed := 4.95              ## About a 1.25 m hop under land gravity
 @export var fly_speed := 120.0              ## Debug flight (double-tap Space)
 
-const LAND_GRAVITY := 32.0                  ## Minecraft-snappy, not real 9.8
+const LAND_GRAVITY := 9.8                   ## Real gravity (m/s^2)
 @export var traits: CharacterTraits
 
 var state := &"TREADING"
@@ -69,6 +69,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		var now := Time.get_ticks_msec() / 1000.0
 		if now - _last_space < 0.3:
 			flying = not flying
+			if not flying:
+				velocity = Vector3.ZERO   # stop dead and fall from rest, not carried on by the flight
 			_last_space = -10.0
 		else:
 			_last_space = now
@@ -211,6 +213,7 @@ func _fly(delta: float) -> void:
 	move_and_slide()
 	if is_on_floor() and up < 0.0:
 		flying = false
+		velocity = Vector3.ZERO
 	state = &"FLYING"
 	water_height = -INF
 	_set_head_under(false)

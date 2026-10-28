@@ -1,6 +1,9 @@
 extends Node3D
 ## Open-ocean sandbox: wires player, boat, camera and HUD together and
 ## scatters floating crates. Registers itself with Game as the running world.
+## While the world generates, a loading screen covers everything and the
+## player, boat and crates wait, frozen and hidden; then the boat is moored at
+## the spawn point and the player stands on the nearest gentle dry ground.
 
 @export var world_config: WorldConfig
 @export var crate_scene: PackedScene
@@ -53,8 +56,52 @@ func _ready() -> void:
 	camera.eyes = player.get_node("Model/Head")
 	_set_first_person(true)   # start looking out of your own eyes
 	player.drowned.connect(_on_player_drowned)
-	hud.flash("Right-click near the boat to climb aboard", 4.0)
-	terrain.maps_ready.connect(func() -> void: hud.flash("Land ahoy: the world has finished generating", 4.0))
+	_loading = LoadingScreen.new()
+	add_child(_loading)
+	_freeze(true)
+	terrain.maps_ready.connect(_on_world_ready)
+	if Terrain.maps():
+		_on_world_ready()
+
+
+var _loading: LoadingScreen
+var _spawn_spot := Vector3.INF   # where the player will stand, once the ground is solid there
+
+
+func _freeze(on: bool) -> void:
+	for n: Node3D in [player, boat, $Crates]:
+		n.process_mode = Node.PROCESS_MODE_DISABLED if on else Node.PROCESS_MODE_INHERIT
+		n.visible = not on
+	hud.visible = not on
+	if not on:
+		player.model.visible = not camera.first_person
+
+
+func _on_world_ready() -> void:
+	if _spawn_spot != Vector3.INF:
+		return
+	boat.global_position = Vector3(0.0, 0.3, 0.0)
+	_spawn_spot = _shore_spot()
+	player.global_position = _spawn_spot + Vector3.UP * 2.0   # (the collider builds around the player)
+
+
+# The nearest gentle dry ground to the spawn point (the boat), looking outward
+# in rings: above the beach, not in a river, not steep.
+func _shore_spot() -> Vector3:
+	var maps := Terrain.maps()
+	for r in range(40, 20000, 40):
+		var steps := maxi(int(TAU * r / 40.0), 8)
+		for k in steps:
+			var a := TAU * k / steps
+			var p := Vector2(cos(a), sin(a)) * r
+			var h := maps.height_at(p.x, p.y)
+			if h < 2.0 or h > 60.0 or not maps.river_at(p.x, p.y).is_empty() and float(maps.river_at(p.x, p.y).r) < 3.0:
+				continue
+			var gx := maps.height_at(p.x + 15.0, p.y) - maps.height_at(p.x - 15.0, p.y)
+			var gz := maps.height_at(p.x, p.y + 15.0) - maps.height_at(p.x, p.y - 15.0)
+			if absf(gx) < 3.0 and absf(gz) < 3.0:
+				return Vector3(p.x, h, p.y)
+	return Vector3(0.0, 1.0, 0.0)
 
 
 var _air_fog := {}
@@ -75,6 +122,22 @@ func _underwater_view() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _loading:
+		_loading.progress = terrain.progress
+		if _spawn_spot == Vector3.INF:
+			_loading.stage = terrain.stage.capitalize()
+		if _spawn_spot != Vector3.INF:
+			_loading.stage = "Finding solid ground"
+			player.global_position = _spawn_spot + Vector3.UP * 2.0
+			if terrain.collider_covers(_spawn_spot.x, _spawn_spot.z):
+				player.respawn(Vector3(_spawn_spot.x, Terrain.height_at(_spawn_spot.x, _spawn_spot.z) + 1.2, _spawn_spot.z))
+				# face the boat
+				var to_boat := boat.global_position - player.global_position
+				camera.yaw = atan2(-to_boat.x, -to_boat.z)
+				_freeze(false)
+				_loading.queue_free()
+				_loading = null
+				hud.flash("Your boat is moored in the bay: right-click near it to climb aboard", 5.0)
 	_underwater_view()
 	var driving := player.boat != null
 	camera.target = boat if driving else player
@@ -82,8 +145,6 @@ func _process(_delta: float) -> void:
 	camera.distance = 9.0 if driving else 4.5
 	camera.target_offset = Vector3(0, 2.4, 0) if driving else Vector3(0, 0.5, 0)
 	var extra := "\nmoon   " + atmosphere.moon_phase_text()
-	if Terrain.maps() == null:
-		extra += "\nworld  generating %d%%" % roundi(terrain.progress * 100.0)
 	hud.refresh(player, boat, clock.time_text() + extra)
 
 

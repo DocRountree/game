@@ -36,6 +36,7 @@ var _maps: WorldMaps
 var _bake: WorldBake
 var _task := -1
 var progress := 0.0                 ## Bake progress 0..1 while generating.
+var stage := "loading"              ## What the bake is doing.
 
 # GPU
 var _rd: RenderingDevice
@@ -141,6 +142,7 @@ func _load_or_bake(config: WorldConfig, cells: int) -> void:
 func _process(_delta: float) -> void:
 	if _task >= 0:
 		progress = _bake.progress if _bake else 0.0
+		stage = _bake.stage if _bake else "loading the saved world"
 		if WorkerThreadPool.is_task_completed(_task):
 			WorkerThreadPool.wait_for_task_completion(_task)
 			_task = -1
@@ -244,7 +246,7 @@ func _build_drawing() -> void:
 	_mesh_instance.name = "Patches"
 	_mesh_instance.multimesh = _multimesh
 	_mesh_instance.material_override = _material
-	_mesh_instance.custom_aabb = AABB(Vector3(-1e6, -6000.0, -1e6), Vector3(2e6, 12000.0, 2e6))
+	_mesh_instance.custom_aabb = AABB(Vector3(-1e6, -6000.0, -1e6), Vector3(2e6, 16000.0, 2e6))
 	_mesh_instance.top_level = true
 	add_child(_mesh_instance)
 	_level_origin.resize(LEVELS)
@@ -608,6 +610,16 @@ func _apply_collider(heights: PackedFloat32Array, size: int, spacing: float, ori
 	var cs: CollisionShape3D = _body.get_child(0)
 	cs.scale = Vector3(spacing, 1.0, spacing)
 	cs.global_position = Vector3(origin.x + spacing * (size - 1) * 0.5, 0.0, origin.y + spacing * (size - 1) * 0.5)
+
+
+## True once the ground's collider covers (x, z), with a margin: then it is
+## safe to put someone there.
+func collider_covers(x: float, z: float) -> bool:
+	if _patch_size == 0:
+		return false
+	var gx := (x - _patch_origin.x) / _patch_spacing
+	var gz := (z - _patch_origin.y) / _patch_spacing
+	return gx > 8.0 and gz > 8.0 and gx < _patch_size - 9 and gz < _patch_size - 9
 
 
 func _notification(what: int) -> void:

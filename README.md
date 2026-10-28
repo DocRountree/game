@@ -13,7 +13,8 @@ a main island (a desert mesa, a mountain range and a river system), a
 peripheral island, a long archipelago, a volcanic chain and a southern
 archipelago. Edit the maps in Krita or GIMP. The game adds the fine detail:
 erosion gullies, mesa cliffs, river valleys, dunes and reefs. The first start
-after a change bakes the world (about 20 s, in the background) and caches it.
+after a change bakes the world (about 30 s, behind a loading screen) and caches it.
+You start on the shore of the bay by the river mouth, with your boat moored offshore.
 
 The water: a Gerstner-wave ocean that physics and rendering agree on exactly,
 waves that shoal and break at the shore, calm lakes, flowing rivers whose

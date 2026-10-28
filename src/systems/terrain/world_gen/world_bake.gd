@@ -19,7 +19,7 @@ extends RefCounted
 ## The fine detail (the erosion filter's gullies, mesa cliffs, river
 ## valleys) is added on the GPU by Terrain.
 
-const VERSION := 31
+const VERSION := 32
 const LAYOUT := "res://world/layout.json"
 const MAPS := "res://world/maps/"
 const YEAR := 31557600.0

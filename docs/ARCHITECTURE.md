@@ -226,8 +226,9 @@ boats. There is no foam anywhere.
 
 **Moving on land** is Minecraft-like: quick to start and stop on the ground,
 little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
-holding Space hops whenever the feet touch down. Double-tapping Space toggles
-a fast debug flight. `ProceduralLegs` plants each foot on the collider (a ray down)
+holding Space hops whenever the feet touch down. Gravity is a real 9.8 m/s^2.
+Double-tapping Space toggles a fast debug flight. Stopping it drops you from
+rest, without the flight's momentum. `ProceduralLegs` plants each foot on the collider (a ray down)
 and steps it in an arc when the body has moved on, alternating feet, with a
 two-bone solver bending the knees. No animation clips.
 
@@ -242,7 +243,7 @@ tints distant geometry with the sky colour in that direction).
 
 | File | Role |
 |---|---|
-| `atmosphere_sky.gdshader` | Marches the view ray (16 samples bunched near the camera, dithered). At each sample it looks up the sunlight's optical depth in a baked table and accumulates the view ray's own. Draws the sun disc, reddened by the air in front of it. |
+| `atmosphere_sky.gdshader` | Marches the view ray (16 samples bunched near the camera, dithered). At each sample it looks up the sunlight's optical depth in a baked table and accumulates the view ray's own. Draws the sun disc, reddened by the air in front of it. The sea's horizon dips below level the higher the camera is (sin(dip) = sqrt(1 - (R / (R + h))^2)), so the sun sets at the true horizon even from a mountaintop. Rays below the horizon look along it instead, keeping their heading. |
 | `atmosphere.gd` | Bakes the optical-depth table (~50 ms at startup), pushes parameters, and sets the sun light's direction, colour and energy from the same maths, so sunsets light the world orange. Reads time from its `GameClock` and positions from `Astronomy`; answers sky questions (`night_amount()`, `moon_illumination()`). |
 | `astronomy.gd` | Static: Julian date, sidereal time, the equatorial-to-world rotation, sun and moon directions and phase, all from `WorldConfig`, day and clock time. |
 
@@ -384,6 +385,14 @@ and roll for free. Place probes in the editor to tune any floating object.
 The same component optionally registers the body as a ripple source.
 
 ### Camera (`src/systems/camera/player_camera.gd`)
+
+**Starting.** While the world generates (or loads from the cache), a loading
+screen shows the bake's stage and progress, and the player, boat and crates
+wait frozen and hidden. Then the boat is moored at the layout's spawn point,
+about 300 m off the shore beside the river mouth. The player stands on the
+nearest gentle dry ground, facing the boat, and is let go once the ground's
+collider covers that spot. Breath shows as a round gauge in the bottom-right
+corner that fills from the bottom up.
 
 `PlayerCamera` has two modes, toggled with F5; the game starts in first person.
 Third person orbits the target and never dips below the water surface. The view
