@@ -1,19 +1,20 @@
 shader_type spatial;
-render_mode blend_mix, depth_draw_always, cull_disabled;
+render_mode blend_mix, depth_draw_never, cull_disabled;
 
 // River water, drawn on ribbon meshes that follow each channel (RiverRibbons):
 // UV.x runs across the river in half widths (0 mid-channel), UV.y downstream
-// in metres. Vertex colour: current (r * 8 m/s), depth (g * 8 m), how much the
-// water has thinned in (b) and the half width (a * 64 m). The mesh's
-// normals carry the downstream direction.
+// in metres. Vertex colour: current (r * 8 m/s), depth (g * 8 m), how much
+// water there is (b) and the half width (a * 128 m). The mesh's normals carry
+// the downstream direction.
 //
 // The look is after the rivers of the big open-world westerns, without foam:
-// clear water that shows the bed in the shallows and deepens to a dark
-// green, a surface of fine ripples streaming downstream (drawn out into
-// streaks along the flow, livelier where the water runs fast), the sky and
-// sun reflected off it, and soft edges where it meets the bank. Every ripple
-// moves only along the river's own direction, so the water follows every bend
-// and always runs downhill. The current is the same at every depth.
+// substantial green water (its body colour is always there: the bed only
+// shows faintly, even in the shallows, and the water never thins away with
+// its depth or the angle you see it from), the sky and sun reflected off a
+// surface of fine ripples carried downstream. The ripples are laid out in
+// world space and carried along the flow by two crossfaded phases (a flow
+// map), so they follow every bend without stretching; over a waterfall they
+// stream down the sheet instead.
 
 uniform float time;
 uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
@@ -21,23 +22,14 @@ uniform vec3 sun_color = vec3(1.0);
 uniform vec3 view_pos;
 uniform float planet_radius = 6400000.0;
 
-uniform vec3 deep_color = vec3(0.012, 0.045, 0.035);
-uniform vec3 scatter_color = vec3(0.03, 0.11, 0.07);
-uniform vec3 absorption = vec3(0.3, 0.075, 0.13);   // per metre: red first, then blue; the water greens with depth
-uniform float refraction = 0.025;
+uniform vec3 deep_color = vec3(0.016, 0.055, 0.042);
+uniform vec3 scatter_color = vec3(0.045, 0.13, 0.085);
+uniform vec3 absorption = vec3(0.45, 0.12, 0.2);   // per metre: red first, then blue; the water greens with depth
+uniform float clarity = 0.15;         // at most this much of the bed shows through
+uniform float refraction = 0.02;
 uniform float ripple_strength = 0.5;
+uniform float flow_period = 1.6;      // s: each flow-map phase lasts this long
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
-
-// The terrain's height map (Terrain), to fade the water's edge by its true
-// depth, read at the same level of detail the terrain is drawn with there.
-uniform sampler2D height_hi : filter_nearest, repeat_disable;
-uniform sampler2D height_lo : filter_nearest, repeat_disable;
-uniform float world_size = 10240.0;
-uniform int texels = 4096;
-uniform float h_min = -300.0;
-uniform float h_scale = 0.0213623;
-uniform int top_lod = 8;
-uniform float lod_range0 = 160.0;   // how far LOD 0 patches reach (doubling per LOD)
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
 varying vec2 rp;        // across (m), downstream (m)
@@ -102,33 +94,37 @@ vec2 ripples(vec2 p, float v) {
 	return s * 0.12;
 }
 
-float fetch(ivec2 c, int m) {
-	int n = texels >> m;
-	c = clamp(c, ivec2(0), ivec2(n - 1));
-	float a = texelFetch(height_hi, c, m).r;
-	float b = texelFetch(height_lo, c, m).r;
-	return (round(a * 255.0) * 256.0 + round(b * 255.0)) * h_scale + h_min;
+// The same pattern without any motion or stretching: isotropic ripples at a
+// world point (slope d/dx, d/dz), each octave fading out once it is finer
+// than the pixel can show (fp: the pixel's footprint, m), so far water
+// doesn't glitter.
+vec2 ripple_field(vec2 p, float fp) {
+	vec2 s = vec2(0.0);
+	float amp = 1.0;
+	float freq = 0.45;
+	const mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
+	mat2 m = mat2(1.0);   // each octave's frame, rotated so the octaves don't line up
+	for (int o = 0; o < 5; o++) {
+		float fade = clamp(1.0 / (freq * fp * 3.0) - 1.0, 0.0, 1.0);
+		vec2 g = noise_slope((m * p) * freq + float(o) * 17.3);
+		s += (transpose(m) * g) * freq * amp * fade;   // (back into world space)
+		amp *= 0.55;
+		freq *= 2.1;
+		m = rot * m;
+	}
+	return s * 0.12;
 }
 
-// (as terrain.gdshader)
-float height_m(vec2 p, int m) {
-	float scale = exp2(float(m));
-	vec2 g = ((p + world_size * 0.5) / (world_size / float(texels)) - (scale - 1.0) * 0.5) / scale;
-	vec2 i = floor(g);
-	vec2 f = g - i;
-	ivec2 c = ivec2(i);
-	return mix(mix(fetch(c, m), fetch(c + ivec2(1, 0), m), f.x), mix(fetch(c + ivec2(0, 1), m), fetch(c + ivec2(1, 1), m), f.x), f.y);
-}
-
-// The terrain's height here, as drawn: the LOD its patches use at this
-// distance, blended toward the next as they morph (as in terrain.gdshader).
-float ground_at(vec2 p) {
-	float d = distance(p, view_pos.xz);
-	int k = clamp(int(ceil(log2(max(d, 1.0) / lod_range0))), 0, top_lod);
-	float r = lod_range0 * exp2(float(k));
-	float morph = k < top_lod ? clamp((d - 0.87 * r) / (0.11 * r), 0.0, 1.0) : 0.0;
-	float g = height_m(p, k);
-	return morph > 0.0 ? mix(g, height_m(p, k + 1), morph) : g;
+// Ripples carried along the flow v (m/s): two copies of the field, each
+// drifting downstream for one period and then starting over, crossfaded so
+// neither restart shows.
+vec2 flowing(vec2 p, vec2 v, float fp) {
+	float t0 = fract(time / flow_period);
+	float t1 = fract(time / flow_period + 0.5);
+	vec2 a = ripple_field(p - v * t0 * flow_period, fp);
+	vec2 b = ripple_field(p - v * t1 * flow_period + vec2(37.1, 11.7), fp);
+	float wa = 1.0 - abs(2.0 * t0 - 1.0);
+	return (a * wa + b * (1.0 - wa)) * 1.35;   // (crossfading halves the contrast at worst; give some back)
 }
 
 float view_depth(vec2 uv, mat4 inv_proj) {
@@ -138,20 +134,25 @@ float view_depth(vec2 uv, mat4 inv_proj) {
 }
 
 void fragment() {
-	// ripples in river space, turned into world space along the ribbon
-	vec2 sl = ripples(rp, speed) * ripple_strength * (0.6 + 0.5 * clamp(speed / 2.0, 0.0, 1.5));
-	// river space to world: UV.x grows toward the left of downstream;
 	// the surface's frame: downstream, and across (horizontal, to the left);
 	// level water faces up, a fall faces downstream
 	vec3 dn = normalize(down);
 	vec3 ax = normalize(vec3(-dn.z, 0.0, dn.x) + vec3(1e-6, 0.0, 0.0));
-	vec3 n0 = normalize(cross(ax, dn));
-	vec3 tilt = ax * sl.x + dn * sl.y;
-	vec2 slope = tilt.xz;
-	vec3 n_world = normalize(n0 - tilt);
+	float falling = smoothstep(0.3, 0.7, -dn.y);
+	float liveliness = ripple_strength * (0.6 + 0.5 * clamp(speed / 2.0, 0.0, 1.5));
+	// level water: world-space ripples carried along the current
+	vec2 flow = normalize(dn.xz + vec2(1e-6)) * speed;
+	vec2 sf = flowing(wpos.xz, flow, max(length(fwidth(wpos.xz)), 0.001)) * liveliness;
+	vec3 n_flat = normalize(vec3(-sf.x, 1.0, -sf.y));
+	// a falling sheet: ripples streaming down it, in the sheet's own frame
+	vec2 sl = ripples(rp, speed) * liveliness;
+	vec3 n_fall = normalize(normalize(cross(ax, dn)) - (ax * sl.x + dn * sl.y));
+	vec3 n_world = normalize(mix(n_flat, n_fall, falling));
+	vec2 slope = mix(sf, (ax * sl.x + dn * sl.y).xz, falling);
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
-	// light coming up through the water: the bed, refracted, absorbed with depth
+	// the water's body: its own green, with only a little of the bed showing
+	// through where it is shallow and clear
 	float surface_depth = -VERTEX.z;
 	float thickness = max(view_depth(SCREEN_UV, INV_PROJECTION_MATRIX) - surface_depth, 0.0);
 	vec2 offset = slope * refraction * clamp(thickness * 0.5, 0.0, 1.0);
@@ -161,7 +162,7 @@ void fragment() {
 	else
 		thickness = behind - surface_depth;
 	vec3 background = texture(screen_tex, SCREEN_UV + offset).rgb;
-	vec3 transmit = exp(-absorption * thickness);
+	vec3 transmit = min(exp(-absorption * thickness), vec3(clarity));
 	float diffuse = max(dot(n_world, sun_direction), 0.0);
 	vec3 body = (deep_color * (0.5 + 0.8 * diffuse) + scatter_color * 0.45 * (0.5 + 0.5 * diffuse)) * (0.12 + 0.88 * sun_color);
 	vec3 refracted = background * transmit + body * (1.0 - transmit);
@@ -171,11 +172,7 @@ void fragment() {
 	ROUGHNESS = 0.05;
 	SPECULAR = 0.5;
 	EMISSION = refracted * (1.0 - fresnel);
-	// soft where it meets the ground, by its true depth over the terrain's
-	// smooth heights (not where it happens to cut the terrain's triangles,
-	// which steps from above), and thinning in at a river's head
-	float depth_here = wpos.y - ground_at(wpos.xz);
-	// (a falling sheet has no depth over the ground beneath it: it stays whole)
-	float falling = smoothstep(0.3, 0.7, -dn.y);
-	ALPHA = max(smoothstep(0.05, 0.9, depth_here), falling) * smoothstep(0.0, 0.25, fill);
+	// whole across the channel (the banks cut its edge); a soft fringe only
+	// at the ribbon's very edge, and thinning in at a river's head
+	ALPHA = (1.0 - smoothstep(1.25, 1.5, abs(rp.x) / max(hw, 0.01))) * smoothstep(0.0, 0.25, fill);
 }

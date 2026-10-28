@@ -153,14 +153,18 @@ what make it read as big.
   3.2 km; the darker forest floor carries the forests beyond.
 - **Rivers** (`src/systems/water/river/`): `RiverWater` draws each river as a
   ribbon mesh along its centreline (`RiverRibbons`, `river.gdshader`): level
-  across, reaching just past the banks, ripples streaming downstream. The
-  shader fades the water by its depth over the ground read from the same
-  height map and LOD the terrain draws, so the shoreline is soft and exact.
-  Cross-sections are 2 m apart, so waterfalls stay sheer, and the surface's
-  frame follows the flow in 3D: over a fall the water faces downstream and
-  its streaks run down it. A tributary curves into its river's direction
-  (in the generator) and fades out across that river's bank, so inside the
-  river only one surface shows.
+  across, reaching just past the banks, where the ground cuts its edge. The
+  water is substantial: its body colour is always there (only a little of
+  the bed shows through), so it never thins away in the shallows or with
+  the viewing angle. Its ripples are laid out in world space and carried
+  along the current by two crossfaded phases (a flow map), so they follow
+  every bend without stretching, and fade out where they would be finer than
+  a pixel. Cross-sections are 2 m apart, so waterfalls stay sheer, and the
+  surface's frame follows the flow in 3D: over a fall the water faces
+  downstream and its streaks run down it. The ribbons are drawn smallest
+  stream first and trunk last, so where a tributary's mouth lies under its
+  river only the river shows, with its one current (a tributary curves into
+  its river's direction in the generator).
   `RiverBody` is the water body: level and current from the nearest reaches
   (a tile index of segments), so swimmers and boats are carried downstream.
 - **The ocean** is the sea wherever the ground is below sea level; its waves

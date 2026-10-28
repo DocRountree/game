@@ -17,11 +17,13 @@ sample i sits at -5120 + 2.5 i metres.
 
 How it's made:
 
-1. **Layout** (10 m grid): a main island about 8 km across with a mountain range off-centre
-   down its spine (peaks 600-900 m) and a main valley along its wide side; a peripheral
-   island; an archipelago of about 150 low, smooth islands of very varied size (mostly
-   50-500 m across) spread along a 7 km arc; a chain of volcanic cones with craters; a
-   southern group. Each is an elevation field with its own wobbled,
+1. **Layout** (10 m grid): a main island about 11 km across in the north-west, with a
+   mountain range off-centre down its spine (peaks around 600 m) and a main valley along its
+   wide side; an archipelago of about 150 low, smooth islands of very varied size (mostly
+   50-500 m across) in a broad band east of it; a peripheral island far off to the
+   north-east; a southern group on a wide bank south of the gap; a chain of volcanic cones
+   with craters to the south-east, growing toward the east. Positions are fixed in outline
+   and jittered by the seed; coasts turn back short of the world's edge. Each is an elevation field with its own wobbled,
    stretched coastline.
 2. **Seafloor**: shelves by distance from the coast, shallow sandy banks under the
    archipelago and the southern group, deep water round the volcanoes.
@@ -34,9 +36,11 @@ How it's made:
    (by the biggest donor) to where it starts. Smoothed, meandering where the valley floor is
    flat; each tributary's last stretch curves round into its river's downstream direction
    and meets it on its centreline. Widths are set for game scale (9 m wide at the heads,
-   about 130 m at the mouth). The water level is the downhill profile closest to the ground;
-   where the stream runs steeper than 12% it steps down in pools held by lips, with sheer
-   waterfalls of 6-15 m between them. The bed, banks and floodplain are carved into the
+   about 130 m at the mouth), and depths too (1.6 m at the heads to 7 m at the mouth). The
+   water level is the downhill profile closest to the ground, smoothed into one continuous
+   run of gentle reaches and rapids. Each tributary gets at most one waterfall, at its
+   steepest spot where the ground drops at least 8 m over 60 m: the pool below is carried
+   back under the slope to a lip and the water drops sheer into a plunge pool. The bed, banks and floodplain are carved into the
    2.5 m heights to match, so the water always lies in its bed: each river's ground is one
    continuous field (nearby reaches blended), the floodplain wide in the lowlands and narrow
    beside mountain streams, and where valleys overlap the river with the stronger claim

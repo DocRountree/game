@@ -74,7 +74,7 @@ func _ready() -> void:
 	_rivers = RiverWater.new()
 	_rivers.name = "Rivers"
 	add_child(_rivers)
-	_rivers.setup(world, _material.get_shader_parameter("height_hi"), _material.get_shader_parameter("height_lo"))
+	_rivers.setup(world)
 	_trees = TreeScatter.new()
 	_trees.name = "Trees"
 	add_child(_trees)

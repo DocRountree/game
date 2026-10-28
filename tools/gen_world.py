@@ -221,11 +221,16 @@ def free(cx, cz, r, pad=150.0):
 
 
 # the main island and its range
-ang = rng.uniform(0, 2 * math.pi)
-mc = np.array([math.cos(ang), math.sin(ang)]) * rng.uniform(1200, 2200)
-MR = rng.uniform(2550, 2850) * math.sqrt(2.0)
-d = ndist(mc[0], mc[1], MR, 0.28) + 0.12 * field_fbm(X, Z, 1000.0, 3, SEED + 14)
-low = 80.0 * np.clip(1.0 - d, 0, 1) ** 0.8 * (0.6 + 0.4 * field_fbm(X, Z, 1300.0, 4, SEED + 3) + 0.4)
+# The world's layout: the main island in the north-west, the archipelago in a
+# broad band east of it, the peripheral island far off to the north-east, the
+# southern group on a wide bank south of the gap between them, and the
+# volcanic chain to the south-east, its cones growing toward the east.
+mc = np.array([-4300.0, -3900.0]) + rng.uniform(-250, 250, 2)
+MR = rng.uniform(5000, 5400)
+edge = np.minimum(WORLD / 2 - np.abs(X), WORLD / 2 - np.abs(Z))
+d = ndist(mc[0], mc[1], MR, 0.22) + 0.12 * field_fbm(X, Z, 1400.0, 3, SEED + 14) \
+    + np.clip((1200.0 - edge) / 600.0, 0, None)   # (the coast turns back short of the world's edge)
+low = 80.0 * np.clip(1.0 - d, 0, 1) ** 0.8 * (0.6 + 0.4 * field_fbm(X, Z, 1800.0, 4, SEED + 3) + 0.4)
 low = np.where(d < 1.0, low, (1.0 - d) * 60.0)
 spine_a = rng.uniform(0, math.pi)
 sd = np.array([math.cos(spine_a), math.sin(spine_a)])
@@ -239,8 +244,8 @@ bend = 0.22 * MR * np.sin(t * 2.4 + bphase)
 dist = np.abs(rx * sp[0] + rz * sp[1] - bend)
 along = np.clip(1.0 - np.abs(t) / 0.85, 0, 1) ** 0.6
 rmask = np.exp(-(dist / (0.30 * MR)) ** 2) * along * np.clip((1.0 - d) / 0.35, 0, 1)
-peaks = 0.55 + 0.45 * field_fbm(X, Z, 2400.0, 2, SEED + 4)
-rid = field_ridged(X, Z, 1700.0, 5, SEED + 5)
+peaks = 0.55 + 0.45 * field_fbm(X, Z, 3200.0, 2, SEED + 4)
+rid = field_ridged(X, Z, 2300.0, 5, SEED + 5)
 mount = rmask ** 1.25 * (520.0 + 380.0 * peaks) * (0.45 + 0.75 * rid)
 main = low + mount
 # the main valley: along the range on its wide side, then out to the coast,
@@ -253,44 +258,32 @@ vw = mc + sp * off + np.outer(vt * MR, sd) + np.outer(vo + 0.22 * MR * np.sin(vt
 vs = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(vw, axis=0), axis=1))])
 vdist, vi = cKDTree(vw).query(np.stack([X.ravel(), Z.ravel()], 1))
 vdist = vdist.reshape(M, M); vi = vi.reshape(M, M)
-VW = 1000.0
-floor = np.maximum(150.0 * (1.0 - vs[vi] / vs[-1]) ** 1.2, 1.0) + 30.0 * (vdist / VW) ** 2
+VW = 1400.0
+floor = np.maximum(180.0 * (1.0 - vs[vi] / vs[-1]) ** 1.2, 1.0) + 30.0 * (vdist / VW) ** 2
 g = np.exp(-(vdist / (1.4 * VW)) ** 2)
 main = main * (1 - g) + g * np.minimum(main, floor)
 add(np.where(d < 1.0, main, low), "main_island", mc[0], mc[1], MR)
 
 # the peripheral island, across the sea
-for _ in range(200):
-    a = rng.uniform(0, 2 * math.pi)
-    pc = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(6000, 7800)
-    PR = rng.uniform(650, 800)
-    if free(pc[0], pc[1], PR, 600):
-        break
+pc = np.array([7900.0, -7100.0]) + rng.uniform(-300, 300, 2)
+PR = rng.uniform(750, 900)
 island("peripheral_island", pc[0], pc[1], PR,
        lambda d, Xw, Zw: np.where(d < 1.0, 160.0 * np.clip(1.0 - d, 0, 1) ** 1.2 * (0.5 + 0.7 * field_ridged(Xw, Zw, 600.0, 4, SEED + 6))
                                   + 25.0 * (1.0 - d), (1.0 - d) * 50.0),
        0.32, rng.uniform(1.2, 1.8), SEED + 20)
 
 # the volcanic chain: cones in a line, steep, each with a crater
-for _ in range(200):
-    a = rng.uniform(0, 2 * math.pi)
-    vs = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(5800, 7500)
-    va = a + math.pi / 2 + rng.uniform(-0.5, 0.5)
-    vd = np.array([math.cos(va), math.sin(va)])
-    ok = True
-    cones = []
-    p = vs.copy()
-    r = rng.uniform(200, 420)
-    for i in range(int(rng.integers(6, 8))):
-        cones.append((p[0], p[1], r))
-        r2 = rng.uniform(170, 420)
-        p = p + vd * (r + r2 + rng.uniform(250, 600)) + np.array([-vd[1], vd[0]]) * rng.uniform(-250, 250)
-        r = r2
-    if all(free(c[0], c[1], c[2], 250) for c in cones):
-        break
+v0 = np.array([1700.0, 4300.0]) + rng.uniform(-200, 200, 2)
+v1 = np.array([8300.0, 2300.0]) + rng.uniform(-200, 200, 2)
+ncones = int(rng.integers(7, 9))
+cones = []
+for i in range(ncones):
+    f = i / (ncones - 1)
+    p = v0 + (v1 - v0) * f + np.array([-(v1 - v0)[1], (v1 - v0)[0]]) / np.linalg.norm(v1 - v0) * rng.uniform(-150, 150)
+    cones.append((p[0], p[1], (170.0 + 230.0 * f) * rng.uniform(0.85, 1.1)))
 volcano_centres = []
 for ci, (cx, cz, r) in enumerate(cones):
-    hv = rng.uniform(150, 440)
+    hv = (150.0 + 260.0 * ci / (len(cones) - 1)) * rng.uniform(0.85, 1.1)
     cr = rng.uniform(0.1, 0.2)
     island("volcano", cx, cz, r,
            lambda d, Xw, Zw, hv=hv, cr=cr: np.where(d < 1.0, hv * np.clip(1.0 - d, 0, 1) ** 1.5 - 0.35 * hv * np.exp(-(d / cr) ** 2),
@@ -299,13 +292,9 @@ for ci, (cx, cz, r) in enumerate(cones):
     volcano_centres.append((cx, cz, r))
 
 # the archipelago: many small islands along an arc, on a shallow bank
-for _ in range(200):
-    a = rng.uniform(0, 2 * math.pi)
-    a0 = mc + np.array([math.cos(a), math.sin(a)]) * (MR + rng.uniform(900, 1400))
-    a1 = a0 + np.array([math.cos(a + rng.uniform(-1.0, 1.0)), math.sin(a + rng.uniform(-1.0, 1.0))]) * 7200
-    if abs(a1[0]) < WORLD / 2 - 1200 and abs(a1[1]) < WORLD / 2 - 1200 and free(*(0.5 * (a0 + a1)), 600, 300):
-        break
-arc_mid = 0.5 * (a0 + a1) + np.array([-(a1 - a0)[1], (a1 - a0)[0]]) * rng.uniform(-0.15, 0.15)
+a0 = np.array([2400.0, -3300.0]) + rng.uniform(-200, 200, 2)
+a1 = np.array([8600.0, -2300.0]) + rng.uniform(-200, 200, 2)
+arc_mid = 0.5 * (a0 + a1) + np.array([0.0, -500.0]) + rng.uniform(-200, 200, 2)
 arc_pts = []
 for s in np.linspace(0, 1, 40):
     arc_pts.append((1 - s) ** 2 * a0 + 2 * (1 - s) * s * arc_mid + s * s * a1)
@@ -316,7 +305,7 @@ for _ in range(8000):
     if islets >= 150:
         break
     s = rng.integers(0, len(arc_pts))
-    c = arc_pts[s] + rng.normal(0, 760, 2)
+    c = arc_pts[s] + rng.normal(0, 1, 2) * np.array([600.0, 1100.0])
     r = float(np.clip(rng.lognormal(math.log(105), 0.85), 25, 650))
     if not free(c[0], c[1], r, 70):
         continue
@@ -331,11 +320,7 @@ for _ in range(8000):
 
 # the southern group
 south = []
-for _ in range(400):
-    a = rng.uniform(0, 2 * math.pi)
-    gc = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(6000, 7800)
-    if abs(gc[0]) < WORLD / 2 - 1400 and abs(gc[1]) < WORLD / 2 - 1400 and free(gc[0], gc[1], 1100, 300):
-        break
+gc = np.array([-400.0, 3000.0]) + rng.uniform(-250, 250, 2)
 for _ in range(600):
     if len(south) >= 8:
         break
@@ -753,7 +738,7 @@ def branches(path, a_min, count, spacing):
 
 trunk = trace_up(mouth)[::-1]
 traces = [(trunk + [tuple(recv[mouth])], -1)]   # (one step into the sea)
-for a2, i2, d2 in branches(trunk, 2.0e5, 6, 40):
+for a2, i2, d2 in branches(trunk, 2.0e5, 8, 40):
     t2 = trace_up(d2)[::-1]
     if len(t2) * CELL < 500.0:
         continue
@@ -778,7 +763,9 @@ def bilinear(a, wx, wz):
 
 def downhill_fit(v):
     """The non-increasing sequence closest to v (pool adjacent violators),
-    lightly smoothed, only ever lowered."""
+    smoothed over ~200 m so its pools and jumps become one continuous run of
+    gentle reaches and rapids (no staircase; the carving fits the ground to
+    it), still never rising."""
     sums, counts = [], []
     for x in v:
         sums.append(x); counts.append(1)
@@ -786,8 +773,8 @@ def downhill_fit(v):
             s = sums.pop(); c = counts.pop()
             sums[-1] += s; counts[-1] += c
     out = np.concatenate([[s / c] * c for s, c in zip(sums, counts)])
-    sm = ndimage.uniform_filter1d(out, 9, mode="nearest")
-    return np.minimum.accumulate(np.minimum(sm, out + 0.0))
+    sm = ndimage.gaussian_filter1d(out, 12.0, mode="nearest")
+    return np.minimum.accumulate(sm)
 
 
 rivers = []
@@ -872,48 +859,37 @@ for rv in rivers:
     rv["join_k"] = ke
 
 
-def staircase(g, base, steep):
-    """Over steep stretches the stream steps down in pools and waterfalls:
-    each pool lies at the level of the lip that holds it (cut into the ground
-    above), and the water drops over the lip into the next one."""
+def with_waterfall(g, base, rid):
+    """At most one waterfall on a stream, at its steepest spot (where the
+    ground drops the most over 60 m, at least 8 m): the pool below it is
+    carried back under the slope to a lip, and the water drops sheer over it.
+    Elsewhere the water follows the smooth downhill profile (rapids, not a
+    staircase)."""
     lvl = base.copy()
     n = len(g)
-    k = 0
-    while k < n:
-        if not steep[k]:
-            k += 1
-            continue
-        a = k
-        while k < n and steep[k]:
-            k += 1
-        b = k - 1
-        if b - a < 4:
-            continue
-        last = a
-        drop = rng.uniform(6.0, 15.0)
-        for q in range(a + 1, b + 1):
-            if g[last] - g[q] >= drop:
-                lvl[last + 1:q + 1] = g[q] - 0.3
-                last = q
-                drop = rng.uniform(6.0, 15.0)
-    return lvl
+    if rid == 0 or n < 40:
+        return lvl, 0
+    drop = np.full(n, -1.0)
+    drop[10:n - 20] = g[10:n - 20] - g[20:n - 10]
+    q = int(np.argmax(drop))
+    if drop[q] < 8.0:
+        return lvl, 0
+    k = q + 10
+    lvl[q + 1:k + 1] = min(base[k], base[q]) - 0.0
+    return np.minimum.accumulate(lvl), 1
 
 
 # widths, depths and the water surface: the downhill profile closest to the
 # ground under the channel, stepped where it runs steep (tributaries end at
 # their river's level, the trunk at sea level)
 falls = 0
-for rv in rivers:
+for ri_, rv in enumerate(rivers):
     rv["hw"] = half_width(rv["area"])   # (never narrower than the 2.5 m grid can carve cleanly)
-    rv["depth"] = 0.8 + 4.2 * np.sqrt(np.clip(rv["area"] / a_mouth, 0, 1))
+    rv["depth"] = 1.6 + 5.4 * np.sqrt(np.clip(rv["area"] / a_mouth, 0, 1))   # (deep enough to read as a river)
     g = bilinear(hf, rv["pts"][:, 0], rv["pts"][:, 1])
     g = ndimage.minimum_filter1d(g, 5)
     base = downhill_fit(np.maximum(g - 0.3, 0.0))
-    gs = ndimage.uniform_filter1d(g, 9)
-    slope = (np.roll(gs, 5) - np.roll(gs, -5)) / 60.0
-    slope[:5] = 0.0
-    slope[-5:] = 0.0
-    rv["level"] = np.minimum.accumulate(np.minimum(staircase(g, base, slope > 0.12), base + 0.0))
+    rv["level"], nf = with_waterfall(g, base, ri_)
     rv["smooth"] = base
 for rv in rivers:
     if rv["joins"] >= 0:
@@ -931,7 +907,7 @@ for rv in rivers:
     keep_p, keep = [p[0]], [[rv["hw"][0], rv["depth"][0], L[0], rv["area"][0], Ls[0]]]
     for k in range(1, len(p)):
         plunge = 0.0
-        if L[k - 1] - L[k] > 2.0:
+        if L[k - 1] - L[k] > 5.0:
             # the fall leans out a little over 4 m (the 2.5 m grid can carve
             # that cleanly under it), into a plunge pool dug deeper below
             d = p[k] - p[k - 1]

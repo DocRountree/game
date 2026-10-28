@@ -11,8 +11,10 @@ extends RefCounted
 ## direction, sloping down over falls (the shader builds the real normals from
 ## it). Vertex colour carries the current (m/s, red / 8), the depth (green /
 ## 8), how much water there is (blue: thinning in at a river's head, and
-## fading out where a tributary enters the river it joins, so the two never
-## lie one over the other) and the half width (alpha, m / 128).
+## gone deep inside the river a tributary joins) and the half width (alpha,
+## m / 128). The smallest streams come first in the mesh and the trunk last:
+## the water is drawn in that order, so where a tributary's mouth lies under
+## its river's ribbon only the river shows, with its one current.
 
 const STEP := 2.0          ## Distance between cross-sections (m).
 const ACROSS := 9          ## Vertices across the ribbon.
@@ -25,7 +27,7 @@ static func build(rivers: Array[Dictionary]) -> ArrayMesh:
 	var cols := PackedColorArray()
 	var dirs := PackedVector3Array()
 	var idx := PackedInt32Array()
-	for ri in rivers.size():
+	for ri in range(rivers.size() - 1, -1, -1):
 		var r: Dictionary = rivers[ri]
 		if r.points.size() < 2:
 			continue
@@ -80,8 +82,8 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 		dep.append(lerpf(dep_src[j], dep_src[j + 1], t))
 		spd.append(lerpf(spd_src[j], spd_src[j + 1], t))
 		fill.append(lerpf(fill_src[j], fill_src[j + 1], t) if fill_src.size() == src.size() else smoothstep(0.0, 250.0, s))
-	# where a tributary enters the river it joins it fades out across that
-	# river's bank, so inside its water only the river's own surface shows
+	# a tributary's ribbon ends inside the river it joins (which is drawn
+	# over it)
 	var near_pts := PackedVector3Array()
 	var near_hw := PackedFloat32Array()
 	if not main.is_empty():
@@ -115,7 +117,7 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 			var off := nrm * u * w * REACH
 			# the surface is level across; past the bank it dips a little, so
 			# the ground always covers the ribbon's edge
-			var dip := maxf(0.0, absf(u) * REACH - 1.1) * 0.6
+			var dip := maxf(0.0, absf(u) * REACH - 1.25) * 0.6
 			var v := Vector3(pts[k].x + off.x, pts[k].y - dip, pts[k].z + off.y)
 			verts.append(v)
 			uvs.append(Vector2(u * REACH, along))
@@ -128,9 +130,9 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 			idx.append_array([a, c, a + 1, a + 1, c, c + 1])
 
 
-# 1 outside the joined river's channel, falling to 0 inside it.
+# 1 outside the joined river's water, falling to 0 well inside it.
 static func _fade_in_main(v: Vector3, pts: PackedVector3Array, hw: PackedFloat32Array) -> float:
 	var r := INF
 	for k in pts.size():
 		r = minf(r, Vector2(pts[k].x - v.x, pts[k].z - v.z).length() / hw[k])
-	return smoothstep(0.6, 1.05, r)
+	return smoothstep(0.5, 0.8, r)
