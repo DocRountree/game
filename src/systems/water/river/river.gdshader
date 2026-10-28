@@ -40,8 +40,8 @@ uniform float planet_radius = 6400000.0;
 
 uniform vec3 deep_color = vec3(0.02, 0.05, 0.035);
 uniform vec3 scatter_color = vec3(0.05, 0.12, 0.075);
-uniform float bed_visibility = 0.6;   // at most this much of the bed shows through
-uniform vec3 bed_tint = vec3(0.74, 0.9, 0.82);
+uniform float bed_visibility = 0.82;  // at most this much of the bed shows through
+uniform vec3 bed_tint = vec3(0.86, 0.96, 0.9);
 uniform float refraction = 0.03;
 uniform float noise_scale = 2.0;      // cycles per metre of the coarsest ripple octave
 uniform float flow_period = 1.0;      // s: each flow phase lasts this long
@@ -154,7 +154,7 @@ vec3 flowing_normal(vec2 p, vec2 flow, float rough) {
 
 // Light through the water: red and green get furthest (Adrift's extinction).
 vec3 water_extinction(float dist) {
-	return exp2(-dist * 0.3 * vec3(0.5, 0.6, 0.9));
+	return exp2(-dist * 0.14 * vec3(0.5, 0.6, 0.9));
 }
 
 // --- falls ------------------------------------------------------------------------

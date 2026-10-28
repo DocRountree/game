@@ -166,8 +166,9 @@ what make it read as big.
   gloss fade out where they would be finer than a pixel; each octave is
   turned from the last, so no grid shows. Light through the water dies away
   red and green last. The bed (sand and gravel) shows through, fading with
-  the water over it, but never more than 60% of it, so the water never
-  vanishes at its edges. The water's thickness comes from the depth texture,
+  the water over it, but never more than about 80% of it (clear water:
+  whatever lies on the bed shows well), so the water never vanishes at its
+  edges. The water's thickness comes from the depth texture,
   or, where there is none (with MSAA on there isn't), from the channel's own
   depth profile and the viewing angle.
   Falls: the ribbon's sheet leaves the lip level and curves down (a
