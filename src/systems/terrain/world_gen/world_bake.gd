@@ -19,12 +19,12 @@ extends RefCounted
 ## The fine detail (the erosion filter's gullies, mesa cliffs, river
 ## valleys) is added on the GPU by Terrain.
 
-const VERSION := 32
+const VERSION := 33
 const LAYOUT := "res://world/layout.json"
 const MAPS := "res://world/maps/"
 const YEAR := 31557600.0
 
-enum { RIVER, OXBOW, SCAR }   ## River kinds (only RIVER is made now).
+enum { RIVER, OXBOW, SCAR }   ## River kinds (rivers and oxbow lakes are made now).
 
 const KINDS := ["continent", "island", "archipelago", "volcanic"]
 
@@ -381,6 +381,40 @@ func _rivers() -> void:
 		river.points = pts
 	for river in m.rivers:
 		_fill(river)
+	_oxbows()
+
+
+# Oxbow lakes (layout "oxbows" per landmass, made by tools/erode_maps.py):
+# old loops the river cut off, still water in their own crescent channels, a
+# little below the ground beside them, tapering out at both ends.
+func _oxbows() -> void:
+	for lm: Dictionary in layout.landmasses:
+		for ox: Dictionary in lm.get("oxbows", []):
+			var src: Array = ox.points
+			if src.size() < 3:
+				continue
+			var level := INF
+			for q: Array in src:
+				level = minf(level, m.height_at(q[0], q[1]))
+			level = maxf(level - 0.4, 0.3)
+			var hw0: float = ox.get("half_width", 30.0)
+			var pts := PackedVector3Array()
+			var hw := PackedFloat32Array()
+			var depth := PackedFloat32Array()
+			var zero := PackedFloat32Array()
+			var fill := PackedFloat32Array()
+			var wet := PackedByteArray()
+			for k in src.size():
+				var t := float(k) / (src.size() - 1)
+				var taper := sqrt(sin(PI * t))
+				pts.append(Vector3(src[k][0], level, src[k][1]))
+				hw.append(maxf(hw0 * taper, 3.0))
+				depth.append(0.6 + 2.4 * taper)
+				zero.append(0.0)
+				fill.append(clampf(taper * 1.5, 0.0, 1.0))
+				wet.append(1)
+			m.rivers.append({"points": pts, "half_width": hw, "depth": depth, "speed": zero, "flow": zero,
+					"wet": wet, "fill": fill, "kind": OXBOW, "joins": -1})
 
 
 # How far the water from cell i runs along the strokes.
@@ -433,6 +467,8 @@ func _make_river(cells: PackedInt32Array) -> Dictionary:
 	# shapes the channel to it, cutting where the ground is higher and
 	# building banks where it is lower
 	var eased := _downhill_fit(el)
+	if _is_land[cells[cells.size() - 1]] == 0:
+		eased[count - 1] = minf(eased[count - 1], 0.0)   # (it reaches the sea at sea level)
 	var p3 := PackedVector3Array()
 	var hw := PackedFloat32Array()
 	var depth := PackedFloat32Array()

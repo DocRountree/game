@@ -254,6 +254,9 @@ func _build_drawing() -> void:
 	# river water: ribbons that follow each channel
 	_river_material = ShaderMaterial.new()
 	_river_material.shader = preload("res://src/systems/water/river/river.gdshader")
+	_river_material.set_shader_parameter("top_level", LEVELS - 1)
+	_river_material.set_shader_parameter("level_size", float(LEVEL_SIZE))
+	_river_material.set_shader_parameter("lod_range0", _range(0))
 	_river_instance = MeshInstance3D.new()
 	_river_instance.name = "RiverWater"
 	_river_instance.mesh = RiverRibbons.build(_maps.rivers)
@@ -489,6 +492,7 @@ func _set_gpu_ready() -> void:
 	_levels_rd = Texture2DArrayRD.new()
 	_levels_rd.texture_rd_rid = _levels_tex
 	_material.set_shader_parameter("levels", _levels_rd)
+	_river_material.set_shader_parameter("levels", _levels_rd)
 	_water_rd = Texture2DArrayRD.new()
 	_water_rd.texture_rd_rid = _water_tex
 	_gpu_ok = true
@@ -509,6 +513,7 @@ func _update_levels(cam: Vector2) -> void:
 	if changed.is_empty():
 		return
 	_material.set_shader_parameter("level_rects", rects)
+	_river_material.set_shader_parameter("level_rects", rects)
 	var origins := _level_origin.duplicate()
 	var physics_layer := -1
 	if changed.has(1) and _wants_collider() and not _readback_pending:

@@ -27,6 +27,14 @@ uniform vec3 absorption = vec3(0.3, 0.075, 0.13);   // per metre: red first, the
 uniform float refraction = 0.025;
 uniform float ripple_strength = 0.5;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
+
+// The terrain's height levels (Terrain), to fade the water's edge by its true
+// depth, read at the same level of detail the terrain is drawn with there.
+uniform sampler2DArray levels : filter_linear, repeat_disable;
+uniform vec4 level_rects[12];
+uniform int top_level = 10;
+uniform float level_size = 256.0;
+uniform float lod_range0 = 32.0;   // how far LOD 0 patches reach (doubling per LOD)
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
 varying vec2 rp;        // across (m), downstream (m)
@@ -34,6 +42,7 @@ varying float speed;
 varying float fill;
 varying float hw;
 varying vec2 down;      // world xz, downstream
+varying vec3 wpos;      // the water surface, world (before the planet's curve)
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -41,7 +50,9 @@ void vertex() {
 	float drop = dot(world.xz - view_pos.xz, world.xz - view_pos.xz) / (2.0 * planet_radius);
 	// at the mouth the river water slips just under the sea's surface
 	float level = world.y;
-	world.y -= drop + 0.8 * (1.0 - smoothstep(0.3, 1.6, level));
+	world.y -= 0.8 * (1.0 - smoothstep(0.3, 1.6, level));
+	wpos = world;
+	world.y -= drop;
 	VERTEX = (inverse(MODEL_MATRIX) * vec4(world, 1.0)).xyz;
 	speed = COLOR.r * 8.0;
 	fill = COLOR.b;
@@ -88,6 +99,23 @@ vec2 ripples(vec2 p, float v) {
 	return s * 0.12;
 }
 
+float level_ground(int k, vec2 p) {
+	vec4 r = level_rects[k];
+	vec2 uv = ((p - r.xy) / r.z + 0.5) / level_size;
+	return textureLod(levels, vec3(uv, float(k)), 0.0).r;
+}
+
+// The terrain's height here, as drawn: the LOD its patches use at this
+// distance, blended toward the next as they morph (as in terrain.gdshader).
+float ground_at(vec2 p) {
+	float d = distance(p, view_pos.xz);
+	int k = clamp(int(ceil(log2(max(d, 1.0) / lod_range0))), 0, top_level);
+	float r = lod_range0 * exp2(float(k));
+	float morph = k < top_level ? clamp((d - 0.87 * r) / (0.11 * r), 0.0, 1.0) : 0.0;
+	float g = level_ground(k, p);
+	return morph > 0.0 ? mix(g, level_ground(k + 1, p), morph) : g;
+}
+
 float view_depth(vec2 uv, mat4 inv_proj) {
 	float raw = texture(depth_tex, uv).r;
 	vec4 p = inv_proj * vec4(uv * 2.0 - 1.0, raw, 1.0);
@@ -124,6 +152,9 @@ void fragment() {
 	ROUGHNESS = 0.05;
 	SPECULAR = 0.5;
 	EMISSION = refracted * (1.0 - fresnel);
-	// soft where it meets the ground, and thinning in at a river's head
-	ALPHA = smoothstep(0.0, 0.35, thickness) * smoothstep(0.0, 0.25, fill);
+	// soft where it meets the ground, by its true depth over the terrain's
+	// smooth heights (not where it happens to cut the terrain's triangles,
+	// which steps from above), and thinning in at a river's head
+	float depth_here = wpos.y - ground_at(wpos.xz);
+	ALPHA = smoothstep(0.05, 0.9, depth_here) * smoothstep(0.0, 0.25, fill);
 }

@@ -25,7 +25,7 @@ static func build(rivers: Array[Dictionary]) -> ArrayMesh:
 	var idx := PackedInt32Array()
 	for ri in rivers.size():
 		var r: Dictionary = rivers[ri]
-		if r.kind != WorldBake.RIVER or r.points.size() < 2:
+		if (r.kind != WorldBake.RIVER and r.kind != WorldBake.OXBOW) or r.points.size() < 2:
 			continue
 		var joins_hw := 0.0
 		if int(r.joins) >= 0:

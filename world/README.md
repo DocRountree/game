@@ -25,9 +25,21 @@ reads the PNGs directly, so 16-bit heights keep their full precision.
   - `river_mouths`: for a landmass with rivers, where each river system meets the sea
     (world x, z). Only there does its water reach the sea, so a stroke that passes close
     to the coast elsewhere doesn't become a second outlet.
+  - `oxbows`: still crescent lakes left by old bends, each a list of world (x, z)
+    `points` along its middle and a `half_width` in metres. `tools/erode_maps.py`
+    writes these.
 - `biomes`: the world-wide biome map, covering the whole 30 km.
 
 To add a landmass, add an entry and its height map.
+
+## The main island's maps: `tools/erode_maps.py`
+
+`maps/src/main_island_painted.png` is the painted original. The tool erodes it
+(rivers carving valleys, slopes slumping to a realistic angle), traces a river
+tree from where water actually drains, adds meanders and oxbows, and writes
+`main_island_height.png`, `main_island_rivers.png` and the layout's `oxbows`.
+Paint changes into the original, then run `python3 tools/erode_maps.py` (it
+needs numpy, scipy, pillow and numba).
 
 ## Height maps: `*_height.png`
 

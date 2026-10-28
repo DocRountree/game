@@ -128,7 +128,12 @@ along a 20 km arc between them), the volcanic chain to the north and the
 southern archipelago. Each landmass has a height map (16-bit grayscale, black
 is sea). The main island also has a river map (white strokes, a tree draining
 to its listed mouth), and one world-wide biome map in flat marker colours
-covers everything.
+covers everything. The main island's two maps come from its painted original
+(`world/maps/src/`) through `tools/erode_maps.py`, an offline tool:
+stream-power erosion with hillslope diffusion, a talus limit (no slope
+steeper than 38 degrees survives, so peaks are never needles), then a river
+tree from the eroded drainage, meandering in the lowlands, and oxbow lakes cut
+off beside its bends (written into the layout).
 
 **The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
 `(WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
@@ -148,8 +153,10 @@ decoding 16-bit grayscale itself, since Godot's loader cuts it to 8 bits.
    The path is smoothed (zigzag averaged out, then corners cut). The water
    surface is the downhill profile closest to the ground along the channel
    (isotonic regression by pool-adjacent-violators, lightly smoothed), so it
-   neither perches above the ground nor sinks far below it. Widths and depths grow with the land draining in, and water
-   thins in from a trickle at the head.
+   neither perches above the ground nor sinks far below it, and it ends at
+   sea level. Widths and depths grow with the land draining in, and water
+   thins in from a trickle at the head. Each oxbow in the layout becomes a
+   still crescent of water, deepest at its middle and closing at its ends.
 4. Biomes: the painted world map. Every landmass but the main island, with
    the water nearest it, is its own biome where nothing is painted (its land
    always).
@@ -183,7 +190,9 @@ little above the water), so channels merge at confluences. The valley's
 ground blends smoothly into the land from about one half width out to nine.
 It shapes the ground both ways: higher land is cut down to the channel
 (rounded where they meet, so there are no walls or creases), and lower land
-close to the river is built up into banks, so the water never floats. The water sheet uses the same level, so the water
+close to the river is built up into banks, so the water never floats (only
+on land: over the seabed nothing is built, so the mouth opens into the sea).
+The erosion filter is light on the main island, whose map is already eroded. The water sheet uses the same level, so the water
 always lies in its bed and runs downhill. The terrain mesh alternates its
 quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
 patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
@@ -210,8 +219,11 @@ Rivers are drawn as ribbon meshes along each channel (`RiverRibbons`), the
 way big open-world games build them. The UVs run along the river (UV.x across
 in half widths, UV.y downstream in metres), and the normals carry the
 downstream direction. The ribbon is level across the water, reaches past each
-bank and dips under the ground there, so the ground cuts the shoreline. The
-water fades by its depth against the scene, so shorelines are soft. A
+bank and dips under the ground there. The water's edge is where it fades
+out: the shader reads the ground under each pixel from the same height levels
+and LOD the terrain draws, and fades the water over its first metre of depth,
+so shorelines are soft and smooth instead of following the terrain's
+triangles. A
 tributary fades out over its last stretch inside the river it joins, and at
 the mouth the water slips just under the sea's surface. The look in
 `river.gdshader` is after the big westerns' rivers, without foam: clear water

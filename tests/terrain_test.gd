@@ -32,7 +32,11 @@ func _initialize() -> void:
 	# the main island's rivers: one system, joined, running downhill to the sea
 	var to_sea := 0
 	var downhill := true
+	var oxbows := 0
 	for river in a.rivers:
+		if river.kind == WorldBake.OXBOW:
+			oxbows += 1
+			continue
 		var pts: PackedVector3Array = river.points
 		for k in range(1, pts.size()):
 			downhill = downhill and pts[k].y <= pts[k - 1].y + 0.001
@@ -41,6 +45,7 @@ func _initialize() -> void:
 			downhill = downhill and pts[pts.size() - 1].y < 1.0
 	_check(a.rivers.size() >= 2 and to_sea == 1, "one river system: %d rivers, %d reaching the sea" % [a.rivers.size(), to_sea])
 	_check(downhill, "rivers only run downhill, to the sea")
+	_check(oxbows > 0, "oxbow lakes beside the meanders (%d)" % oxbows)
 
 	var biomes := {}
 	for v in a.biome:
