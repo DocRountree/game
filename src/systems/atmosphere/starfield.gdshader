@@ -36,7 +36,6 @@ void vertex() {
 	}
 	colour = COLOR.rgb * INSTANCE_CUSTOM.r * visibility * step(0.0, dir.y);   // hidden only below the horizon
 	quad = VERTEX.xy;
-	POSITION.z = POSITION.w * 1e-6;   // at the far plane: anything in the world draws in front of the sky
 }
 
 void fragment() {

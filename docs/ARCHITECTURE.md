@@ -22,6 +22,11 @@
 
 ## Services and the world
 
+- **Start menu** (`src/ui/main_menu/`, the main scene): Start game (not made
+  yet) or Debug mode, which opens the open-ocean sandbox.
+- **HUD** (`src/ui/hud/`): the status readout (with fall speed), contextual
+  controls, flash messages and the breath gauge, a circle filled from the
+  bottom up with the breath you have left.
 - **Autoloads** (`src/autoload/`): `Events` (signal bus), `Game` (the running
   world, its config, clock and player), `Settings` (quality knobs), `Perf`
   (frame timings). See `src/autoload/README.md`.
@@ -63,7 +68,7 @@ lower in fresh water.
 | `ocean.gd` / `ocean.tscn` | `Ocean extends WaterBody`: endless, the fallback everywhere. Owns the wave list, the wave time and `surface_height()`. Pushes uniforms to the water shader each frame. |
 | `ocean_wave.gd` | One Gerstner component (direction, wavelength, amplitude, phase), editable in the inspector. |
 | `ocean_surface.gd` | Builds the camera-centred polar mesh. Each vertex stores its local spacing so the shader can drop waves too short to resolve there (no far-field aliasing). |
-| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + procedural small waves, see below), refraction and depth absorption from the screen/depth textures, crest scattering. Sky reflection and sun glints come from Godot's own lighting. |
+| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + procedural small waves, see below), refraction and depth absorption from the screen/depth textures and crest scattering. No foam. Sky reflection and sun glints come from Godot's own lighting. |
 | `ripple_sim.gd` / `ripple_sim.glsl` | Interactive ripples on the GPU (see below). |
 | `ocean_fft.gd` / `ocean_fft.glsl` | The small waves: an FFT ocean spectrum on the GPU (see below). |
 
@@ -94,7 +99,6 @@ with the player holds the water's height and vertical velocity. Each physics fra
    disc) and how deep it sits in the swell. The compute shader turns *changes*
    in that occupancy into displaced water (height only, no kick): a moving
    hull pushes water out at the bow and lets it back in at the stern.
-
 2. Height and velocity are packed into one complex field and FFT'd (the same
    shared-memory FFT as the ocean). Every wavelength is advanced *exactly* by
    its own deep-water frequency, omega = sqrt(g k + sigma k^3), then
@@ -117,133 +121,6 @@ Objects read ripples on a ring just outside their own footprint, and compute
 their displacement against the swell only. That breaks the feedback loop where
 an object would sink into its own displacement trough.
 
-### Terrain and world generation (`src/systems/terrain/`)
-
-**The world is hand-painted.** `world/` holds the maps, edited in Krita or
-GIMP (see `world/README.md`), and `world/layout.json` places each landmass's
-maps in the 300 km world: the main island (about 120 km across) (a desert mesa in the west, a range
-down the middle, one river system draining the north-east), the peripheral
-island across the sea, the main archipelago (about a hundred small islands
-along a 20 km arc between them), the volcanic chain to the north and the
-southern archipelago. Each landmass has a height map (16-bit grayscale, black
-is sea). The main island also has a river map (white strokes, a tree draining
-to its listed mouth), and one world-wide biome map in flat marker colours
-covers everything. The main island's two maps come from its painted original
-(`world/maps/src/`) through `tools/erode_maps.py`, an offline tool:
-stream-power erosion with hillslope diffusion, a talus limit (no slope
-steeper than 38 degrees survives, so peaks are never needles), then a river
-tree from the eroded drainage, meandering in the lowlands, and oxbow lakes cut
-off beside its bends (written into the layout).
-
-**The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
-`(WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
-`user://worlds/`. `Terrain` runs it on a worker thread at start: about 30 s
-for the default 2048 x 2048 grid of 146 m cells (the GPU adds the detail). `MapImage` reads the PNGs,
-decoding 16-bit grayscale itself, since Godot's loader cuts it to 8 bits.
-
-1. Land: every height map is sampled onto the world grid.
-2. Seafloor: a shelf, slope and deep sea by distance from the coast. Water
-   nearest an archipelago is a shallow sandy bank; nearest a volcano it drops
-   steeply. The coast-distance sweeps also carry which landmass is nearest.
-3. Rivers: water is routed by a priority flood up from the coast (Barnes et
-   al. 2014) with the painted strokes sunk below everything and only each
-   system's listed mouth open to the sea, so each stroke network fills from
-   its mouth and drains through it. Each stroke is traced
-   from its head to the sea, or to the river it touches, which it then joins.
-   The path is smoothed (zigzag averaged out, then corners cut). The water
-   surface is the downhill profile closest to the ground along the channel
-   (isotonic regression by pool-adjacent-violators, lightly smoothed), so it
-   neither perches above the ground nor sinks far below it, and it ends at
-   sea level. Widths and depths grow with the land draining in, and water
-   thins in from a trickle at the head. Each oxbow in the layout becomes a
-   still crescent of water, deepest at its middle and closing at its ends.
-4. Biomes: the painted world map. Every landmass but the main island, with
-   the water nearest it, is its own biome where nothing is painted (its land
-   always).
-5. Ground: sand on archipelagos and beaches, rock on volcanoes, dirt
-   elsewhere. Everything shifts so the layout's `spawn` is the world origin.
-
-**Drawing.** `terrain_levels.glsl` keeps 11 nested 256 x 256 height levels
-(0.5 m to 512 m spacing) centred on the camera: the baked height (cubic
-B-spline, read from a 2x2-averaged mip of the grid matching the level's
-spacing, so coarse levels never alias the grid and far mountains hold still),
-plus the detail: the erosion filter (after Clay John's "Eroded Terrain
-Noise" and Rune Skovbo Johansen's refinement), whose jittered cells each hold
-a little wave running down the land's slope. Blended, these waves make
-gullies and spurs. Each finer octave runs down the slope the coarser ones
-made, so the gullies branch. It is strongest on steep rock, weakest on
-prairie and sand, and calm by rivers and the shore. Each biome adds its own
-character. Mesas are two tiers of caprock at wandering levels: the ground
-above a tier is pressed nearly flat, and a narrow band under the rim is
-stretched into a cliff, which makes tablelands, buttes and canyons. Prairie
-gets broad swells, forest gets hills, sand gets dunes, coral reefs get coral
-heads, kelp forests get rocky outcrops and root mazes get little channels.
-Biome weights come from the bake, softened over a few cells. Then, near
-rivers, comes the river's valley, from one smooth field over the river segments
-(after Peytavie et al., "Procedural Riverscapes"; found through the tile
-index). The water level is blended over all nearby segments, weighted
-steeply to the nearest, so where two reaches are about as near (the neck of
-a loop) it crosses over smoothly instead of stepping. The ground relative to
-that level is the lowest of each channel's shape (a parabolic bed whose slope
-carries on up through the waterline and eases over onto a floodplain a
-little above the water), so channels merge at confluences. The valley's
-ground blends smoothly into the land from about one half width out to nine.
-It shapes the ground both ways: higher land is cut down to the channel
-(rounded where they meet, so there are no walls or creases), and lower land
-close to the river is built up into banks, so the water never floats (only
-on land: over the seabed nothing is built, so the mouth opens into the sea).
-The erosion filter is light on the main island, whose map is already eroded. The water sheet uses the same level, so the water
-always lies in its bed and runs downhill. The terrain mesh alternates its
-quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
-patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
-the edge of its range. Ranges are four patch widths per LOD, so the farthest
-patch of LOD k - 1 ends before LOD k starts morphing, which keeps seams closed.
-Far terrain and water sink by d^2 / 2R (the planet's curve), so from a height
-the sea meets the sky at the true horizon. The morph uses the main camera's
-position (a uniform), also in the shadow pass, so shadows hold still.
-
-The sky's moon, stars, planets, meteors and aurora are pushed to the far plane
-in their vertex shaders, so terrain always draws in front of them.
-
-**Physics and queries.** Level 1 (1 m spacing, 256 m) is read back into a
-`HeightMapShape3D` that follows the player when they have moved 48 m. Without a
-GPU it is built from the baked map. `Terrain.height_at(x, z)` uses it near the
-player, the baked map elsewhere. `Ocean.contains_point` is "ground below sea
-level"; lakes (`LakeBody`) and rivers (`RiverBody`) are water bodies built from
-the bake, so buoyancy, swimming, currents and sampling work in them unchanged.
-
-**Water on land.** The ocean shader shrinks each Gerstner wave where the water
-is shallower than a third of its length (physics
-matches). Lakes reuse the ocean shader without swell, masked to their basin.
-Rivers are drawn as ribbon meshes along each channel (`RiverRibbons`), the
-way big open-world games build them. The UVs run along the river (UV.x across
-in half widths, UV.y downstream in metres), and the normals carry the
-downstream direction. The ribbon is level across the water, reaches past each
-bank and dips under the ground there. The water's edge is where it fades
-out: the shader reads the ground under each pixel from the same height levels
-and LOD the terrain draws, and fades the water over its first metre of depth,
-so shorelines are soft and smooth instead of following the terrain's
-triangles. A
-tributary fades out over its last stretch inside the river it joins, and at
-the mouth the water slips just under the sea's surface. The look in
-`river.gdshader` is after the big westerns' rivers, without foam: clear water
-showing the bed in the shallows, absorbing toward a dark green with depth,
-and a surface of fine ripples (gradient noise slopes) streaming downstream at
-the river's speed. They are drawn out along the flow, more so in fast water,
-and every octave moves only along the river's own direction, so the water
-follows every bend and runs downhill. Sky and sun reflect off it through
-Godot's lighting. The current is the same at every depth. Rivers run at 0.8
-to 4.5 m/s (bigger and steeper is faster), and currents push swimmers and
-boats. There is no foam anywhere.
-
-**Moving on land** is Minecraft-like: quick to start and stop on the ground,
-little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
-holding Space hops whenever the feet touch down. Gravity is a real 9.8 m/s^2.
-Double-tapping Space toggles a fast debug flight. Stopping it drops you from
-rest, without the flight's momentum. `ProceduralLegs` plants each foot on the collider (a ray down)
-and steps it in an arc when the body has moved on, alternating feet, with a
-two-bone solver bending the knees. No animation clips.
-
 ### Atmosphere (`src/systems/atmosphere/`)
 
 A single-scattering sky after Sebastian Lague's
@@ -255,7 +132,7 @@ tints distant geometry with the sky colour in that direction).
 
 | File | Role |
 |---|---|
-| `atmosphere_sky.gdshader` | Marches the view ray (16 samples bunched near the camera, dithered). At each sample it looks up the sunlight's optical depth in a baked table and accumulates the view ray's own. Draws the sun disc, reddened by the air in front of it. The sea's horizon dips below level the higher the camera is (sin(dip) = sqrt(1 - (R / (R + h))^2)), so the sun sets at the true horizon even from a mountaintop. Rays below the horizon look along it instead, keeping their heading. |
+| `atmosphere_sky.gdshader` | Marches the view ray (16 samples bunched near the camera, dithered). At each sample it looks up the sunlight's optical depth in a baked table and accumulates the view ray's own. Draws the sun disc, reddened by the air in front of it. Below the horizon (the sea covers it) it looks along the horizon instead, and that horizon dips with the camera's height as the planet curves away, so from altitude the sun sets at the true horizon. |
 | `atmosphere.gd` | Bakes the optical-depth table (~50 ms at startup), pushes parameters, and sets the sun light's direction, colour and energy from the same maths, so sunsets light the world orange. Reads time from its `GameClock` and positions from `Astronomy`; answers sky questions (`night_amount()`, `moon_illumination()`). |
 | `astronomy.gd` | Static: Julian date, sidereal time, the equatorial-to-world rotation, sun and moon directions and phase, all from `WorldConfig`, day and clock time. |
 
@@ -398,13 +275,13 @@ The same component optionally registers the body as a ripple source.
 
 ### Camera (`src/systems/camera/player_camera.gd`)
 
-**Starting.** While the world generates (or loads from the cache), a loading
-screen shows the bake's stage and progress, and the player, boat and crates
-wait frozen and hidden. Then the boat is moored at the layout's spawn point,
-about 300 m off the shore beside the river mouth. The player stands on the
-nearest gentle dry ground, facing the boat, and is let go once the ground's
-collider covers that spot. Breath shows as a round gauge in the bottom-right
-corner that fills from the bottom up.
+**Walking** is Minecraft-like: quick to start and stop on the ground,
+little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
+holding Space hops whenever the feet touch down. Gravity is a real 9.8 m/s^2.
+Double-tapping Space toggles a fast debug flight; stopping it drops you from
+rest, so you fall straight down, accelerating. `ProceduralLegs` plants each foot on whatever is below
+(a ray down) and steps it in an arc when the body has moved on, alternating
+feet, with a two-bone solver bending the knees. No animation clips.
 
 `PlayerCamera` has two modes, toggled with F5; the game starts in first person.
 Third person orbits the target and never dips below the water surface. The view

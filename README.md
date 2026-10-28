@@ -7,20 +7,12 @@ with C++ via GDExtension where profiling calls for it).
 The sky is a single-scattering atmosphere over the real winter night sky:
 naked-eye stars, planets and Messier objects, every day the winter solstice.
 A moon goes through its phases day by day. Days last 15 real minutes, nights 10.
-
-The world is hand-painted (`world/`, see `world/README.md`): a 30 km sea with
-a main island (a desert mesa, a mountain range and a river system), a
-peripheral island, a long archipelago, a volcanic chain and a southern
-archipelago. Edit the maps in Krita or GIMP. The game adds the fine detail:
-erosion gullies, mesa cliffs, river valleys, dunes and reefs. The first start
-after a change bakes the world (about 30 s, behind a loading screen) and caches it.
-You start on the shore of the bay by the river mouth, with your boat moored offshore.
-
-The water: a Gerstner-wave ocean that physics and rendering agree on exactly,
-waves that shoal and break at the shore, calm lakes, flowing rivers whose
-current carries you, spring buoyancy for anything that floats, and an
+The first system in place is the water: a Gerstner-wave ocean that physics and
+rendering agree on exactly, spring buoyancy for anything that floats, and an
 interactive GPU ripple simulation that turns hulls and swimmers into wakes that
 lift and shove whatever they reach.
+
+Starting the project opens a menu: **Debug mode** enters the sandbox world (Start game is not made yet).
 
 ## Running
 
@@ -34,20 +26,17 @@ lift and shove whatever they reach.
 shader and need one of those; under the Compatibility renderer the ocean, buoyancy
 and gameplay still work, just without ripples.
 
-Starting the project opens a menu: **Debug mode** enters the sandbox world (Start game is not made yet).
-
 ## Controls
 
 | | |
 |---|---|
 | Mouse | look around (Esc releases the cursor; arrow keys also orbit) |
-| Left Shift | sneak on land; swim down; get off the boat |
+| Left Shift | sneak when walking; swim down; get off the boat |
 | F3 | performance overlay (fps, CPU, GPU, memory) |
-| F4 | world map (debug: the whole baked world, with you on it) |
 | F5 | toggle first-person (default) / third-person view |
 | F6 | debug: aurora every night (toggle) |
 | M | debug: meteor shower every night (toggle) |
-| W A S D | walk on land; swim, relative to the camera (look down while swimming to dive) |
+| W A S D | walk (on deck); swim, relative to the camera (look down while swimming to dive) |
 | Left Ctrl | sprint (hold with W) |
 | Space | jump (hold to keep hopping); swim up / tread water (do nothing and you sink) |
 | Space Space | debug: fly (Space up, Shift down, Ctrl faster; double-tap again or land to stop) |
@@ -65,11 +54,10 @@ src/                all game code and scenes, grouped by feature
   autoload/         global services: Events (signal bus), Game, Settings, Perf
   core/             world-wide basics: WorldConfig (seed, latitude, date), WorldGrid
   data/             Resource schemas and instances: items, species, biomes, boats, characters
-  systems/          reusable pieces: terrain (world generation), water (ocean,
-                    lakes, rivers), time, atmosphere, buoyancy,
+  systems/          reusable pieces: water (ocean), time, atmosphere, buoyancy,
                     camera, inventory, exploration, performance
   entities/         things in the world: player, boat, props
-  world/            levels / playable spaces (open_ocean is the main scene)
+  world/            levels / playable spaces (open_ocean is the debug sandbox)
   ui/               HUD and menus
   minigames/        self-contained minigames, one folder each
 assets/             imported art and audio (models, textures, audio, fonts)

@@ -13,14 +13,8 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	Terrain.bake_resolution = 1024   # a coarse world: quick to bake
 	var world: Node3D = load("res://src/world/open_ocean/open_ocean.tscn").instantiate()
 	root.add_child(world)
-	world.get_node("Terrain").generate_now()   # the world first: then the player and boat spawn
-	for _f in 600:
-		if world._spawn_spot != Vector3.INF and world._loading == null:
-			break
-		await process_frame
 	await _frames(2)
 	var player: Player = world.get_node("Player")
 	var boat: Boat = world.get_node("Boat")
@@ -41,8 +35,6 @@ func _run() -> void:
 	world.add_child(lake)
 	_check(Water.body_at(0.0, 0.0) == lake and Water.body_at(100.0, 0.0) is Ocean
 			and lake.density() < ocean_here.density(), "a fresher, higher-priority lake overrides the ocean inside it")
-	player.respawn(Vector3(0.0, 0.0, 0.0))   # (in the lake for a moment, for the stats below)
-	await _frames(20)
 	lake.queue_free()
 	await process_frame
 
@@ -189,8 +181,8 @@ func _run() -> void:
 	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
 			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
 
-	# diving by looking down (out in deeper water, beyond the bay's shallows)
-	player.respawn(Vector3(750, 0, 1300))
+	# diving by looking down
+	player.respawn(Vector3(20, 0, 20))
 	await _frames(30)
 	var start_depth := player.head_depth()
 	camera.pitch = 1.2   # look steeply down
@@ -248,60 +240,10 @@ func _run() -> void:
 			"player stats track time in and under water, and both waters visited (%.1f s in, %.1f s under, %.1f m, %s)" % [player.stats.seconds_in_water,
 			player.stats.seconds_submerged, player.stats.max_depth_m, player.stats.waters_visited])
 
-	# land: walk on the baked ground
-	var terrain: Terrain = world.get_node("Terrain")
-	terrain.generate_now()
-	var maps := Terrain.maps()
-	var spot := Vector3.INF
-	for i in maps.n * maps.n:
-		var h := maps.height[i]
-		var c := maps.to_world(i % maps.n, i / maps.n)
-		if h > 5.0 and h < 200.0 and maps.water_level[i] <= WorldMaps.NO_WATER and maps.river_at(c.x, c.y).is_empty():
-			if absf(maps.height_at(c.x + 20.0, c.y) - h) < 3.0 and absf(maps.height_at(c.x, c.y + 20.0) - h) < 3.0:
-				spot = Vector3(c.x, h, c.y)
-				break
-	_check(spot != Vector3.INF, "found gentle dry land to stand on")
-	if player.boat:
-		player._leave_boat()
-	player.respawn(spot + Vector3.UP * 3.0)
-	player.global_position = spot + Vector3.UP * 3.0
-	await _frames(120)
-	var ground := Terrain.height_at(player.global_position.x, player.global_position.z)
-	_check(player.state == &"WALKING" and absf(player.global_position.y - Player.CHEST - ground) < 0.6
-			and Water.body_at(spot.x, spot.z) == null,
-			"player stands on land (%s, feet %.2f m above the ground)" % [player.state, player.global_position.y - Player.CHEST - ground])
-
-	# procedural legs: feet planted on the ground, stepping while walking
-	player.model.visible = true
-	var legs: ProceduralLegs = null
+	# double-tapping Space flies (and the procedural legs come along)
+	var legs_ok := false
 	for ch in player.get_children():
-		if ch is ProceduralLegs:
-			legs = ch
-	await _frames(10)
-	var planted := true
-	for f in legs._feet:
-		planted = planted and absf(f.y - Terrain.height_at(f.x, f.z)) < 0.15
-	Input.action_press(&"move_forward")
-	var start_feet := legs._feet.duplicate()
-	await _frames(60)
-	Input.action_release(&"move_forward")
-	var stepped: bool = legs._feet[0].distance_to(start_feet[0]) > 0.3 and legs._feet[1].distance_to(start_feet[1]) > 0.3
-	await _frames(30)
-	for f in legs._feet:
-		planted = planted and absf(f.y - Terrain.height_at(f.x, f.z)) < 0.15
-	_check(legs != null and planted and stepped, "procedural legs plant both feet on the ground and step while walking")
-
-	# Minecraft-style jump, and double-tap Space flight
-	var y0 := player.global_position.y
-	Input.action_press(&"tread")
-	var peak := y0
-	for _f in 20:
-		await physics_frame
-		peak = maxf(peak, player.global_position.y)
-	Input.action_release(&"tread")
-	await _frames(60)
-	_check(peak - y0 > 0.8 and peak - y0 < 2.5 and player.state == &"WALKING",
-			"holding Space jumps about a metre and lands (%.2f m)" % (peak - y0))
+		legs_ok = legs_ok or ch is ProceduralLegs
 	for _tap in 2:
 		var ev := InputEventAction.new()
 		ev.action = &"tread"
@@ -317,41 +259,9 @@ func _run() -> void:
 	Input.action_press(&"tread")
 	await _frames(60)
 	Input.action_release(&"tread")
-	_check(player.flying and player.state == &"FLYING" and player.global_position.y - fly_y > 20.0,
-			"double-tapping Space flies, fast (rose %.0f m in 1 s)" % (player.global_position.y - fly_y))
+	_check(legs_ok and player.flying and player.state == &"FLYING" and player.global_position.y - fly_y > 20.0,
+			"double-tapping Space flies, fast (rose %.0f m in 1 s); the player has procedural legs" % (player.global_position.y - fly_y))
 	player.flying = false
-	player.respawn(spot + Vector3.UP * 3.0)
-	await _frames(30)
-
-	# lakes and rivers are water bodies
-	var lake_ok := true
-	var lakes_seen := 0
-	for i in maps.n * maps.n:
-		if maps.water_kind[i] == WorldMaps.WaterKind.LAKE and maps.height[i] < maps.water_level[i] - 2.0:
-			var c := maps.to_world(i % maps.n, i / maps.n)
-			var lb := Water.body_at(c.x, c.y)
-			lakes_seen += 1
-			lake_ok = lake_ok and lb is LakeBody and absf(lb.surface_height(c.x, c.y) - maps.water_level[i]) < 0.01
-			if lakes_seen > 20:
-				break
-	_check(lakes_seen == 0 or lake_ok, "lakes are water bodies at their level (%d cells checked)" % lakes_seen)
-	var river_ok := false
-	for river in maps.rivers:
-		if river.kind != WorldBake.RIVER:
-			continue
-		var pts: PackedVector3Array = river.points
-		for k in range(1, pts.size() - 1):
-			if river.wet[k] == 0 or Terrain.height_at(pts[k].x, pts[k].z) >= pts[k].y:
-				continue
-			var rb := Water.body_at(pts[k].x, pts[k].z)
-			if rb is RiverBody:
-				var f := rb.flow_at(pts[k].x, pts[k].z)
-				var down := Vector2(pts[k + 1].x - pts[k - 1].x, pts[k + 1].z - pts[k - 1].z)
-				river_ok = f.length() > 0.2 and Vector2(f.x, f.z).dot(down) > 0.0
-				break
-		if river_ok:
-			break
-	_check(river_ok, "rivers are water bodies whose current runs downstream")
 
 	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	quit(1 if _failures else 0)

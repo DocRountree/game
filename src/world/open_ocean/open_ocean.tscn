@@ -23,7 +23,6 @@
 [ext_resource type="Shader" path="res://src/systems/atmosphere/meteors.gdshader" id="26_meteor_shader"]
 [ext_resource type="Script" path="res://src/systems/atmosphere/aurora.gd" id="27_aurora"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/aurora.gdshader" id="28_aurora_shader"]
-[ext_resource type="Script" path="res://src/systems/terrain/terrain.gd" id="40_terrain"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -130,10 +129,6 @@ script = ExtResource("13_moon")
 [node name="Moonlight" type="DirectionalLight3D" parent="."]
 light_color = Color(0.75, 0.83, 1, 1)
 light_energy = 0.0
-
-[node name="Terrain" type="Node3D" parent="." node_paths=PackedStringArray("focus")]
-script = ExtResource("40_terrain")
-focus = NodePath("../Player")
 
 [node name="Ocean" parent="." node_paths=PackedStringArray("focus", "sun") instance=ExtResource("2_ocean")]
 focus = NodePath("../Player")
