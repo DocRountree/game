@@ -44,8 +44,10 @@ func _physics_process(delta: float) -> void:
 		return
 	var fwd := -global_basis.z
 	var right := global_basis.x
-	var v_fwd := linear_velocity.dot(fwd)
-	var v_side := linear_velocity.dot(right)
+	var current := buoyancy.water.flow_at(global_position.x, global_position.z) if buoyancy.water else Vector3.ZERO
+	var v_water := linear_velocity - current   # drag acts against the water, so rivers carry the boat
+	var v_fwd := v_water.dot(fwd)
+	var v_side := v_water.dot(right)
 	var v_ctl := clampf(v_fwd, -15.0, 15.0)   # rudder, lift and lean stop growing past ~15 m/s
 	var thrust := throttle * (spec.thrust_forward if throttle > 0.0 else spec.thrust_reverse)
 	apply_central_force(fwd * (thrust - spec.drag_forward_quadratic * v_fwd * absf(v_fwd) - spec.drag_forward_linear * v_fwd)

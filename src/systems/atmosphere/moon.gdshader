@@ -27,6 +27,8 @@ float noise(vec3 p) {
 
 void vertex() {
 	q = VERTEX.xy * 2.0;   // the quad spans -0.5..0.5
+	POSITION = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(VERTEX, 1.0));
+	POSITION.z = POSITION.w * 1e-6;   // at the far plane: anything in the world draws in front of the sky
 }
 
 void fragment() {

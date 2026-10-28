@@ -1,8 +1,9 @@
 @tool
 class_name OceanSurface
 extends MeshInstance3D
-## Camera-centred polar grid: ~8 cm between vertices underfoot, ~40 m at the
-## horizon. Each vertex carries its local spacing (UV.x) so the shader can drop
+## Camera-centred polar grid: ~8 cm between vertices underfoot, ~40 m at
+## 1.5 km, then a few coarse rings out to the horizon seen from a mountain.
+## Each vertex carries its local spacing (UV.x) so the shader can drop
 ## waves too short for that ring to resolve.
 
 @export var rings := 200
@@ -17,20 +18,36 @@ func _ready() -> void:
 		segments = QualitySettings.current().ocean_segments
 	mesh = build_mesh()
 	# displacement moves vertices; never cull the ocean
-	custom_aabb = AABB(Vector3(-3000, -50, -3000), Vector3(6000, 100, 6000))
+	custom_aabb = AABB(Vector3(-FAR_RADIUS, -400, -FAR_RADIUS), Vector3(FAR_RADIUS * 2.0, 450, FAR_RADIUS * 2.0))
+
+
+const FAR_RADIUS := 60000.0   ## The coarse rings reach this far (m).
+const FAR_RINGS := 16
 
 
 func build_mesh() -> ArrayMesh:
-	var count := (rings + 1) * segments
+	var radii := PackedFloat32Array()
+	var spacings := PackedFloat32Array()
+	for i in rings + 1:
+		var r := inner_spacing * (exp(growth * i) - 1.0) / growth
+		radii.append(r)
+		spacings.append(maxf(inner_spacing * exp(growth * i), r * TAU / segments))
+	var r_last := radii[rings]
+	for j in range(1, FAR_RINGS + 1):
+		var r := r_last * pow(FAR_RADIUS / r_last, float(j) / FAR_RINGS)
+		radii.append(r)
+		spacings.append(r * TAU / segments)
+	var total := radii.size() - 1
+	var count := (total + 1) * segments
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	verts.resize(count)
 	normals.resize(count)
 	uvs.resize(count)
-	for i in rings + 1:
-		var r := inner_spacing * (exp(growth * i) - 1.0) / growth
-		var spacing := maxf(inner_spacing * exp(growth * i), r * TAU / segments)
+	for i in total + 1:
+		var r := radii[i]
+		var spacing := spacings[i]
 		for j in segments:
 			var a := TAU * j / segments
 			var v := i * segments + j
@@ -38,9 +55,9 @@ func build_mesh() -> ArrayMesh:
 			normals[v] = Vector3.UP
 			uvs[v] = Vector2(spacing, 0.0)
 	var indices := PackedInt32Array()
-	indices.resize(rings * segments * 6)
+	indices.resize(total * segments * 6)
 	var n := 0
-	for i in rings:
+	for i in total:
 		for j in segments:
 			var a := i * segments + j
 			var b := i * segments + (j + 1) % segments

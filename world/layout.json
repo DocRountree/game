@@ -1,0 +1,67 @@
+{
+ "world_size": 30000.0,
+ "sea_value": 0.02,
+ "landmasses": [
+  {
+   "name": "main_island",
+   "kind": "continent",
+   "center": [
+    -9000.0,
+    -500.0
+   ],
+   "size": 11000.0,
+   "peak": 1000.0,
+   "height": "main_island_height.png",
+   "rivers": "main_island_rivers.png",
+   "biomes": "main_island_biomes.png"
+  },
+  {
+   "name": "peripheral_island",
+   "kind": "island",
+   "center": [
+    11500.0,
+    -1500.0
+   ],
+   "size": 4000.0,
+   "peak": 200.0,
+   "height": "peripheral_island_height.png"
+  },
+  {
+   "name": "main_archipelago",
+   "kind": "archipelago",
+   "center": [
+    2700.0,
+    1400.0
+   ],
+   "size": 17000.0,
+   "peak": 60.0,
+   "height": "main_archipelago_height.png"
+  },
+  {
+   "name": "volcanic_chain",
+   "kind": "volcanic",
+   "center": [
+    6500.0,
+    -11300.0
+   ],
+   "size": 13000.0,
+   "peak": 1000.0,
+   "height": "volcanic_chain_height.png"
+  },
+  {
+   "name": "southern_archipelago",
+   "kind": "archipelago",
+   "center": [
+    -500.0,
+    10000.0
+   ],
+   "size": 10000.0,
+   "peak": 80.0,
+   "height": "southern_archipelago_height.png"
+  }
+ ],
+ "spawn": [
+  -6322.077922077922,
+  -448.05194805194805
+ ]
+}
