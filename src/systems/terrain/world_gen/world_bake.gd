@@ -5,7 +5,8 @@ extends RefCounted
 ##
 ## world/layout.json places each landmass's maps in the 30 km world: a height
 ## map (16-bit grayscale, black = sea) and, for the main island, a river map
-## (white strokes) and a biome map (flat colours, see WorldMaps.BIOME_TINT).
+## (white strokes); one world-wide biome map (flat colours, see
+## WorldMaps.BIOME_TINT) says what each place will be.
 ##
 ## 1. Land: every landmass's height map is sampled onto one world grid.
 ## 2. Seafloor: shelves falling away from every coast; shallow sandy banks
@@ -13,8 +14,8 @@ extends RefCounted
 ## 3. Rivers: water is routed downhill over the land, preferring the painted
 ##    strokes, so each stroke becomes a river that always runs down to the
 ##    sea; widths grow with the land draining into them.
-## 4. Biomes: the main island's painted map; each other landmass, land and
-##    water around it, is its own biome.
+## 4. Biomes: the painted world map; each landmass but the main island, with
+##    the water nearest it, is its own biome where nothing else is painted.
 ## The fine detail (the erosion filter's gullies, mesa cliffs, river
 ## valleys) is added on the GPU by Terrain.
 
@@ -139,14 +140,7 @@ func _land() -> void:
 					m.owner[i] = li + 1
 					_kind[i] = kind + 1
 					if rv:
-						# the most of a stroke anywhere in the cell, so thin
-						# strokes stay connected however coarse the grid
-						var q := cell / side * 0.5
-						var best := 0.0
-						for dv in [-q, 0.0, q]:
-							for du in [-q, 0.0, q]:
-								best = maxf(best, rv.sample(u + du, v + dv))
-						_river_mask[i] = best
+						_river_mask[i] = rv.sample(u, v)
 		progress = 0.05 + 0.25 * (li + 1) / layout.landmasses.size()
 	for i in count:
 		# land stays off the world's edge
@@ -179,25 +173,38 @@ func _coast_distance() -> void:
 				break
 	var d1 := cell
 	var d2 := cell * sqrt(2.0)
-	var offs := [[-n - 1, d2], [-n, d1], [-n + 1, d2], [-1, d1]]
-	for pass_i in 2:
-		var y0 := 1 if pass_i == 0 else n - 2
-		var y1 := n - 1 if pass_i == 0 else 0
-		var st := 1 if pass_i == 0 else -1
-		var sgn := 1 if pass_i == 0 else -1
-		var y := y0
-		while y != y1:
-			var x := 1 if pass_i == 0 else n - 2
-			while x >= 1 and x <= n - 2:
-				var i := y * n + x
-				var land := isl[i]
-				for o: Array in offs:
-					var j: int = i + int(o[0]) * sgn
-					if isl[j] == land and dist[j] + float(o[1]) < dist[i]:
-						dist[i] = dist[j] + float(o[1])
-						near[i] = near[j]
-				x += st
-			y += st
+	for y in range(1, n - 1):
+		for x in range(1, n - 1):
+			var i := y * n + x
+			var land := isl[i]
+			var v := dist[i]
+			var nr := near[i]
+			var j := i - n - 1
+			if isl[j] == land and dist[j] + d2 < v: v = dist[j] + d2; nr = near[j]
+			j = i - n
+			if isl[j] == land and dist[j] + d1 < v: v = dist[j] + d1; nr = near[j]
+			j = i - n + 1
+			if isl[j] == land and dist[j] + d2 < v: v = dist[j] + d2; nr = near[j]
+			j = i - 1
+			if isl[j] == land and dist[j] + d1 < v: v = dist[j] + d1; nr = near[j]
+			dist[i] = v
+			near[i] = nr
+	for y in range(n - 2, 0, -1):
+		for x in range(n - 2, 0, -1):
+			var i := y * n + x
+			var land := isl[i]
+			var v := dist[i]
+			var nr := near[i]
+			var j := i + n + 1
+			if isl[j] == land and dist[j] + d2 < v: v = dist[j] + d2; nr = near[j]
+			j = i + n
+			if isl[j] == land and dist[j] + d1 < v: v = dist[j] + d1; nr = near[j]
+			j = i + n - 1
+			if isl[j] == land and dist[j] + d2 < v: v = dist[j] + d2; nr = near[j]
+			j = i + 1
+			if isl[j] == land and dist[j] + d1 < v: v = dist[j] + d1; nr = near[j]
+			dist[i] = v
+			near[i] = nr
 
 
 # --- 2. seafloor -----------------------------------------------------------------------------
@@ -252,10 +259,32 @@ func _rivers() -> void:
 	var seen := PackedByteArray()
 	seen.resize(count)
 	var heap := Heap.new()
+	# each river system reaches the sea only at its mouth (layout
+	# "river_mouths"): elsewhere a stroke passing close to the coast is not an
+	# outlet, so all its water drains through the one mouth
+	var mouths := PackedInt32Array()
+	for lm: Dictionary in layout.landmasses:
+		for mw: Array in lm.get("river_mouths", []):
+			var best := -1
+			var best_d := INF
+			var g := ((Vector2(mw[0], mw[1]) + Vector2.ONE * size * 0.5) / cell).floor()
+			var r := ceili(600.0 / cell)
+			for y in range(maxi(int(g.y) - r, 1), mini(int(g.y) + r, n - 2) + 1):
+				for x in range(maxi(int(g.x) - r, 1), mini(int(g.x) + r, n - 2) + 1):
+					var i := y * n + x
+					if _is_land[i] == 1 and _river_mask[i] > 0.3 and _dist[i] < cell * 1.5:
+						var d := Vector2(_cx(i) - mw[0], _cz(i) - mw[1]).length()
+						if d < best_d:
+							best_d = d
+							best = i
+			if best >= 0:
+				mouths.append(best)
 	for y in range(1, n - 1):
 		for x in range(1, n - 1):
 			var i := y * n + x
 			if _is_land[i] == 0:
+				continue
+			if _river_mask[i] > 0.3 and not mouths.is_empty() and not mouths.has(i):
 				continue
 			for k in 8:
 				if _is_land[i + _nb[k]] == 0:
@@ -462,27 +491,35 @@ func _fill(river: Dictionary) -> void:
 
 func _biomes() -> void:
 	m.biome.fill(WorldMaps.Biome.NONE)
+	# each island group, and the water nearest it, is its own biome...
 	var own := [WorldMaps.Biome.NONE, WorldMaps.Biome.ISLAND, WorldMaps.Biome.ARCHIPELAGO, WorldMaps.Biome.VOLCANIC]
-	for li in layout.landmasses.size():
-		var lm: Dictionary = layout.landmasses[li]
-		var kind := KINDS.find(lm.get("kind", "island"))
-		var c := Vector2(lm.center[0], lm.center[1])
-		var side: float = lm.size
-		var bm: MapImage = MapImage.open(MAPS + lm.biomes) if lm.has("biomes") else null
-		var sp := _span(c, side)
-		for y in range(sp[1], sp[3] + 1):
-			for x in range(sp[0], sp[2] + 1):
-				var i := y * n + x
-				var u := (_cx(i) - c.x) / side + 0.5
-				var v := (_cz(i) - c.y) / side + 0.5
-				if u < 0.0 or v < 0.0 or u >= 1.0 or v >= 1.0:
-					continue
-				if bm:
-					var b := WorldMaps.biome_of_color(bm.color(u, v))
-					if b != WorldMaps.Biome.NONE:
-						m.biome[i] = b
-				elif own[kind] != WorldMaps.Biome.NONE and (m.owner[i] == li + 1 or (_is_land[i] == 0 and _near[i] == li + 1 and _dist[i] < 1200.0)):
-					m.biome[i] = own[kind]
+	for i in n * n:
+		var o := m.owner[i] if _is_land[i] == 1 else (_near[i] if _dist[i] < 1200.0 else 0)
+		if o > 0:
+			m.biome[i] = own[KINDS.find(layout.landmasses[o - 1].get("kind", "island"))]
+	# ...and the painted map says the rest (over the island groups' water
+	# too, but not their land)
+	if not layout.has("biomes"):
+		return
+	# (resampled to the grid natively, and each distinct colour looked up once)
+	var img := Image.new()
+	img.load_png_from_buffer(FileAccess.get_file_as_bytes(MAPS + layout.biomes))
+	img.convert(Image.FORMAT_RGB8)
+	img.resize(n, n, Image.INTERPOLATE_NEAREST)
+	var rgb := img.get_data()
+	var lookup := {}
+	for i in n * n:
+		var key := (rgb[i * 3] << 16) | (rgb[i * 3 + 1] << 8) | rgb[i * 3 + 2]
+		if key == 0:
+			continue
+		if not lookup.has(key):
+			lookup[key] = WorldMaps.biome_of_color(Color8(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]))
+		var b: int = lookup[key]
+		if b == WorldMaps.Biome.NONE:
+			continue
+		if _is_land[i] == 1 and m.owner[i] > 0 and KINDS.find(layout.landmasses[m.owner[i] - 1].get("kind", "island")) != 0:
+			continue
+		m.biome[i] = b
 
 
 func _materials() -> void:

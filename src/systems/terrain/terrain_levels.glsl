@@ -34,8 +34,8 @@ layout(set = 0, binding = 5, rgba32f) uniform restrict image2DArray levels;
 // River water per texel: sheet height (tucked under the ground where there is
 // no river), current x, z (m/s), unused.
 layout(set = 0, binding = 6, rgba32f) uniform restrict writeonly image2DArray water_levels;
-// Biome weights per baked cell, two RGBA8 each: land (mesa, prairie, forest,
-// own-biome landmass), seafloor (coral reef, root maze, kelp forest, -).
+// Biome weights per baked cell, two RGBA8 each: (mesa, plains, forest,
+// own-biome landmass), (coral reef, root maze, kelp forest, riparian wetlands).
 layout(set = 0, binding = 7, std430) restrict readonly buffer Biomes { uint biome[]; };
 
 layout(push_constant, std430) uniform Params {
@@ -388,8 +388,8 @@ void main() {
 	vec4 gw = bilinear_ground(p);
 	bool sea = h < 0.0;
 
-	vec4 bl = biome_bilinear(p, 0);   // mesa, prairie, forest, own-biome landmass
-	vec4 bs = biome_bilinear(p, 1);   // coral reef, root maze, kelp forest, -
+	vec4 bl = biome_bilinear(p, 0);   // mesa, plains, forest, own-biome landmass
+	vec4 bs = biome_bilinear(p, 1);   // coral reef, root maze, kelp forest, riparian wetlands
 	Rivers rv = rivers(p);
 	// detail calms down in and right beside channels, and toward the shore
 	float calm = smoothstep(2.5, 6.0, rv.r);
@@ -413,15 +413,18 @@ void main() {
 		// how strongly the land is carved: rock most, dirt, sand least; the
 		// prairie only gently, the mesas' badlands and the mountains hard
 		float rough = dot(gw, vec4(0.25, 0.7, 1.0, 0.2));
-		rough *= mix(1.0, 0.35, bl.y) * mix(1.0, 1.25, bl.x) * mix(1.0, 1.15, bl.z) * mix(1.0, 0.7, bl.w * gw.r);
+		rough *= mix(1.0, 0.35, bl.y) * mix(1.0, 1.25, bl.x) * mix(1.0, 1.15, bl.z) * mix(1.0, 0.7, bl.w * gw.r) * mix(1.0, 0.25, bs.w);
 		float slope = length(base.yz);
 		float ero = erosion(p, base.yz);
 		h += ero * 60.0 * rough * smoothstep(0.02, 0.35, slope) * (1.0 - 0.85 * table) * calm * shore * pc.detail;
-		// broad swells everywhere (the prairie's rolling ground), the
-		// forest's hills, and dunes on sandy islands
+		// broad swells everywhere (the plains' rolling ground), the
+		// forest's hills, dunes on sandy islands; the wetlands lie low and
+		// flat, dimpled with hollows and pools
 		h += fbm(p, 1.0 / 700.0, 4) * (1.5 + 2.5 * bl.y) * calm * shore * pc.detail;
 		h += fbm(p * 1.7 + 31.0, 1.0 / 220.0, 4) * 6.0 * bl.z * calm * shore * pc.detail;
 		h += abs(fbm(p * 0.9 - 57.0, 1.0 / 120.0, 3)) * 3.0 * gw.r * calm * smoothstep(0.3, 2.5, h) * pc.detail;
+		float hollows = smoothstep(0.15, 0.45, fbm(p + 211.0, 1.0 / 90.0, 3));
+		h = mix(h, h * 0.92 - hollows * 1.4, bs.w * smoothstep(1.0, 4.0, h));
 	} else {
 		// the seafloor: sand waves, coral heads in the reefs, rocky outcrops
 		// under the kelp, a tangle of little channels among the roots

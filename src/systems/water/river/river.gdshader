@@ -1,87 +1,56 @@
 shader_type spatial;
 render_mode blend_mix, depth_draw_always, cull_disabled;
 
-// Inland water (rivers, oxbow lakes and lakes), in the same colours as the
-// ocean (water.gdshader): light from the bed refracted and absorbed with
-// depth, the same body colour. The surface detail is a still ripple field that
-// only the current moves (two copies, half a cycle apart, crossfaded so the
-// drift never resets visibly), so the water always runs downstream. The
-// current is read per pixel, so the flow sweeps smoothly round every bend,
-// and the ripples are drawn out along it into streaks, more so the faster it
-// runs; fast water is choppier too. Lakes are the same water with no current.
-// At the very edge the water thins to nothing, so shorelines are soft.
+// River water, drawn on ribbon meshes that follow each channel (RiverRibbons):
+// UV.x runs across the river in half widths (0 mid-channel), UV.y downstream
+// in metres. Vertex colour: current (r * 8 m/s), depth (g * 8 m), how much the
+// water has thinned in (b) and the half width (a * 64 m). The mesh's
+// normals carry the downstream direction.
 //
-// Drawn on the terrain's own CDLOD patches: the sheet height and current come
-// from the river levels the terrain compute pass writes from the same channel
-// data that carves the beds. The sheet runs a little past each bank and dives
-// under the ground, so the shoreline is wherever the ground meets the water,
-// smooth and exact, like the ocean's.
+// The look is after the rivers of the big open-world westerns, without foam:
+// clear water that shows the bed in the shallows and deepens to a dark
+// green, a surface of fine ripples streaming downstream (drawn out into
+// streaks along the flow, livelier where the water runs fast), the sky and
+// sun reflected off it, and soft edges where it meets the bank. Every ripple
+// moves only along the river's own direction, so the water follows every bend
+// and always runs downhill. The current is the same at every depth.
 
 uniform float time;
 uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
 uniform vec3 sun_color = vec3(1.0);
+uniform vec3 view_pos;
 uniform float planet_radius = 6400000.0;
 
-group_uniforms detail;
-uniform float detail_strength = 0.45;
-uniform float cycle = 2.0;            // seconds per flow-map cycle
-uniform float streak = 1.6;           // how far ripples are drawn out along the current (s)
-
-group_uniforms water;
-uniform vec3 deep_color = vec3(0.01, 0.035, 0.04);
-uniform vec3 scatter_color = vec3(0.02, 0.12, 0.1);
-uniform vec3 absorption = vec3(0.4, 0.16, 0.14);   // per metre: a little greener and siltier than the sea
-uniform float refraction = 0.03;
+uniform vec3 deep_color = vec3(0.012, 0.045, 0.035);
+uniform vec3 scatter_color = vec3(0.03, 0.11, 0.07);
+uniform vec3 absorption = vec3(0.3, 0.075, 0.13);   // per metre: red first, then blue; the water greens with depth
+uniform float refraction = 0.025;
+uniform float ripple_strength = 0.5;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
-group_uniforms patches;
-uniform sampler2DArray levels : filter_linear, repeat_disable;
-uniform sampler2DArray water_levels : filter_linear, repeat_disable;
-uniform vec4 level_rects[12];
-uniform int top_level = 10;
-uniform float grid_dim = 16.0;
-uniform float level_size = 256.0;
-uniform vec3 view_pos;
-
-varying vec3 wpos;
-varying flat int lod;
-varying float morph;
-
-vec2 level_uv(int k, vec2 p) {
-	vec4 r = level_rects[k];
-	return ((p - r.xy) / r.z + 0.5) / level_size;
-}
+varying vec2 rp;        // across (m), downstream (m)
+varying float speed;
+varying float fill;
+varying float hw;
+varying vec2 down;      // world xz, downstream
 
 void vertex() {
-	vec4 cd = INSTANCE_CUSTOM;   // lod, morph start, morph end, patch size
-	vec3 origin = MODEL_MATRIX[3].xyz;
-	vec2 gp = VERTEX.xz;
-	vec2 wp = origin.xz + gp * cd.w;
-	lod = int(cd.x + 0.5);
-	float d = distance(wp, view_pos.xz);
-	morph = lod < top_level ? clamp((d - cd.y) / (cd.z - cd.y), 0.0, 1.0) : 0.0;
-	gp -= fract(gp * grid_dim * 0.5) * 2.0 / grid_dim * morph;
-	wp = origin.xz + gp * cd.w;
-	vec4 w = textureLod(water_levels, vec3(level_uv(lod, wp), float(lod)), 0.0);
-	if (morph > 0.0)
-		w = mix(w, textureLod(water_levels, vec3(level_uv(lod + 1, wp), float(lod + 1)), 0.0), morph);
-	float drop = dot(wp - view_pos.xz, wp - view_pos.xz) / (2.0 * planet_radius);   // the planet curves away
-	VERTEX = vec3(gp.x * cd.w, w.x - origin.y - drop, gp.y * cd.w);
+	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// the planet curves away, as the terrain does
+	float drop = dot(world.xz - view_pos.xz, world.xz - view_pos.xz) / (2.0 * planet_radius);
+	// at the mouth the river water slips just under the sea's surface
+	float level = world.y;
+	world.y -= drop + 0.8 * (1.0 - smoothstep(0.3, 1.6, level));
+	VERTEX = (inverse(MODEL_MATRIX) * vec4(world, 1.0)).xyz;
+	speed = COLOR.r * 8.0;
+	fill = COLOR.b;
+	hw = COLOR.a * 64.0;
+	rp = vec2(UV.x * hw, UV.y);
+	down = normalize(NORMAL.xz + 1e-6);   // the mesh's normals carry the downstream direction
 	NORMAL = vec3(0.0, 1.0, 0.0);
-	wpos = vec3(wp.x, w.x, wp.y);
 }
 
-float view_depth(vec2 uv, mat4 inv_proj) {
-	float raw = texture(depth_tex, uv).r;
-	vec4 p = inv_proj * vec4(uv * 2.0 - 1.0, raw, 1.0);
-	return -p.z / p.w;
-}
-
-// Ripples that only move with the current. The ocean's FFT waves travel on
-// their own (with the wind, at their own speeds), which on a river reads as
-// water running uphill; so the river uses a still ripple field (gradient
-// noise with analytic slopes, several octaves) that only the current carries.
 vec2 hash22(vec2 p) {
 	vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
 	p3 += dot(p3, p3.yzx + 33.33);
@@ -100,49 +69,38 @@ vec2 noise_slope(vec2 p) {
 			+ du * (u.yx * (va - vb - vc + vd) + vec2(vb, vc) - va);
 }
 
-vec2 ripple_slope(vec2 p) {
+// The surface's slope in river space (across, downstream). Each octave is
+// carried downstream at about the current's speed (the small ones a little
+// faster, as the surface runs ahead), and stretched along the flow into
+// streaks, more the faster the water runs.
+vec2 ripples(vec2 p, float v) {
+	float stretch = 1.0 + 1.2 * clamp(v / 2.5, 0.0, 1.0);
 	vec2 s = vec2(0.0);
-	float freq = 0.35;
-	float amp = 0.05;
-	mat2 rot = mat2(vec2(0.8, 0.6), vec2(-0.6, 0.8));
-	for (int o = 0; o < 4; o++) {
-		s += noise_slope(p * freq) * amp;
-		p = rot * p;
+	float amp = 1.0;
+	float freq = 0.45;
+	for (int o = 0; o < 5; o++) {
+		vec2 q = vec2(p.x, (p.y - time * v * (0.9 + 0.08 * float(o))) / stretch) * freq + float(o) * 17.3;
+		vec2 g = noise_slope(q);
+		s += vec2(g.x, g.y / stretch) * freq * amp;
+		amp *= 0.55;
 		freq *= 2.1;
-		amp *= 0.6;
 	}
-	return s;
+	return s * 0.12;
 }
 
-// The current here (m/s), from the water levels, per pixel.
-vec2 current_at(vec2 p) {
-	vec2 c = texture(water_levels, vec3(level_uv(lod, p), float(lod))).yz;
-	if (morph > 0.0)
-		c = mix(c, texture(water_levels, vec3(level_uv(lod + 1, p), float(lod + 1))).yz, morph);
-	return c;
-}
-
-// The ripples, smeared back along the current: streaks in fast water.
-vec2 streaked(vec2 p, vec2 flow) {
-	vec2 back = flow * streak * 0.5;
-	return (ripple_slope(p) * 2.0 + ripple_slope(p - back) + ripple_slope(p + back)) * 0.25;
+float view_depth(vec2 uv, mat4 inv_proj) {
+	float raw = texture(depth_tex, uv).r;
+	vec4 p = inv_proj * vec4(uv * 2.0 - 1.0, raw, 1.0);
+	return -p.z / p.w;
 }
 
 void fragment() {
-	vec2 p = wpos.xz;
-	vec2 flow = current_at(p);
-	float speed = length(flow);
-
-	// small waves carried by the current: two phases, crossfaded
-	float tm = time / cycle;
-	float t0 = fract(tm);
-	float t1 = fract(tm + 0.5);
-	vec2 p0 = p - flow * t0 * cycle + vec2(17.3, 5.1) * floor(tm);
-	vec2 p1 = p - flow * t1 * cycle + vec2(-9.7, 13.9) * floor(tm + 0.5);
-	float w0 = 1.0 - abs(t0 - 0.5) * 2.0;
-	vec2 slope = streaked(p0, flow) * w0 + streaked(p1, flow) * (1.0 - w0);
-	slope *= detail_strength * (0.7 + 0.45 * speed);
-
+	// ripples in river space, turned into world space along the ribbon
+	vec2 sl = ripples(rp, speed) * ripple_strength * (0.6 + 0.5 * clamp(speed / 2.0, 0.0, 1.5));
+	// river space to world: UV.x grows toward the left of downstream
+	vec2 dn = normalize(down);
+	vec2 ax = vec2(-dn.y, dn.x);
+	vec2 slope = ax * sl.x + dn * sl.y;
 	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
@@ -158,21 +116,14 @@ void fragment() {
 	vec3 background = texture(screen_tex, SCREEN_UV + offset).rgb;
 	vec3 transmit = exp(-absorption * thickness);
 	float diffuse = max(dot(n_world, sun_direction), 0.0);
-	vec3 body = (deep_color * (0.5 + 0.8 * diffuse) + scatter_color * 0.4 * (0.5 + 0.5 * diffuse))
-			* (0.12 + 0.88 * sun_color);
+	vec3 body = (deep_color * (0.5 + 0.8 * diffuse) + scatter_color * 0.45 * (0.5 + 0.5 * diffuse)) * (0.12 + 0.88 * sun_color);
 	vec3 refracted = background * transmit + body * (1.0 - transmit);
 
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
 	ALBEDO = vec3(0.0);
-	ROUGHNESS = 0.04;
+	ROUGHNESS = 0.05;
 	SPECULAR = 0.5;
 	EMISSION = refracted * (1.0 - fresnel);
-	// The water's edge thins to nothing, by the true depth here: the water
-	// level minus the ground height read (smoothly filtered) from the terrain
-	// levels for this very pixel. So the visible shoreline is a smooth curve,
-	// not the sawtooth where two triangle meshes cross.
-	float ground = texture(levels, vec3(level_uv(lod, p), float(lod))).r;
-	if (morph > 0.0)
-		ground = mix(ground, texture(levels, vec3(level_uv(lod + 1, p), float(lod + 1))).r, morph);
-	ALPHA = smoothstep(0.02, 0.3, wpos.y - ground);
+	// soft where it meets the ground, and thinning in at a river's head
+	ALPHA = smoothstep(0.0, 0.35, thickness) * smoothstep(0.0, 0.25, fill);
 }

@@ -121,13 +121,14 @@ an object would sink into its own displacement trough.
 
 **The world is hand-painted.** `world/` holds the maps, edited in Krita or
 GIMP (see `world/README.md`), and `world/layout.json` places each landmass's
-maps in the 30 km world: the main island (8 km, a desert mesa in the west, a
-range down the middle, one river system draining the east), the peripheral
+maps in the 30 km world: the main island (a desert mesa in the west, a range
+down the middle, one river system draining the north-east), the peripheral
 island across the sea, the main archipelago (about a hundred small islands
 along a 20 km arc between them), the volcanic chain to the north and the
 southern archipelago. Each landmass has a height map (16-bit grayscale, black
-is sea). The main island also has a river map (white strokes) and a biome map
-(flat marker colours).
+is sea). The main island also has a river map (white strokes, a tree draining
+to its listed mouth), and one world-wide biome map in flat marker colours
+covers everything.
 
 **The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
 `(WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
@@ -140,15 +141,17 @@ decoding 16-bit grayscale itself, since Godot's loader cuts it to 8 bits.
    nearest an archipelago is a shallow sandy bank; nearest a volcano it drops
    steeply. The coast-distance sweeps also carry which landmass is nearest.
 3. Rivers: water is routed by a priority flood up from the coast (Barnes et
-   al. 2014) with the painted strokes sunk below everything, so each stroke
-   network fills from its own mouth and drains down it. Each stroke is traced
+   al. 2014) with the painted strokes sunk below everything and only each
+   system's listed mouth open to the sea, so each stroke network fills from
+   its mouth and drains through it. Each stroke is traced
    from its head to the sea, or to the river it touches, which it then joins.
    The path is smoothed (zigzag averaged out, then corners cut), and the water
    surface is the lowest ground beside the channel, only ever falling
    downstream. Widths and depths grow with the land draining in, and water
    thins in from a trickle at the head.
-4. Biomes: the main island's painted map (land and its waters). Every other
-   landmass, with the water nearest it, is its own biome.
+4. Biomes: the painted world map. Every landmass but the main island, with
+   the water nearest it, is its own biome where nothing is painted (its land
+   always).
 5. Ground: sand on archipelagos and beaches, rock on volcanoes, dirt
    elsewhere. Everything shifts so the layout's `spawn` is the world origin.
 
@@ -201,25 +204,23 @@ the bake, so buoyancy, swimming, currents and sampling work in them unchanged.
 **Water on land.** The ocean shader shrinks each Gerstner wave where the water
 is shallower than a third of its length (physics
 matches). Lakes reuse the ocean shader without swell, masked to their basin.
-Rivers, oxbow lakes and lakes are one water sheet drawn on the terrain's own
-patches with `river.gdshader`: the compute pass writes a second level array
-(sheet height, current) from the same segments that carve the
-channels and the baked lake levels. The sheet runs level a little past the
-water's edge, then dives under the ground, so shorelines are wherever the
-ground meets the water; where a river meets a lake the higher surface wins
-(continuous, since the river ends at lake level), and at the sea the river
-water slips just under the ocean's surface. Per pixel, the water fades out by
-its true depth (water level minus the filtered terrain height), so shorelines
-are soft curves. The look is the ocean's (colours, refraction, absorption), but the small
-waves are a still ripple field (gradient noise) that only the current moves,
-so the water always visibly runs downstream (the ocean's own FFT waves travel
-by themselves and read as water running uphill): two phases, crossfaded,
-choppier in fast water. The current (blended between segments like the level,
-so it sweeps smoothly round bends) is read per pixel, and the ripples are
-smeared along it into streaks. Rivers run at 0.8 to 4.5 m/s (bigger and
-steeper is faster);
-lakes are the same water with no current. There is no foam anywhere. Currents push swimmers
-and boats.
+Rivers are drawn as ribbon meshes along each channel (`RiverRibbons`), the
+way big open-world games build them. The UVs run along the river (UV.x across
+in half widths, UV.y downstream in metres), and the normals carry the
+downstream direction. The ribbon is level across the water, reaches past each
+bank and dips under the ground there, so the ground cuts the shoreline. The
+water fades by its depth against the scene, so shorelines are soft. A
+tributary fades out over its last stretch inside the river it joins, and at
+the mouth the water slips just under the sea's surface. The look in
+`river.gdshader` is after the big westerns' rivers, without foam: clear water
+showing the bed in the shallows, absorbing toward a dark green with depth,
+and a surface of fine ripples (gradient noise slopes) streaming downstream at
+the river's speed. They are drawn out along the flow, more so in fast water,
+and every octave moves only along the river's own direction, so the water
+follows every bend and runs downhill. Sky and sun reflect off it through
+Godot's lighting. The current is the same at every depth. Rivers run at 0.8
+to 4.5 m/s (bigger and steeper is faster), and currents push swimmers and
+boats. There is no foam anywhere.
 
 **Moving on land** is Minecraft-like: quick to start and stop on the ground,
 little air control so momentum carries a jump, Ctrl runs, Shift sneaks,

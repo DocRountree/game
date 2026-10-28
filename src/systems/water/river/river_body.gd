@@ -4,12 +4,12 @@ extends WaterBody
 ## baked channels (RiverNetwork): the surface follows each river's centreline
 ## (falling downstream, blended smoothly between nearby reaches, exactly as
 ## the terrain compute shader does), the current runs along it, fastest
-## mid-channel; oxbow lakes are still. Terrain draws the water (river.gdshader on its own
-## patches); this keeps the shader's clock, sun and colours in step with
-## the ocean's. Dry riverbeds and meander scars hold no water.
+## mid-channel. Terrain draws the water (river.gdshader on RiverRibbons, ribbon
+## meshes that follow each channel); this keeps the shader's clock and sun in
+## step with the ocean's.
 
 var material: ShaderMaterial   ## Set by Terrain.
-var ocean: WaterBody           ## Set by Terrain: the source of the colours.
+var ocean: WaterBody           ## Set by Terrain.
 
 var _sun: DirectionalLight3D
 var _time := 0.0
@@ -36,12 +36,6 @@ func _process(delta: float) -> void:
 	if _sun:
 		material.set_shader_parameter("sun_direction", _sun.global_basis.z)
 		material.set_shader_parameter("sun_color", Vector3(_sun.light_color.r, _sun.light_color.g, _sun.light_color.b) * _sun.light_energy)
-	if ocean and ocean.has_node("Surface"):
-		var src: ShaderMaterial = (ocean.get_node("Surface") as MeshInstance3D).material_override
-		# the ocean's own colours, so where the sea runs up a river mouth the
-		# hand-off doesn't show
-		for p: StringName in [&"deep_color", &"scatter_color", &"absorption"]:
-			material.set_shader_parameter(p, src.get_shader_parameter(p))
 
 
 func _channel(x: float, z: float) -> Dictionary:

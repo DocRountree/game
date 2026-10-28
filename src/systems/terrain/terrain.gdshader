@@ -109,7 +109,9 @@ void fragment() {
 		rough = mix(rough, 0.35, wetness);
 	}
 	vec4 tint = texture(biome_tint, (wp - world_center + world_size * 0.5) / world_size);
-	col = mix(col, tint.rgb * (0.75 + 0.25 * mottle), tint.a * tint_strength);
+	// (not under water: the beds and the seafloor keep their own colour)
+	float dry = 1.0 - clamp(wetness, 0.0, 1.0);
+	col = mix(col, tint.rgb * (0.75 + 0.25 * mottle), tint.a * tint_strength * mix(1.0, dry, step(0.0, world_pos.y)));
 	ALBEDO = col;
 	ROUGHNESS = rough;
 	SPECULAR = 0.3;

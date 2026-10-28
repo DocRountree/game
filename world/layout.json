@@ -6,24 +6,29 @@
    "name": "main_island",
    "kind": "continent",
    "center": [
-    -9000.0,
-    -500.0
+    -9430.0,
+    -1120.0
    ],
-   "size": 11000.0,
-   "peak": 1000.0,
+   "size": 14033.333333333334,
+   "peak": 1250.0,
    "height": "main_island_height.png",
    "rivers": "main_island_rivers.png",
-   "biomes": "main_island_biomes.png"
+   "river_mouths": [
+    [
+     -6532,
+     -1305
+    ]
+   ]
   },
   {
    "name": "peripheral_island",
    "kind": "island",
    "center": [
-    11500.0,
-    -1500.0
+    11830.0,
+    -1750.0
    ],
-   "size": 4000.0,
-   "peak": 200.0,
+   "size": 5400.0,
+   "peak": 300.0,
    "height": "peripheral_island_height.png"
   },
   {
@@ -41,11 +46,11 @@
    "name": "volcanic_chain",
    "kind": "volcanic",
    "center": [
-    6500.0,
-    -11300.0
+    6040.0,
+    -7940.0
    ],
-   "size": 13000.0,
-   "peak": 1000.0,
+   "size": 9000.0,
+   "peak": 900.0,
    "height": "volcanic_chain_height.png"
   },
   {
@@ -61,7 +66,8 @@
   }
  ],
  "spawn": [
-  -6322.077922077922,
-  -448.05194805194805
- ]
+  -6083,
+  -250
+ ],
+ "biomes": "world_biomes.png"
 }

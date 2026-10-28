@@ -51,7 +51,7 @@ var _levels_rd: Texture2DArrayRD
 var _water_tex: RID
 var _water_rd: Texture2DArrayRD
 var _river_material: ShaderMaterial
-var _river_instance: MultiMeshInstance3D
+var _river_instance: MeshInstance3D
 
 # drawing
 var _multimesh: MultiMesh
@@ -249,19 +249,17 @@ func _build_drawing() -> void:
 	add_child(_mesh_instance)
 	_level_origin.resize(LEVELS)
 	_level_origin.fill(Vector2(INF, INF))
-	# river water: the same patches again, with the river shader
+	# river water: ribbons that follow each channel
 	_river_material = ShaderMaterial.new()
 	_river_material.shader = preload("res://src/systems/water/river/river.gdshader")
-	_river_material.set_shader_parameter("top_level", LEVELS - 1)
-	_river_material.set_shader_parameter("grid_dim", float(GRID))
-	_river_material.set_shader_parameter("level_size", float(LEVEL_SIZE))
-	_river_instance = MultiMeshInstance3D.new()
+	_river_instance = MeshInstance3D.new()
 	_river_instance.name = "RiverWater"
-	_river_instance.multimesh = _multimesh
+	_river_instance.mesh = RiverRibbons.build(_maps.rivers)
 	_river_instance.material_override = _river_material
 	_river_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_river_instance.custom_aabb = _mesh_instance.custom_aabb
 	_river_instance.top_level = true
+	_river_instance.position = Vector3.ZERO
 	add_child(_river_instance)
 
 
@@ -289,18 +287,19 @@ func _patch_mesh() -> ArrayMesh:
 	return m
 
 
-# Per cell, two RGBA8 words of biome weights for the compute shader: land
-# (mesa, prairie, forest, own-biome landmass) and seafloor (coral reef, root
-# maze, kelp forest, -), softened over a few cells so biomes blend.
+# Per cell, two RGBA8 words of biome weights for the compute shader: (mesa,
+# plains, forest, own-biome landmass) and (coral reef, root maze, kelp forest,
+# riparian wetlands), softened over a few cells so biomes blend.
 func _biome_weights() -> PackedByteArray:
 	var n := _maps.n
 	var land := PackedByteArray()
 	land.resize(n * n * 4)
 	var sea := PackedByteArray()
 	sea.resize(n * n * 4)
-	var slot := {WorldMaps.Biome.MESA: 0, WorldMaps.Biome.PRAIRIE: 1, WorldMaps.Biome.FOREST: 2,
+	var slot := {WorldMaps.Biome.MESA: 0, WorldMaps.Biome.PLAINS: 1, WorldMaps.Biome.FOREST: 2,
 			WorldMaps.Biome.ARCHIPELAGO: 3, WorldMaps.Biome.VOLCANIC: 3, WorldMaps.Biome.ISLAND: 3,
-			WorldMaps.Biome.CORAL_REEF: 4, WorldMaps.Biome.ROOT_MAZE: 5, WorldMaps.Biome.KELP_FOREST: 6}
+			WorldMaps.Biome.CORAL_REEF: 4, WorldMaps.Biome.ROOT_MAZE: 5, WorldMaps.Biome.KELP_FOREST: 6,
+			WorldMaps.Biome.WETLANDS: 7}
 	for i in n * n:
 		var b := _maps.biome[i]
 		if slot.has(b):
@@ -490,8 +489,6 @@ func _set_gpu_ready() -> void:
 	_material.set_shader_parameter("levels", _levels_rd)
 	_water_rd = Texture2DArrayRD.new()
 	_water_rd.texture_rd_rid = _water_tex
-	_river_material.set_shader_parameter("levels", _levels_rd)
-	_river_material.set_shader_parameter("water_levels", _water_rd)
 	_gpu_ok = true
 
 
@@ -510,7 +507,6 @@ func _update_levels(cam: Vector2) -> void:
 	if changed.is_empty():
 		return
 	_material.set_shader_parameter("level_rects", rects)
-	_river_material.set_shader_parameter("level_rects", rects)
 	var origins := _level_origin.duplicate()
 	var physics_layer := -1
 	if changed.has(1) and _wants_collider() and not _readback_pending:

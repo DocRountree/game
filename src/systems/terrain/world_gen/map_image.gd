@@ -9,6 +9,7 @@ var width := 0
 var height := 0
 var _gray := PackedFloat32Array()   # 0..1 per pixel (grayscale or the red channel)
 var _img: Image                     # for colour maps
+var _rgb := PackedByteArray()
 
 
 static func open(path: String) -> MapImage:
@@ -28,6 +29,7 @@ static func open(path: String) -> MapImage:
 		mi.width = img.get_width()
 		mi.height = img.get_height()
 		var data := img.get_data()
+		mi._rgb = data
 		mi._gray.resize(mi.width * mi.height)
 		for i in mi._gray.size():
 			mi._gray[i] = data[i * 3] / 255.0
@@ -53,7 +55,8 @@ func color(u: float, v: float) -> Color:
 	var x := clampi(int(u * width), 0, width - 1)
 	var y := clampi(int(v * height), 0, height - 1)
 	if _img:
-		return _img.get_pixel(x, y)
+		var i := (y * width + x) * 3
+		return Color(_rgb[i] / 255.0, _rgb[i + 1] / 255.0, _rgb[i + 2] / 255.0)
 	var g := _gray[y * width + x]
 	return Color(g, g, g)
 

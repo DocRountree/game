@@ -21,7 +21,11 @@ reads the PNGs directly, so 16-bit heights keep their full precision.
   - `kind`: `continent`, `island`, `archipelago` or `volcanic`. Archipelagos sit on shallow
     sandy banks, volcanoes plunge into deep water, and every kind but the continent is its
     own biome.
-  - `height`, plus optional `rivers` and `biomes`: file names in `maps/`.
+  - `height`, plus optional `rivers`: file names in `maps/`.
+  - `river_mouths`: for a landmass with rivers, where each river system meets the sea
+    (world x, z). Only there does its water reach the sea, so a stroke that passes close
+    to the coast elsewhere doesn't become a second outlet.
+- `biomes`: the world-wide biome map, covering the whole 30 km.
 
 To add a landmass, add an entry and its height map.
 
@@ -40,23 +44,28 @@ integer/channel. Export as PNG. 8-bit also works, but it terraces the slopes.
 ## River map: `main_island_rivers.png`
 
 White strokes on black, a few pixels wide. Each connected set of strokes becomes one
-river system. Water follows the strokes down to the sea, so draw from the mouth up into
-the hills and make sure each system touches the coast once. Branches become tributaries.
-Widths come from how much land drains into each river, so you don't paint them.
+river system that drains out through its mouth (`river_mouths` in the layout). Water
+follows the strokes down to the mouth, so every branch becomes a tributary. Don't close
+loops, because a river can't split. Widths come from how much land drains into each
+river, so you don't paint them. The game draws each river's water as a ribbon along its
+channel. Its ripples stream downstream around every bend, at the river's speed.
 
-## Biome map: `main_island_biomes.png`
+## Biome map: `world_biomes.png`
 
-Flat colours. Turn antialiasing off, or at least keep the colours pure.
+The whole world, in flat colours. Turn antialiasing off, or at least keep the colours
+pure. Paint over the sea as well as the land. The archipelagos, the volcanic chain and
+the peripheral island are each their own biome wherever nothing is painted (paint over
+their water for reefs or kelp; their land always stays their own).
 
 | colour | RGB | biome |
 |---|---|---|
-| orange | 255 115 0 | mesa (tablelands and canyons) |
-| pink | 255 102 200 | prairie (gentle rolling ground) |
-| purple | 133 51 255 | forest (hillier ground) |
-| yellow | 255 237 0 | coral reef (coral heads on the seafloor) |
+| brown-orange | 176 112 48 | mesa (tablelands and canyons) |
+| red | 205 45 45 | plains (gentle rolling ground) |
+| dark purple | 96 36 100 | forest (hillier ground) |
+| teal | 40 175 150 | riparian wetlands (low, flat, hollows and pools) |
+| hot purple | 150 20 190 | coral reef (coral heads on the seafloor) |
+| green | 60 150 50 | kelp forest (rocky seafloor) |
 | cyan | 0 255 242 | root maze (shallows by the shore, channels) |
-| red | 255 20 38 | kelp forest (rocky seafloor) |
 | black | 0 0 0 | nothing in particular |
 
-Paint the sea biomes onto the water around the island. The same colours mark the biomes
-on the terrain for now.
+The same colours mark the biomes on the terrain for now.

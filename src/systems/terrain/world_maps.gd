@@ -12,25 +12,26 @@ extends RefCounted
 
 enum WaterKind { LAND, OCEAN, LAKE, DRY_LAKE }
 enum Ground { SAND, DIRT, ROCK, LAKEBED }
-## What each place will be. The main island and its waters are painted
-## (world/maps/main_island_biomes.png); every other landmass, land and the
-## water around it, is its own biome.
-enum Biome { NONE, MESA, PRAIRIE, FOREST, CORAL_REEF, ROOT_MAZE, KELP_FOREST, ARCHIPELAGO, VOLCANIC, ISLAND }
+## What each place will be: painted on world/maps/world_biomes.png. Every
+## landmass but the main island, with the water nearest it, is its own biome
+## where nothing else is painted.
+enum Biome { NONE, MESA, PLAINS, FOREST, CORAL_REEF, ROOT_MAZE, KELP_FOREST, ARCHIPELAGO, VOLCANIC, ISLAND, WETLANDS }
 
 ## Loud, deliberately unnatural colours that mark the painted biomes for now
 ## (on the terrain and the map), until each gets its real look. They are also
 ## the colours to paint the biome map with. Alpha 0: not marked.
 const BIOME_TINT: Array[Color] = [
 	Color(0, 0, 0, 0),                     # none
-	Color8(255, 115, 0),                   # mesa: orange
-	Color8(255, 102, 200),                 # prairie: pink
-	Color8(133, 51, 255),                  # forest: purple
-	Color8(255, 237, 0),                   # coral reef: yellow
+	Color8(176, 112, 48),                  # mesa: brown-orange
+	Color8(205, 45, 45),                   # plains: red
+	Color8(96, 36, 100),                   # forest: dark purple
+	Color8(150, 20, 190),                  # coral reef: hot purple
 	Color8(0, 255, 242),                   # root maze: cyan
-	Color8(255, 20, 38),                   # kelp forest: red
+	Color8(60, 150, 50),                   # kelp forest: green
 	Color(0, 0, 0, 0),                     # archipelago (its own look)
 	Color(0, 0, 0, 0),                     # volcanic chain (its own look)
 	Color(0, 0, 0, 0),                     # the peripheral island (its own look)
+	Color8(40, 175, 150),                  # riparian wetlands: teal
 ]
 
 const NO_WATER := -100000.0

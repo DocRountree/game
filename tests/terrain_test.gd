@@ -14,7 +14,9 @@ func _initialize() -> void:
 	var b := WorldBake.new(cfg, 400).run()
 	_check(a.height == b.height and a.rivers.size() == b.rivers.size() and a.network().segments == b.network().segments,
 			"the same maps make the same world (400 cells in %d ms)" % bake_ms)
-	_check(a.height_at(0.0, 0.0) < -2.0, "open water at the origin, where the player starts")
+	_check(a.height_at(0.0, 0.0) < -1.0, "open water at the origin, where the player starts")
+	var mesh := RiverRibbons.build(a.rivers)
+	_check(mesh.get_surface_count() == 1 and mesh.surface_get_array_len(0) > 1000, "the rivers' water is ribbon meshes along the channels")
 
 	var names := []
 	for lm in a.landmasses:
@@ -43,14 +45,14 @@ func _initialize() -> void:
 	var biomes := {}
 	for v in a.biome:
 		biomes[v] = true
-	var want := [WorldMaps.Biome.MESA, WorldMaps.Biome.PRAIRIE, WorldMaps.Biome.FOREST, WorldMaps.Biome.CORAL_REEF,
-			WorldMaps.Biome.ROOT_MAZE, WorldMaps.Biome.KELP_FOREST, WorldMaps.Biome.ARCHIPELAGO,
+	var want := [WorldMaps.Biome.MESA, WorldMaps.Biome.PLAINS, WorldMaps.Biome.FOREST, WorldMaps.Biome.WETLANDS,
+			WorldMaps.Biome.CORAL_REEF, WorldMaps.Biome.KELP_FOREST, WorldMaps.Biome.ARCHIPELAGO,
 			WorldMaps.Biome.VOLCANIC, WorldMaps.Biome.ISLAND]
 	var all := true
 	for w in want:
 		all = all and biomes.has(w)
 	_check(all, "every biome is on the map (%s)" % [biomes.keys()])
-	_check(WorldMaps.biome_of_color(Color8(255, 115, 0)) == WorldMaps.Biome.MESA
+	_check(WorldMaps.biome_of_color(Color8(176, 112, 48)) == WorldMaps.Biome.MESA
 			and WorldMaps.biome_of_color(Color.BLACK) == WorldMaps.Biome.NONE, "biome map colours are read back")
 
 	var path := "user://test_world.wmap"
