@@ -23,9 +23,6 @@ coral) and terrain chunks.
 
 ## Landscapes and objects: SDFs, fractals and meshes
 
-(Heightfield terrain, lakes and rivers now exist: see ARCHITECTURE, Terrain.
-What follows is for caves, overhangs, coral and props.)
-
 - Hooks: `WorldGrid` (chunk keys), `WorldConfig.seed_for()` (per-system seeds),
   `QualitySettings` distances (LOD bands).
 - Plan: a `src/systems/terrain/` with a height/SDF query API shaped like

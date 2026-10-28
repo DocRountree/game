@@ -110,10 +110,6 @@ debug_overlay={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":4194334)]
 }
-world_map={
-"deadzone": 0.2,
-"events": [Object(InputEventKey,"physical_keycode":4194335)]
-}
 quit={
 "deadzone": 0.2,
 "events": []

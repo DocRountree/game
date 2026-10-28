@@ -15,7 +15,6 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	Terrain.bake_resolution = 128   # a small world: quick to bake
 	var world: Node3D = load("res://src/world/open_ocean/open_ocean.tscn").instantiate()
 	root.add_child(world)
 	var ocean: Ocean = world.get_node("Ocean")

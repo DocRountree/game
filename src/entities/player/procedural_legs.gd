@@ -112,7 +112,7 @@ func _ground_below(p: Vector3) -> Vector3:
 	var hit := space.intersect_ray(q)
 	if hit:
 		return hit.position
-	return Vector3(p.x, Terrain.height_at(p.x, p.z), p.z)
+	return p + Vector3.DOWN * 0.9   # nothing underfoot: the leg hangs
 
 
 # Two-bone IK: thigh and shin reach the foot, the knee bending forward.

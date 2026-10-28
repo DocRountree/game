@@ -13,7 +13,6 @@ extends Node3D
 @onready var hud: Hud = $HUD
 @onready var atmosphere: Atmosphere = $Atmosphere
 @onready var clock: GameClock = $Clock
-@onready var terrain: Terrain = $Terrain
 
 
 func _enter_tree() -> void:
@@ -29,18 +28,7 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Settings.apply_to_viewport(get_viewport())
 	add_child(DebugOverlay.new())   # F3
-	var world_map := WorldMapView.new()   # F4
-	world_map.target = player
-	add_child(world_map)
-	var sun: DirectionalLight3D = $Sun
-	sun.directional_shadow_max_distance = QualitySettings.current().shadow_distance
-	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
-	sun.directional_shadow_blend_splits = true   # no hard seams between shadow cascades
-	sun.directional_shadow_fade_start = 0.7
-	sun.directional_shadow_split_1 = 0.06   # sharp shadows near, coarser far
-	sun.directional_shadow_split_2 = 0.18
-	sun.directional_shadow_split_3 = 0.45
-	RenderingServer.directional_shadow_atlas_set_size(8192, true)
+	$Sun.directional_shadow_max_distance = QualitySettings.current().shadow_distance
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3
 	for i in crate_count:
@@ -54,7 +42,6 @@ func _ready() -> void:
 	_set_first_person(true)   # start looking out of your own eyes
 	player.drowned.connect(_on_player_drowned)
 	hud.flash("Right-click near the boat to climb aboard", 4.0)
-	terrain.maps_ready.connect(func() -> void: hud.flash("Land ahoy: the world has finished generating", 4.0))
 
 
 var _air_fog := {}
@@ -81,10 +68,7 @@ func _process(_delta: float) -> void:
 	camera.turn_with_target = driving
 	camera.distance = 9.0 if driving else 4.5
 	camera.target_offset = Vector3(0, 2.4, 0) if driving else Vector3(0, 0.5, 0)
-	var extra := "\nmoon   " + atmosphere.moon_phase_text()
-	if Terrain.maps() == null:
-		extra += "\nworld  generating %d%%" % roundi(terrain.progress * 100.0)
-	hud.refresh(player, boat, clock.time_text() + extra)
+	hud.refresh(player, boat, clock.time_text() + "\nmoon   " + atmosphere.moon_phase_text())
 
 
 func _unhandled_input(event: InputEvent) -> void:

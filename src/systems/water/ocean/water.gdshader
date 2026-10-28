@@ -14,7 +14,6 @@ uniform float steepness = 0.8;
 uniform float time;
 uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
 uniform vec3 sun_color = vec3(1.0);
-uniform float planet_radius = 6400000.0;
 
 uniform sampler2D ripple_tex : filter_linear, repeat_disable;  // r height
 uniform vec3 ripple_rect = vec3(0.0, 0.0, 1.0);                // origin x, origin z, size
@@ -36,18 +35,6 @@ uniform float refraction = 0.03;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
-group_uniforms shore;
-// Terrain height over the world grid: waves shrink as the water shoals and
-// fade out at the shore.
-uniform sampler2D seabed : filter_linear, repeat_disable;
-uniform float world_size = 61440.0;
-uniform vec2 world_center = vec2(0.0);
-uniform bool has_seabed = false;
-
-group_uniforms body;
-uniform float swell_scale = 1.0;
-uniform float surface_level = 0.0;
-
 varying vec2 x0;          // undisplaced world xz of this vertex
 varying float spacing;    // mesh spacing here (m)
 varying float crest;      // height above rest
@@ -60,18 +47,6 @@ float theta(int i, vec2 p) {
 float lod(int i, float sp) {
 	float lambda = 6.2831853 / waves[i].z;
 	return clamp((lambda - 3.0 * sp) / (3.0 * sp), 0.0, 1.0);
-}
-
-float water_depth(vec2 p) {
-	if (!has_seabed)
-		return 1000.0;
-	return surface_level - texture(seabed, (p - world_center + world_size * 0.5) / world_size).r;
-}
-
-// waves feel the bottom in water shallower than about a third of their length
-float shoal(int i, float depth) {
-	float lambda = 6.2831853 / waves[i].z;
-	return swell_scale * smoothstep(0.0, 0.35 * lambda, depth);
 }
 
 vec2 rip_uv(vec2 p) { return (p - ripple_rect.xy) / ripple_rect.z; }
@@ -88,9 +63,8 @@ void vertex() {
 	x0 = world.xz;
 	spacing = UV.x;
 	vec3 disp = vec3(0.0);
-	float depth = water_depth(x0);
 	for (int i = 0; i < NW; i++) {
-		float a = waves[i].w * lod(i, spacing) * shoal(i, depth);
+		float a = waves[i].w * lod(i, spacing);
 		float th = theta(i, x0);
 		disp.xz += steepness * a * waves[i].xy * cos(th);
 		disp.y += a * sin(th);
@@ -98,19 +72,15 @@ void vertex() {
 	vec2 ruv = rip_uv(x0);
 	disp.y += texture(ripple_tex, ruv).r * rip_fade(ruv) * clamp(1.5 - spacing * 2.0, 0.0, 1.0);
 	crest = disp.y;
-	// the planet curves away: far water sinks toward the true horizon
-	vec2 rel = world.xz - CAMERA_POSITION_WORLD.xz;
-	disp.y -= dot(rel, rel) / (2.0 * planet_radius);
 	VERTEX += disp;   // the surface node is only ever translated
 }
 
 void fragment() {
-	float depth = water_depth(x0);
 	// analytic Gerstner normal (GPU Gems 1, ch. 1)
 	vec2 slope = vec2(0.0);
 	float nz = 1.0;
 	for (int i = 0; i < NW; i++) {
-		float wa = waves[i].z * waves[i].w * lod(i, spacing) * shoal(i, depth);
+		float wa = waves[i].z * waves[i].w * lod(i, spacing);
 		float th = theta(i, x0);
 		float c = cos(th);
 		float s = sin(th);
@@ -128,7 +98,7 @@ void fragment() {
 			/ (2.0 * e * ripple_rect.z) * rf;
 
 	// small waves: FFT ocean slopes, attached to the water (x0 rides the swell)
-	slope += detail_strength * smoothstep(0.0, 0.5, depth) * (texture(fft_0, x0 / fft_sizes.x).rg + texture(fft_1, x0 / fft_sizes.y).rg
+	slope += detail_strength * (texture(fft_0, x0 / fft_sizes.x).rg + texture(fft_1, x0 / fft_sizes.y).rg
 			+ texture(fft_2, x0 / fft_sizes.z).rg);
 
 	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));

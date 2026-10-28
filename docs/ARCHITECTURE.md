@@ -63,7 +63,7 @@ lower in fresh water.
 | `ocean.gd` / `ocean.tscn` | `Ocean extends WaterBody`: endless, the fallback everywhere. Owns the wave list, the wave time and `surface_height()`. Pushes uniforms to the water shader each frame. |
 | `ocean_wave.gd` | One Gerstner component (direction, wavelength, amplitude, phase), editable in the inspector. |
 | `ocean_surface.gd` | Builds the camera-centred polar mesh. Each vertex stores its local spacing so the shader can drop waves too short to resolve there (no far-field aliasing). |
-| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + procedural small waves, see below), refraction and depth absorption from the screen/depth textures, crest scattering. Sky reflection and sun glints come from Godot's own lighting. |
+| `water.gdshader` | Displaces the mesh, computes per-pixel normals (analytic Gerstner + ripples + procedural small waves, see below), refraction and depth absorption from the screen/depth textures and crest scattering. No foam. Sky reflection and sun glints come from Godot's own lighting. |
 | `ripple_sim.gd` / `ripple_sim.glsl` | Interactive ripples on the GPU (see below). |
 | `ocean_fft.gd` / `ocean_fft.glsl` | The small waves: an FFT ocean spectrum on the GPU (see below). |
 
@@ -94,7 +94,6 @@ with the player holds the water's height and vertical velocity. Each physics fra
    disc) and how deep it sits in the swell. The compute shader turns *changes*
    in that occupancy into displaced water (height only, no kick): a moving
    hull pushes water out at the bow and lets it back in at the stern.
-
 2. Height and velocity are packed into one complex field and FFT'd (the same
    shared-memory FFT as the ocean). Every wavelength is advanced *exactly* by
    its own deep-water frequency, omega = sqrt(g k + sigma k^3), then
@@ -116,135 +115,6 @@ but a 13 x 13 kernel can't get deep-water speeds right across these wavelengths.
 Objects read ripples on a ring just outside their own footprint, and compute
 their displacement against the swell only. That breaks the feedback loop where
 an object would sink into its own displacement trough.
-
-### Terrain and world generation (`src/systems/terrain/`)
-
-**The bake** (`world_gen/world_bake.gd`, CPU, deterministic) runs once per
-`(seed, WorldBake.VERSION, resolution)` and is cached as a `WorldMaps` file in
-`user://worlds/`. `Terrain` runs it on a worker thread at start (about 22 s for
-the default 1600 x 1600 grid of 51 m cells, an 82 km world), and the HUD shows
-progress; until it finishes the world is open ocean.
-
-1. `WorldLayout` lays the land out around a main continent (mountain belts
-   along random curves): an archipelago scattered off one coast and a volcanic
-   chain trailing away from another, a big young volcano with a crater first,
-   then smaller, older islands with open water between them. The spawn point is
-   picked offshore, away from both, and the whole world is shifted so it is the
-   origin (`WorldMaps.center` is the grid centre in world coordinates).
-2. Each gives a land shape (warped, noisy coastline) and an uplift rate.
-3. Rivers first, then the land (`RiverGraph`, after Génevaux et al. 2013,
-   "Terrain Generation Using Procedural Models Based on Hydrology"). River
-   mouths are scattered along every coast and each grows a drainage network
-   inland, node by node (300 m steps), continuing and sometimes branching,
-   never crowding another node; basins grow with random vigour (the vigorous
-   ones branch more and claim the interior), so a few rivers get big and
-   most stay small. Land the growth never reached gets short streams from the
-   nearest node. Each node's drained area is the land its upstream nodes
-   cover, and channel slope is the steady state of stream-power erosion,
-   `uplift / sqrt(area)`, summed up from the mouth. The network splits into
-   streams (each follows its biggest branch upstream), smoothed by corner
-   cutting; tributaries end exactly on the stream they join. Then every land
-   cell takes the elevation of its nearest stream segment (a vector distance
-   transform over the grid) plus a hillslope rising with distance (steeper
-   where uplift is higher), after a flat floodplain for big gentle rivers
-   (wider the more land drains through). Heights and stream elevations are
-   scaled together per landmass to its target peak, so every river lies
-   exactly on its valley floor and falls all the way to the sea.
-4. Seafloor: shelf, slope and deep sea by distance from the coast. Water on
-   the grid is routed by a priority flood from the coast (each cell drains
-   into the cell that reached it; hollows filled a centimetre a cell), so it
-   finds the network's valleys.
-5. Lakes are placed on river valleys: a basin is scooped around an outlet and
-   flooded to a level held by a rock sill, so every lake is fed by its river
-   (wet or dry). Some (more in dry places) have no outlet.
-6. Climate: temperature from height; rain from moist sea wind rising over the
-   land (rain shadows behind mountains).
-7. Water today: runoff accumulates downstream, channels lose water in dry
-   country, so beds carved in a wetter past can run dry; lakes fill to their
-   sill or shrink until evaporation matches inflow (or dry out).
-8. Rivers: the streams draining more than about 0.3 km^2, resampled every
-   24 m and split where they run through a lake; width and depth come from
-   today's flow (from the grid cell beside the channel whose drained area
-   matches the stream's), past flow for dry beds; the water surface is the
-   stream's elevation. Then `MeanderSim` lets rivers on floodplains migrate
-   (Howard & Knutson 1984, as in Paris et al. 2023): from moderate bends of
-   varying length and swing, every bit of channel moves toward its outer bank
-   at a rate set by its own curvature and, more, the curvature upstream (so
-   bends lean and wander downstream), slowing as it nears the valley sides,
-   until the river is 1.7 to 2.6 times as long as its valley. Where a loop's
-   neck closes the river cuts through and the loop stays behind as an oxbow
-   lake (or a dry scar); courses it has moved away from stay as shallow dry
-   meander scars (scroll bars). Narrow valleys keep their rivers as they are.
-   Water thins in from a trickle where a river starts to flow and out where
-   it dries up, channels narrow toward their heads, and below a confluence a
-   river is wider than either stream above it. `RiverNetwork` turns all of it
-   into straight segments with a 256 m tile index, for the GPU and for
-   physics alike.
-9. Ground: sand on archipelagos, beaches and the seafloor, rock on volcanoes,
-   dirt on continents, lake beds.
-
-**Drawing.** `terrain_levels.glsl` keeps 11 nested 256 x 256 height levels
-(0.5 m to 512 m spacing) centred on the camera: the baked height (cubic
-B-spline, read from a 2x2-averaged mip of the grid matching the level's
-spacing, so coarse levels never alias the grid and far mountains hold still),
-plus band-limited, derivative-damped fractal detail (a few metres), then near
-rivers the river's valley, from one smooth field over the river segments
-(after Peytavie et al., "Procedural Riverscapes"; found through the tile
-index). The water level is blended over all nearby segments, weighted
-steeply to the nearest, so where two reaches are about as near (the neck of
-a loop) it crosses over smoothly instead of stepping. The ground relative to
-that level is the lowest of each channel's shape (a parabolic bed whose slope
-carries on up through the waterline and eases over onto a floodplain a
-little above the water), so channels merge at confluences. Within three half
-widths the valley replaces the land, blending back out by seven (it only
-ever lowers the land), so there are no walls; the water sheet is the same
-level, so the water always lies in its bed and runs downhill. and the terrain mesh alternates its quad diagonals. `terrain.gdshader` draws a CDLOD quadtree of 16 x 16
-patches (`MultiMesh`): a patch of LOD k reads level k, morphing toward k + 1 at
-the edge of its range. Ranges are four patch widths per LOD, so the farthest
-patch of LOD k - 1 ends before LOD k starts morphing, which keeps seams closed.
-Far terrain and water sink by d^2 / 2R (the planet's curve), so from a height
-the sea meets the sky at the true horizon. The morph uses the main camera's
-position (a uniform), also in the shadow pass, so shadows hold still.
-
-The sky's moon, stars, planets, meteors and aurora are pushed to the far plane
-in their vertex shaders, so terrain always draws in front of them.
-
-**Physics and queries.** Level 1 (1 m spacing, 256 m) is read back into a
-`HeightMapShape3D` that follows the player when they have moved 48 m. Without a
-GPU it is built from the baked map. `Terrain.height_at(x, z)` uses it near the
-player, the baked map elsewhere. `Ocean.contains_point` is "ground below sea
-level"; lakes (`LakeBody`) and rivers (`RiverBody`) are water bodies built from
-the bake, so buoyancy, swimming, currents and sampling work in them unchanged.
-
-**Water on land.** The ocean shader shrinks each Gerstner wave where the water
-is shallower than a third of its length (physics
-matches). Lakes reuse the ocean shader without swell, masked to their basin.
-Rivers, oxbow lakes and lakes are one water sheet drawn on the terrain's own
-patches with `river.gdshader`: the compute pass writes a second level array
-(sheet height, current) from the same segments that carve the
-channels and the baked lake levels. The sheet runs level a little past the
-water's edge, then dives under the ground, so shorelines are wherever the
-ground meets the water; where a river meets a lake the higher surface wins
-(continuous, since the river ends at lake level), and at the sea the river
-water slips just under the ocean's surface. Per pixel, the water fades out by
-its true depth (water level minus the filtered terrain height), so shorelines
-are soft curves. The look is the ocean's (colours, refraction, absorption), but the small
-waves are a still ripple field (gradient noise) that only the current moves,
-so the water always visibly runs downstream (the ocean's own FFT waves travel
-by themselves and read as water running uphill): two phases, crossfaded,
-choppier in fast water. The current (blended between segments like the level,
-so it sweeps smoothly round bends) is read per pixel, and the ripples are
-smeared along it into streaks. Rivers run at 0.8 to 4.5 m/s (bigger and
-steeper is faster);
-lakes are the same water with no current. There is no foam anywhere. Currents push swimmers
-and boats.
-
-**Moving on land** is Minecraft-like: quick to start and stop on the ground,
-little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
-holding Space hops whenever the feet touch down. Double-tapping Space toggles
-a fast debug flight. `ProceduralLegs` plants each foot on the collider (a ray down)
-and steps it in an arc when the body has moved on, alternating feet, with a
-two-bone solver bending the knees. No animation clips.
 
 ### Atmosphere (`src/systems/atmosphere/`)
 
@@ -399,6 +269,13 @@ and roll for free. Place probes in the editor to tune any floating object.
 The same component optionally registers the body as a ripple source.
 
 ### Camera (`src/systems/camera/player_camera.gd`)
+
+**Walking** is Minecraft-like: quick to start and stop on the ground,
+little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
+holding Space hops whenever the feet touch down. Double-tapping Space toggles
+a fast debug flight. `ProceduralLegs` plants each foot on whatever is below
+(a ray down) and steps it in an arc when the body has moved on, alternating
+feet, with a two-bone solver bending the knees. No animation clips.
 
 `PlayerCamera` has two modes, toggled with F5; the game starts in first person.
 Third person orbits the target and never dips below the water surface. The view
