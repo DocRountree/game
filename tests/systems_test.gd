@@ -21,20 +21,24 @@ func _run() -> void:
 	var clock: GameClock = world.get_node("Clock")
 	var camera: PlayerCamera = world.get_node("Camera")
 	var events := root.get_node("Events")
+	var sea := boat.global_position   # (the boat is moored in open water)
 
 	# water: the ocean answers everywhere; a lake with higher priority takes over inside it
-	var ocean_here := Water.body_at(0.0, 0.0)
-	var sample := Water.sample_at(Vector3(10.0, -5.0, 10.0))
+	var ocean_here := Water.body_at(sea.x, sea.z)
+	var sample := Water.sample_at(Vector3(sea.x, -5.0, sea.z))
 	_check(ocean_here is Ocean and sample.body_kind == WaterBody.Kind.OCEAN and sample.biome_id == &"open_ocean"
 			and sample.salinity_ppt == 35.0 and sample.depth > 3.0 and sample.depth < 7.0,
 			"Water.sample_at() describes the open ocean (depth %.1f m)" % sample.depth)
 	var lake := _TestLake.new()
+	lake.centre = Vector2(sea.x, sea.z)
 	lake.kind = WaterBody.Kind.LAKE
 	lake.priority = 10
 	lake.salinity_ppt = 0.0
 	world.add_child(lake)
-	_check(Water.body_at(0.0, 0.0) == lake and Water.body_at(100.0, 0.0) is Ocean
+	_check(Water.body_at(sea.x, sea.z) == lake and Water.body_at(sea.x - 60.0, sea.z) is Ocean
 			and lake.density() < ocean_here.density(), "a fresher, higher-priority lake overrides the ocean inside it")
+	player.respawn(Vector3(sea.x, 0.0, sea.z))   # (into the lake for a moment, for the stats below)
+	await _frames(20)
 	lake.queue_free()
 	await process_frame
 
@@ -181,8 +185,14 @@ func _run() -> void:
 	_check(nights_with > 60 and nights_with < 140 and aurora.strength_for(7) == aurora.strength_for(7),
 			"auroras on %d of 5000 nights (about 1 in %.0f), the same for a given night" % [nights_with, 5000.0 / maxf(nights_with, 1)])
 
-	# diving by looking down
-	player.respawn(Vector3(20, 0, 20))
+	# diving by looking down, out where the water is deep
+	var deep := sea
+	var start := WorldData.get_world().spawn
+	var out := Vector3(sea.x - start.x, 0.0, sea.z - start.y).normalized()   # (seaward from the beach)
+	while Terrain.height_at(deep.x, deep.z) > -15.0 and deep.distance_to(sea) < 3000.0:
+		deep += out * 10.0
+	(world.get_node("Terrain") as Terrain).prepare_at(deep)
+	player.respawn(Vector3(deep.x, 0.0, deep.z))
 	await _frames(30)
 	var start_depth := player.head_depth()
 	camera.pitch = 1.2   # look steeply down
@@ -263,13 +273,43 @@ func _run() -> void:
 			"double-tapping Space flies, fast (rose %.0f m in 1 s); the player has procedural legs" % (player.global_position.y - fly_y))
 	player.flying = false
 
+	# land: you start on the beach, standing on the generated ground
+	var w := WorldData.get_world()
+	var terrain: Terrain = world.get_node("Terrain")
+	if player.boat:
+		player._leave_boat()
+	var spot := Vector3(w.spawn.x, 0.0, w.spawn.y)
+	terrain.prepare_at(spot)
+	player.respawn(Vector3(spot.x, Terrain.height_at(spot.x, spot.z) + 1.4, spot.z))
+	await _frames(90)
+	var ground := Terrain.height_at(player.global_position.x, player.global_position.z)
+	_check(player.state == &"WALKING" and absf(player.global_position.y - Player.CHEST - ground) < 0.3
+			and Water.body_at(spot.x, spot.z) == null,
+			"player stands on the beach (%s, feet %.2f m above the ground)" % [player.state, player.global_position.y - Player.CHEST - ground])
+
+	# rivers are water bodies whose current runs downstream
+	var river_ok := false
+	var trunk: Dictionary = w.rivers[0]
+	var pts: PackedVector3Array = trunk.points
+	for k in range(pts.size() / 2, pts.size() - 2):
+		if Terrain.height_at(pts[k].x, pts[k].z) > pts[k].y - 0.5 or Terrain.height_at(pts[k].x, pts[k].z) < 0.5:
+			continue
+		var rb := Water.body_at(pts[k].x, pts[k].z)
+		if rb is RiverBody:
+			var f := rb.flow_at(pts[k].x, pts[k].z)
+			var down := Vector2(pts[k + 1].x - pts[k - 1].x, pts[k + 1].z - pts[k - 1].z)
+			river_ok = f.length() > 0.2 and Vector2(f.x, f.z).dot(down) > 0.0 and absf(rb.surface_height(pts[k].x, pts[k].z) - pts[k].y) < 0.5
+			break
+	_check(river_ok, "rivers are water bodies at their level, whose current runs downstream")
+
 	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	quit(1 if _failures else 0)
 
 
 class _TestLake extends WaterBody:
+	var centre := Vector2.ZERO
 	func contains_point(x: float, z: float) -> bool:
-		return Vector2(x, z).length() < 50.0
+		return Vector2(x, z).distance_to(centre) < 50.0
 
 
 func _frames(n: int) -> void:

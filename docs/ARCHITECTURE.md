@@ -121,6 +121,47 @@ Objects read ripples on a ring just outside their own footprint, and compute
 their displacement against the swell only. That breaks the feedback loop where
 an object would sink into its own displacement trough.
 
+### Terrain (`src/systems/terrain/`)
+
+**The world is generated offline.** `tools/gen_world.py` makes a 10 x 10 km
+test world of islands from a seed and writes it to `world/` (see
+`world/README.md`): 16-bit heights at 2.5 m with their mips, ground masks,
+rivers, stand-in trees and the start. Everything that makes terrain look
+real (erosion at 10 m, 5 m and 2.5 m, rivers carved together with their
+water level) happens there, where there's time for it, so the game only
+loads and draws. The world is small and the mountains are game-scale (peaks
+600-900 m); detail at every scale, haze, ambient occlusion and the trees are
+what make it read as big.
+
+- **`WorldData`** loads it once: the two height byte planes (high and low)
+  stay as bytes for CPU queries (`height_at`, bilinear) and become two
+  mipmapped R8 textures for the shaders, with no per-pixel work at load.
+- **Drawing** (`terrain.gd`, `terrain.gdshader`): a CDLOD quadtree of
+  16 x 16 patches (`MultiMesh`). A patch of LOD k has vertices 2.5 m * 2^k
+  apart, exactly on mip k's samples, and morphs toward k + 1 at the edge of
+  its range; ranges are four patch widths per LOD, which keeps seams closed.
+  The shader decodes heights texel by texel and filters them itself, takes
+  per-pixel normals from the finest mip the pixel can show, and colours the
+  ground naturally (grass greener or drier in patches and with height,
+  darker forest floor, rock on steep ground, sand), darkened by the baked
+  ambient occlusion. Far land sinks by d^2 / 2R with the planet's curve.
+- **Physics**: a `HeightMapShape3D` at the samples' own 2.5 m spacing (400 m
+  across) follows the player and is rebuilt when they have moved 100 m;
+  `prepare_at()` builds it before someone is put somewhere.
+- **Trees** (`TreeScatter`): dark green pyramids, 7-25 m, from
+  `WorldData.trees`, in 512 m chunks (one multimesh each) that fade out by
+  3.2 km; the darker forest floor carries the forests beyond.
+- **Rivers** (`src/systems/water/river/`): `RiverWater` draws each river as a
+  ribbon mesh along its centreline (`RiverRibbons`, `river.gdshader`): level
+  across, reaching just past the banks, ripples streaming downstream. The
+  shader fades the water by its depth over the ground read from the same
+  height map and LOD the terrain draws, so the shoreline is soft and exact.
+  `RiverBody` is the water body: level and current from the nearest reaches
+  (a tile index of segments), so swimmers and boats are carried downstream.
+- **The ocean** is the sea wherever the ground is below sea level; its waves
+  shoal out in shallow water (shader and physics alike), reading the same
+  height map.
+
 ### Atmosphere (`src/systems/atmosphere/`)
 
 A single-scattering sky after Sebastian Lague's

@@ -1,6 +1,8 @@
 extends Node3D
-## Open-ocean sandbox: wires player, boat, camera and HUD together and
-## scatters floating crates. Registers itself with Game as the running world.
+## The sandbox world: the generated islands (Terrain), the ocean and sky;
+## wires player, boat, camera and HUD together and scatters floating crates
+## around the boat. You start on a beach near the river mouth with the boat
+## moored offshore. Registers itself with Game as the running world.
 
 @export var world_config: WorldConfig
 @export var crate_scene: PackedScene
@@ -29,19 +31,35 @@ func _ready() -> void:
 	Settings.apply_to_viewport(get_viewport())
 	add_child(DebugOverlay.new())   # F3
 	$Sun.directional_shadow_max_distance = QualitySettings.current().shadow_distance
+	var world := WorldData.get_world()
+	var moor := Vector3(world.boat.x, 0.3, world.boat.y) if world else Vector3.ZERO
+	boat.global_position = moor
+	if world:   # pointing out to sea
+		var out := Vector2(world.boat.x - world.spawn.x, world.boat.y - world.spawn.y)
+		boat.rotation.y = atan2(-out.x, -out.y)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 3
 	for i in crate_count:
 		var crate: Node3D = crate_scene.instantiate()
-		crate.position = Vector3(rng.randf_range(-crate_spread, crate_spread), 0.0,
-				rng.randf_range(-crate_spread, crate_spread))
+		crate.position = moor
+		for _try in 20:   # (out on the water, not on the beach)
+			crate.position = moor + Vector3(rng.randf_range(-crate_spread, crate_spread), 0.0,
+					rng.randf_range(-crate_spread, crate_spread))
+			if Terrain.height_at(crate.position.x, crate.position.z) < -1.5:
+				break
 		crate.rotation.y = rng.randf() * PI
 		$Crates.add_child(crate)
 	camera.yaw = PI   # face south, toward the noon sun
+	if world:
+		var at := Vector3(world.spawn.x, 0.0, world.spawn.y)
+		($Terrain as Terrain).prepare_at(at)
+		player.respawn(Vector3(at.x, Terrain.height_at(at.x, at.z) + 1.4, at.z))
+		var to_boat := moor - player.global_position
+		camera.yaw = atan2(-to_boat.x, -to_boat.z)   # facing the boat
 	camera.eyes = player.get_node("Model/Head")
 	_set_first_person(true)   # start looking out of your own eyes
 	player.drowned.connect(_on_player_drowned)
-	hud.flash("Right-click near the boat to climb aboard", 4.0)
+	hud.flash("Your boat is moored offshore: right-click near it to climb aboard", 5.0)
 
 
 var _air_fog := {}

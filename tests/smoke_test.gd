@@ -153,6 +153,7 @@ func _run() -> void:
 	var crate_top := crate.global_position.y + 0.5 - ocean.surface_height(crate.global_position.x, crate.global_position.z)
 	_check(crate_top > 0.0 and crate_top < 1.0, "crate floats (%.2f m above water)" % crate_top)
 
+	player.respawn(boat.global_position + boat.global_basis.x * 4.0)   # (you start ashore: into the sea beside the boat)
 	await _frames(360)   # idle: should sink
 	_check(player.state == &"SINKING" and player.head_depth() > 1.0,
 			"idle player sinks (head %.1f m under)" % player.head_depth())

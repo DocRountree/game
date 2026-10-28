@@ -1,0 +1,230 @@
+class_name Terrain
+extends Node3D
+## The land and the seafloor of the generated world (WorldData, made offline
+## by tools/gen_world.py), its rivers and its stand-in trees.
+##
+## Drawing: a quadtree picks patches of a single 16 x 16 grid mesh, finer near
+## the camera (CDLOD); terrain.gdshader places them on the height map.
+## Physics: a heightfield collider at the height map's own 2.5 m spacing
+## follows the player, so you walk on exactly the drawn ground.
+##
+## Gameplay asks Terrain.height_at(x, z).
+
+const GRID := 16                    ## Quads per patch side.
+const LODS := 9                     ## LOD k: vertices 2.5 m * 2^k apart; LOD 8 covers the world in one patch.
+const MAX_PATCHES := 4000
+const COLLIDER_SIZE := 161          ## Samples per side of the collider (400 m).
+
+static var _current: Terrain
+
+@export var focus: Node3D           ## The collider follows this (the player).
+
+var world: WorldData
+
+var _multimesh: MultiMesh
+var _mesh_instance: MultiMeshInstance3D
+var _material: ShaderMaterial
+var _rivers: RiverWater
+var _trees: TreeScatter
+var _body: StaticBody3D
+var _shape: HeightMapShape3D
+var _patch_origin := Vector2(INF, INF)   ## World xz of the collider's sample (0, 0).
+var _patch_heights := PackedFloat32Array()
+
+
+static func current() -> Terrain:
+	return _current
+
+
+## Ground height (m) at a world point (deep sea before the world exists).
+static func height_at(x: float, z: float) -> float:
+	if _current == null or _current.world == null:
+		return -300.0
+	return _current.world.height_at(x, z)
+
+
+func _enter_tree() -> void:
+	_current = self
+
+
+func _exit_tree() -> void:
+	if _current == self:
+		_current = null
+
+
+func _ready() -> void:
+	world = WorldData.get_world()
+	if world == null:
+		return
+	_body = StaticBody3D.new()
+	_body.name = "Collider"
+	var cs := CollisionShape3D.new()
+	_shape = HeightMapShape3D.new()
+	cs.shape = _shape
+	_body.add_child(cs)
+	add_child(_body)
+	_build_drawing()
+	_rivers = RiverWater.new()
+	_rivers.name = "Rivers"
+	add_child(_rivers)
+	_rivers.setup(world, _material.get_shader_parameter("height_hi"), _material.get_shader_parameter("height_lo"))
+	_trees = TreeScatter.new()
+	_trees.name = "Trees"
+	add_child(_trees)
+	_trees.setup(world)
+	if focus:
+		prepare_at(focus.global_position)
+
+
+func _process(_delta: float) -> void:
+	if world == null:
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam:
+		_select_patches(Vector2(cam.global_position.x, cam.global_position.z))
+		_material.set_shader_parameter("view_pos", cam.global_position)
+		_rivers.set_view(cam.global_position)
+
+
+func _physics_process(_delta: float) -> void:
+	if world and focus:
+		var p := Vector2(focus.global_position.x, focus.global_position.z)
+		var centre := _patch_origin + Vector2.ONE * world.spacing * (COLLIDER_SIZE - 1) * 0.5
+		if p.distance_to(centre) > 100.0:
+			prepare_at(focus.global_position)
+
+
+# --- drawing ------------------------------------------------------------------------
+
+## The height map as two mipmapped R8 textures (high and low bytes), for any
+## shader that needs the ground.
+func height_textures() -> Array:
+	return [_material.get_shader_parameter("height_hi"), _material.get_shader_parameter("height_lo")]
+
+
+func _build_drawing() -> void:
+	var tex := world.height_textures()
+	_material = ShaderMaterial.new()
+	_material.shader = preload("res://src/systems/terrain/terrain.gdshader")
+	_material.set_shader_parameter("height_hi", tex[0])
+	_material.set_shader_parameter("height_lo", tex[1])
+	_material.set_shader_parameter("ground", ImageTexture.create_from_image(world.ground))
+	_material.set_shader_parameter("world_size", world.size)
+	_material.set_shader_parameter("texels", world.texels)
+	_material.set_shader_parameter("h_min", world.h_min)
+	_material.set_shader_parameter("h_scale", world.h_scale)
+	_material.set_shader_parameter("top_lod", LODS - 1)
+	_material.set_shader_parameter("grid_dim", float(GRID))
+	_multimesh = MultiMesh.new()
+	_multimesh.transform_format = MultiMesh.TRANSFORM_3D
+	_multimesh.use_custom_data = true
+	_multimesh.mesh = _patch_mesh()
+	_multimesh.instance_count = MAX_PATCHES
+	_multimesh.visible_instance_count = 0
+	_mesh_instance = MultiMeshInstance3D.new()
+	_mesh_instance.name = "Patches"
+	_mesh_instance.multimesh = _multimesh
+	_mesh_instance.material_override = _material
+	_mesh_instance.custom_aabb = AABB(Vector3(-world.size, -400.0, -world.size), Vector3(world.size * 2.0, 1600.0, world.size * 2.0))
+	_mesh_instance.top_level = true
+	add_child(_mesh_instance)
+
+
+func _patch_mesh() -> ArrayMesh:
+	var verts := PackedVector3Array()
+	for j in GRID + 1:
+		for i in GRID + 1:
+			verts.append(Vector3(float(i) / GRID, 0.0, float(j) / GRID))
+	var idx := PackedInt32Array()
+	for j in GRID:
+		for i in GRID:
+			var a := j * (GRID + 1) + i
+			# alternate the diagonal quad by quad: with every quad split the same
+			# way, smooth shapes pick up a sawtooth along that diagonal
+			if (i + j) % 2 == 0:
+				idx.append_array([a, a + 1, a + GRID + 1, a + 1, a + GRID + 2, a + GRID + 1])
+			else:
+				idx.append_array([a, a + 1, a + GRID + 2, a, a + GRID + 2, a + GRID + 1])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var m := ArrayMesh.new()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return m
+
+
+func _spacing(k: int) -> float:
+	return world.spacing * float(1 << k)
+
+
+# LOD k patches reach this far. Four patch widths: then the farthest LOD k - 1
+# patch ends (range(k-1) plus a patch diagonal, 0.85 of this) before LOD k
+# starts morphing toward k + 1 (at 0.87), which keeps seams closed.
+func _range(k: int) -> float:
+	return 4.0 * GRID * _spacing(k)
+
+
+var _patches: Array[Vector4] = []   # origin x, origin z, lod, size
+
+
+func _select_patches(cam: Vector2) -> void:
+	_patches.clear()
+	var half := world.size * 0.5
+	_visit(Vector2(-half, -half), LODS - 1, cam)
+	var count := mini(_patches.size(), MAX_PATCHES)
+	for i in count:
+		var p := _patches[i]
+		var k := int(p.z)
+		_multimesh.set_instance_transform(i, Transform3D(Basis(), Vector3(p.x, 0.0, p.y)))
+		var r := _range(k)
+		_multimesh.set_instance_custom_data(i, Color(k, r * 0.87, r * 0.98, p.w))
+	_multimesh.visible_instance_count = count
+
+
+func _visit(origin: Vector2, k: int, cam: Vector2) -> void:
+	var size := GRID * _spacing(k)
+	if k > 0 and _box_distance(origin, size, cam) < _range(k - 1):
+		var half := size * 0.5
+		for c: Vector2 in [Vector2.ZERO, Vector2(half, 0.0), Vector2(0.0, half), Vector2(half, half)]:
+			_visit(origin + c, k - 1, cam)
+	else:
+		_patches.append(Vector4(origin.x, origin.y, k, size))
+
+
+static func _box_distance(origin: Vector2, size: float, p: Vector2) -> float:
+	var dx := maxf(0.0, maxf(origin.x - p.x, p.x - origin.x - size))
+	var dz := maxf(0.0, maxf(origin.y - p.y, p.y - origin.y - size))
+	return sqrt(dx * dx + dz * dz)
+
+
+# --- collider ---------------------------------------------------------------------------
+
+## Build the collider around a point now (before putting someone there).
+func prepare_at(p: Vector3) -> void:
+	if world == null:
+		return
+	var s := world.spacing
+	var half := world.size * 0.5
+	var ix := roundi((p.x + half) / s) - (COLLIDER_SIZE - 1) / 2
+	var iz := roundi((p.z + half) / s) - (COLLIDER_SIZE - 1) / 2
+	var heights := PackedFloat32Array()
+	heights.resize(COLLIDER_SIZE * COLLIDER_SIZE)
+	for z in COLLIDER_SIZE:
+		for x in COLLIDER_SIZE:
+			heights[z * COLLIDER_SIZE + x] = world.sample(ix + x, iz + z)
+	_shape.map_width = COLLIDER_SIZE
+	_shape.map_depth = COLLIDER_SIZE
+	_shape.map_data = heights
+	_patch_heights = heights
+	_patch_origin = Vector2(ix * s - half, iz * s - half)
+	var cs: CollisionShape3D = _body.get_child(0)
+	cs.scale = Vector3(s, 1.0, s)
+	cs.global_position = Vector3(_patch_origin.x + s * (COLLIDER_SIZE - 1) * 0.5, 0.0, _patch_origin.y + s * (COLLIDER_SIZE - 1) * 0.5)
+
+
+## True when the collider covers (x, z) with a margin.
+func collider_covers(x: float, z: float) -> bool:
+	var gx := (x - _patch_origin.x) / world.spacing
+	var gz := (z - _patch_origin.y) / world.spacing
+	return gx > 4.0 and gz > 4.0 and gx < COLLIDER_SIZE - 5 and gz < COLLIDER_SIZE - 5

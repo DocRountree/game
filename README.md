@@ -12,6 +12,13 @@ rendering agree on exactly, spring buoyancy for anything that floats, and an
 interactive GPU ripple simulation that turns hulls and swimmers into wakes that
 lift and shove whatever they reach.
 
+The land is a generated 10 x 10 km test world (`world/`, made by
+`tools/gen_world.py` from a seed): a main island with a mountain range and a
+river system, a peripheral island, an archipelago of small islands on a shallow
+bank, a chain of volcanic cones and a southern group, eroded and carved at
+2.5 m, with dark green pyramids standing in for the trees. You start on a beach
+near the river mouth with your boat moored offshore.
+
 Starting the project opens a menu: **Debug mode** enters the sandbox world (Start game is not made yet).
 
 ## Running
@@ -54,7 +61,8 @@ src/                all game code and scenes, grouped by feature
   autoload/         global services: Events (signal bus), Game, Settings, Perf
   core/             world-wide basics: WorldConfig (seed, latitude, date), WorldGrid
   data/             Resource schemas and instances: items, species, biomes, boats, characters
-  systems/          reusable pieces: water (ocean), time, atmosphere, buoyancy,
+  systems/          reusable pieces: terrain (the generated world), water (ocean,
+                    rivers), time, atmosphere, buoyancy,
                     camera, inventory, exploration, performance
   entities/         things in the world: player, boat, props
   world/            levels / playable spaces (open_ocean is the debug sandbox)
@@ -63,6 +71,7 @@ src/                all game code and scenes, grouped by feature
 assets/             imported art and audio (models, textures, audio, fonts)
 addons/             third-party editor plugins
 native/             C++ GDExtension sources (not scanned by Godot)
+world/              the generated world's data (heights, masks, rivers, trees; not scanned by Godot)
 tests/              headless tests
 tools/              build, export and test scripts (not scanned by Godot)
 docs/               architecture, conventions and the roadmap of planned systems (not scanned by Godot)
