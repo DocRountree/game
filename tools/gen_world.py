@@ -1,11 +1,11 @@
 # World generator (not part of the game): python3 tools/gen_world.py [seed]
-# Needs numpy, scipy, pillow and numba. About a minute.
+# Needs numpy, scipy, pillow and numba. A few minutes and a few GB of memory.
 #
-# Makes a 10 x 10 km test world of islands from a seed and writes it to
+# Makes a 20 x 20 km test world of islands from a seed and writes it to
 # world/ for the game to load:
-#   - a main island (~5.5 km) with a mountain range down its spine (peaks
+#   - a main island (~8 km) with a mountain range down its spine (peaks
 #     600-900 m) and one river system, a peripheral island, a long archipelago
-#     of small islands on a shallow sandy bank, a chain of volcanic cones in
+#     of low islands on a shallow sandy bank, a chain of volcanic cones in
 #     deep water, and a southern group of islands;
 #   - eroded at three scales: stream-power erosion at 10 m (the drainage,
 #     ridges and valleys), droplet erosion at 5 m (gullies, with sediment
@@ -13,15 +13,17 @@
 #   - the rivers traced from the eroded drainage and carved into the final
 #     2.5 m heights together with their water level, so the water always lies
 #     in its bed: the bed, the banks and a flat floodplain blending out into
-#     the valley;
+#     the valley; steep mountain stretches step down in pools and waterfalls,
+#     and tributaries curve into the river they join;
 #   - masks for the ground (rock, sand, forest, ambient occlusion) and the
 #     stand-in trees (triangles) scattered by the forest mask.
 #
 # Outputs (world/, which Godot doesn't import):
 #   height_hi.bin, height_lo.bin   zlib: the high and low bytes of uint16
-#                heights, 4096 x 4096 and every mip down to 1 x 1
-#   ground.png   2048 x 2048 RGBA: rock, sand, forest density, ambient occlusion
-#   trees.bin    zlib: per tree uint16 x, uint16 z, uint8 height (dm / 2), uint8 spare
+#                heights, 8192 x 8192 and every mip down to 1 x 1
+#   ground.png   4096 x 4096 RGBA: rock, sand, forest density, ambient occlusion
+#   trees.bin    zlib: per tree uint16 x, uint16 z, uint16 ground height (as
+#                the heights), uint8 height (dm), uint8 spare
 #   world.json   sizes, height range, rivers, spawn, landmasses
 import json, math, os, sys, time, zlib
 import numpy as np
@@ -32,10 +34,10 @@ from numba import njit
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "world") + "/"
 os.makedirs(ROOT, exist_ok=True)
 SEED = int(sys.argv[1]) if len(sys.argv) > 1 else 7
-WORLD = 10240.0                 # m; the world is the square +-WORLD/2, origin at its centre
-N = 4096                        # final grid: 2.5 m
-M = 1024                        # coarse grid: 10 m
-MID = 2048                      # droplet grid: 5 m
+WORLD = 20480.0                 # m; the world is the square +-WORLD/2, origin at its centre
+N = 8192                        # final grid: 2.5 m
+M = 2048                        # coarse grid: 10 m
+MID = 4096                      # droplet grid: 5 m
 H_MIN, H_MAX = -300.0, 1100.0   # the uint16 range (2 cm steps)
 T0 = time.time()
 rng = np.random.default_rng(SEED)
@@ -131,6 +133,25 @@ def field_fbm(X, Z, wl, octaves, seed):
 
 
 @njit(cache=True)
+def grid_fbm(xs, zs, wl, octaves, seed):
+    """fbm over the grid xs (columns) x zs (rows), without coordinate arrays."""
+    out = np.empty((zs.size, xs.size), np.float32)
+    for i in range(zs.size):
+        for j in range(xs.size):
+            out[i, j] = fbm(xs[j], zs[i], wl, octaves, seed)
+    return out
+
+
+@njit(cache=True)
+def grid_ridged(xs, zs, wl, octaves, seed):
+    out = np.empty((zs.size, xs.size), np.float32)
+    for i in range(zs.size):
+        for j in range(xs.size):
+            out[i, j] = ridged(xs[j], zs[i], wl, octaves, seed)
+    return out
+
+
+@njit(cache=True)
 def field_ridged(X, Z, wl, octaves, seed):
     out = np.empty(X.shape)
     for i in range(X.shape[0]):
@@ -146,8 +167,8 @@ def field_ridged(X, Z, wl, octaves, seed):
 
 X, Z = world_coords(M)
 CELL = WORLD / M
-warp = field_fbm(X, Z, 1400.0, 4, SEED + 1)
-warp2 = field_fbm(X, Z, 380.0, 3, SEED + 2)
+warp = field_fbm(X, Z, 2000.0, 4, SEED + 1)
+warp2 = field_fbm(X, Z, 500.0, 3, SEED + 2)
 H = np.full((M, M), -1e9)
 owner = np.zeros((M, M), np.int32)
 landmasses = []
@@ -201,10 +222,10 @@ def free(cx, cz, r, pad=150.0):
 
 # the main island and its range
 ang = rng.uniform(0, 2 * math.pi)
-mc = np.array([math.cos(ang), math.sin(ang)]) * rng.uniform(600, 1100)
-MR = rng.uniform(2550, 2850)
-d = ndist(mc[0], mc[1], MR, 0.28) + 0.12 * field_fbm(X, Z, 700.0, 3, SEED + 14)
-low = 70.0 * np.clip(1.0 - d, 0, 1) ** 0.8 * (0.6 + 0.4 * field_fbm(X, Z, 900.0, 4, SEED + 3) + 0.4)
+mc = np.array([math.cos(ang), math.sin(ang)]) * rng.uniform(1200, 2200)
+MR = rng.uniform(2550, 2850) * math.sqrt(2.0)
+d = ndist(mc[0], mc[1], MR, 0.28) + 0.12 * field_fbm(X, Z, 1000.0, 3, SEED + 14)
+low = 80.0 * np.clip(1.0 - d, 0, 1) ** 0.8 * (0.6 + 0.4 * field_fbm(X, Z, 1300.0, 4, SEED + 3) + 0.4)
 low = np.where(d < 1.0, low, (1.0 - d) * 60.0)
 spine_a = rng.uniform(0, math.pi)
 sd = np.array([math.cos(spine_a), math.sin(spine_a)])
@@ -218,8 +239,8 @@ bend = 0.22 * MR * np.sin(t * 2.4 + bphase)
 dist = np.abs(rx * sp[0] + rz * sp[1] - bend)
 along = np.clip(1.0 - np.abs(t) / 0.85, 0, 1) ** 0.6
 rmask = np.exp(-(dist / (0.30 * MR)) ** 2) * along * np.clip((1.0 - d) / 0.35, 0, 1)
-peaks = 0.55 + 0.45 * field_fbm(X, Z, 1700.0, 2, SEED + 4)
-rid = field_ridged(X, Z, 1300.0, 5, SEED + 5)
+peaks = 0.55 + 0.45 * field_fbm(X, Z, 2400.0, 2, SEED + 4)
+rid = field_ridged(X, Z, 1700.0, 5, SEED + 5)
 mount = rmask ** 1.25 * (520.0 + 380.0 * peaks) * (0.45 + 0.75 * rid)
 main = low + mount
 # the main valley: along the range on its wide side, then out to the coast,
@@ -232,8 +253,8 @@ vw = mc + sp * off + np.outer(vt * MR, sd) + np.outer(vo + 0.22 * MR * np.sin(vt
 vs = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(vw, axis=0), axis=1))])
 vdist, vi = cKDTree(vw).query(np.stack([X.ravel(), Z.ravel()], 1))
 vdist = vdist.reshape(M, M); vi = vi.reshape(M, M)
-VW = 480.0
-floor = np.maximum(120.0 * (1.0 - vs[vi] / vs[-1]) ** 1.2, 1.0) + 30.0 * (vdist / VW) ** 2
+VW = 1000.0
+floor = np.maximum(150.0 * (1.0 - vs[vi] / vs[-1]) ** 1.2, 1.0) + 30.0 * (vdist / VW) ** 2
 g = np.exp(-(vdist / (1.4 * VW)) ** 2)
 main = main * (1 - g) + g * np.minimum(main, floor)
 add(np.where(d < 1.0, main, low), "main_island", mc[0], mc[1], MR)
@@ -241,7 +262,7 @@ add(np.where(d < 1.0, main, low), "main_island", mc[0], mc[1], MR)
 # the peripheral island, across the sea
 for _ in range(200):
     a = rng.uniform(0, 2 * math.pi)
-    pc = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(3600, 4400)
+    pc = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(6000, 7800)
     PR = rng.uniform(650, 800)
     if free(pc[0], pc[1], PR, 600):
         break
@@ -253,7 +274,7 @@ island("peripheral_island", pc[0], pc[1], PR,
 # the volcanic chain: cones in a line, steep, each with a crater
 for _ in range(200):
     a = rng.uniform(0, 2 * math.pi)
-    vs = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(3300, 4200)
+    vs = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(5800, 7500)
     va = a + math.pi / 2 + rng.uniform(-0.5, 0.5)
     vd = np.array([math.cos(va), math.sin(va)])
     ok = True
@@ -280,9 +301,9 @@ for ci, (cx, cz, r) in enumerate(cones):
 # the archipelago: many small islands along an arc, on a shallow bank
 for _ in range(200):
     a = rng.uniform(0, 2 * math.pi)
-    a0 = mc + np.array([math.cos(a), math.sin(a)]) * (MR + rng.uniform(500, 900))
-    a1 = a0 + np.array([math.cos(a + rng.uniform(-1.0, 1.0)), math.sin(a + rng.uniform(-1.0, 1.0))]) * 3600
-    if abs(a1[0]) < WORLD / 2 - 600 and abs(a1[1]) < WORLD / 2 - 600 and free(*(0.5 * (a0 + a1)), 300, 300):
+    a0 = mc + np.array([math.cos(a), math.sin(a)]) * (MR + rng.uniform(900, 1400))
+    a1 = a0 + np.array([math.cos(a + rng.uniform(-1.0, 1.0)), math.sin(a + rng.uniform(-1.0, 1.0))]) * 7200
+    if abs(a1[0]) < WORLD / 2 - 1200 and abs(a1[1]) < WORLD / 2 - 1200 and free(*(0.5 * (a0 + a1)), 600, 300):
         break
 arc_mid = 0.5 * (a0 + a1) + np.array([-(a1 - a0)[1], (a1 - a0)[0]]) * rng.uniform(-0.15, 0.15)
 arc_pts = []
@@ -290,31 +311,35 @@ for s in np.linspace(0, 1, 40):
     arc_pts.append((1 - s) ** 2 * a0 + 2 * (1 - s) * s * arc_mid + s * s * a1)
 arc_pts = np.array(arc_pts)
 islets = 0
-for _ in range(4000):
-    if islets >= 90:
+islet_ids = []
+for _ in range(8000):
+    if islets >= 150:
         break
     s = rng.integers(0, len(arc_pts))
-    c = arc_pts[s] + rng.normal(0, 380, 2)
-    r = float(np.clip(rng.lognormal(math.log(70), 0.7), 22, 360))
-    if not free(c[0], c[1], r, 30):
+    c = arc_pts[s] + rng.normal(0, 760, 2)
+    r = float(np.clip(rng.lognormal(math.log(105), 0.85), 25, 650))
+    if not free(c[0], c[1], r, 70):
         continue
-    hi = 3.0 + r * rng.uniform(0.06, 0.3)
+    # low and smooth: a beach rising to a broad, gently domed top
+    hi = min(2.5 + r * rng.uniform(0.025, 0.08), 32.0)
     island("islet", c[0], c[1], r,
-           lambda d, Xw, Zw, hi=hi: np.where(d < 1.0, hi * np.clip(1.0 - d, 0, 1) ** 0.9, (1.0 - d) * 8.0),
-           0.4, rng.uniform(1.0, 2.6), SEED + 100 + islets * 3)
+           lambda d, Xw, Zw, hi=hi: np.where(d < 1.0, hi * (0.25 + 0.75 * np.clip((1.0 - d) / 0.55, 0, 1) ** 2 * (3 - 2 * np.clip((1.0 - d) / 0.55, 0, 1)))
+                                             * np.clip((1.0 - d) / 0.08, 0, 1), (1.0 - d) * 8.0),
+           0.45, rng.uniform(1.0, 1.7), SEED + 100 + islets * 3)
+    islet_ids.append(len(landmasses))
     islets += 1
 
 # the southern group
 south = []
 for _ in range(400):
     a = rng.uniform(0, 2 * math.pi)
-    gc = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(3300, 4300)
-    if abs(gc[0]) < WORLD / 2 - 900 and abs(gc[1]) < WORLD / 2 - 900 and free(gc[0], gc[1], 700, 300):
+    gc = mc + np.array([math.cos(a), math.sin(a)]) * rng.uniform(6000, 7800)
+    if abs(gc[0]) < WORLD / 2 - 1400 and abs(gc[1]) < WORLD / 2 - 1400 and free(gc[0], gc[1], 1100, 300):
         break
 for _ in range(600):
     if len(south) >= 8:
         break
-    c = gc + rng.normal(0, 650, 2)
+    c = gc + rng.normal(0, 1000, 2)
     r = rng.uniform(120, 420)
     if not free(c[0], c[1], r, 120):
         continue
@@ -338,7 +363,7 @@ def near_pts(pts, scale):
     for p in pts:
         best = np.minimum(best, np.hypot(X - p[0], Z - p[1]))
     return np.exp(-(best / scale) ** 2)
-bank = np.maximum(near_pts(arc_pts, 700.0), near_pts(south, 900.0) if south else 0.0)
+bank = np.maximum(near_pts(arc_pts, 1400.0), near_pts(south, 1300.0) if south else 0.0)
 sea = sea * (1.0 - bank) + bank * np.maximum(sea, -5.0 - 7.0 * (field_fbm(X, Z, 300.0, 3, SEED + 8) * 0.5 + 0.5))
 # volcanoes plunge into deep water
 vm = np.zeros((M, M))
@@ -619,21 +644,32 @@ def resize(a, n):
 
 
 hm = resize(h, MID)
-XM, ZM = world_coords(MID)
+xs_m = np.arange(MID) / MID * WORLD - WORLD / 2
 land_m = hm > 0.0
 slope_m = np.hypot(*np.gradient(hm, WORLD / MID))
+# the archipelago's islets stay low and smooth (no ridges, no gullies)
+islet = np.isin(owner, islet_ids)
+islet_m = ndimage.gaussian_filter(islet.repeat(2, 0).repeat(2, 1).astype(np.float32), 3.0)
 # mid-scale detail on the slopes before the droplets run: they cut it into gullies
-hm += np.where(land_m, (field_ridged(XM, ZM, 160.0, 3, SEED + 9) - 0.4) * 14.0 * np.clip(slope_m / 0.4, 0, 1)
-               * np.clip(hm / 30.0, 0, 1), 0.0)
-hm = droplets(hm, 900000, SEED, WORLD / MID)
+hm += np.where(land_m, (grid_ridged(xs_m, xs_m, 160.0, 3, SEED + 9) - 0.4) * 14.0 * np.clip(slope_m / 0.4, 0, 1)
+               * np.clip(hm / 30.0, 0, 1) * (1.0 - islet_m), 0.0)
+del slope_m
+hm = droplets(hm, 3600000, SEED, WORLD / MID)
+hm = np.where(land_m, hm * (1.0 - islet_m) + ndimage.gaussian_filter(hm, 4.0) * islet_m, hm)
 log("droplets; max %.0f m" % hm.max())
 
 # --- 2.5 m: fine detail and talus -----------------------------------------------------
 hf = resize(hm, N)
-XF, ZF = world_coords(N)
+del hm
+xs_f = np.arange(N) / N * WORLD - WORLD / 2
 land_f = hf > 0.0
-slope_f = np.hypot(*np.gradient(hf, WORLD / N))
-hf += np.where(land_f, field_fbm(XF, ZF, 40.0, 3, SEED + 10) * (0.4 + 2.0 * np.clip(slope_f, 0, 1)) * np.clip(hf / 4.0, 0, 1), 0.0)
+gy_, gx_ = np.gradient(hf, WORLD / N)
+slope_f = np.hypot(gx_, gy_).astype(np.float32)
+del gy_, gx_
+islet_f = islet_m.repeat(2, 0).repeat(2, 1)
+hf += np.where(land_f, grid_fbm(xs_f, xs_f, 40.0, 3, SEED + 10) * (0.4 + 2.0 * np.clip(slope_f, 0, 1))
+               * np.clip(hf / 4.0, 0, 1) * (1.0 - 0.8 * islet_f), 0.0)
+del slope_f, islet_f
 hf = talus(hf, land_f, WORLD / N, math.tan(math.radians(42.0)), 6)
 log("fine detail")
 
@@ -641,11 +677,13 @@ log("fine detail")
 # --- rivers ------------------------------------------------------------------------------
 # Traced on the 10 m grid from the eroded terrain's drainage: the biggest
 # catchment on the main island drains through one mouth; its channels above a
-# threshold area become the river system (a trunk and a handful of
-# tributaries). Their water surfaces are fit to the final ground and carved
-# into it together.
+# threshold area become the river system (a trunk and its tributaries, each
+# carried on up its valley toward the ridge it rises under; short stubs are
+# pruned so the system reads as one clean tree). Their water surfaces are fit
+# to the final ground, stepping down in pools and waterfalls where the stream
+# runs steep, and carved into it together.
 
-hc = resize(hf, M)
+hc = hf.reshape(M, N // M, M, N // M).mean(axis=(1, 3))
 land_c = hc > 0.0
 hfill = hc.copy()
 recv, order = flood_route(hfill, land_c, 1e-3)
@@ -668,55 +706,64 @@ for c in range(order.shape[0]):
 a_mouth = area[mouth]
 
 
-def network(thr):
-    ch = inside & (area >= thr)
-    donors = np.zeros((M, M), np.int32)
-    for y, x in zip(*np.nonzero(ch)):
-        ry, rx = recv[y, x]
-        if ry >= 0 and ch[ry, rx]:
-            donors[ry, rx] += 1
-    return ch, donors, int(((donors == 0) & ch).sum())
+# The river system as a hierarchy, like a real drainage tree: the trunk up
+# from the mouth, its biggest side branches, and a couple of branches off
+# each of those; every stream traced up its own valley (by the biggest donor)
+# to where it starts.
+donors_of = {}
+for c in range(order.shape[0]):
+    y, x = order[c]
+    ry, rx = recv[y, x]
+    if inside[y, x] and ry >= 0 and land_c[ry, rx] and inside[ry, rx]:
+        donors_of.setdefault((ry, rx), []).append((y, x))
+A_HEAD = 4.0e4      # m^2 draining in: where a stream starts
 
 
-lo, hi = 2e4, a_mouth
-for _ in range(30):
-    mid = math.sqrt(lo * hi)
-    if network(mid)[2] > 12:
-        lo = mid
-    else:
-        hi = mid
-ch, donors, nheads = network(hi)
-log("catchment %.1f km2, %d heads" % (a_mouth / 1e6, nheads))
-
-# trace every head down to the sea or to a river already traced, longest first
-def path_len(y, x):
-    k = 0
-    while ch[y, x] and k < 100000:
-        y, x = recv[y, x]
-        k += 1
-    return k
-
-heads = sorted([(path_len(y, x), y, x) for y, x in zip(*np.nonzero(ch & (donors == 0)))], reverse=True)
-river_of = -np.ones((M, M), np.int64)
-traces = []
-for _, y, x in heads:
-    cells = []
-    joins = -1
+def trace_up(c):
+    path = [c]
     while True:
-        cells.append((y, x))
-        if river_of[y, x] >= 0:
-            joins = river_of[y, x]
+        ds = donors_of.get(path[-1], [])
+        if not ds:
             break
-        ry, rx = recv[y, x]
-        if ry < 0 or not land_c[ry, rx]:
-            cells.append((ry, rx))   # one step into the sea
+        d = max(ds, key=lambda q: area[q])
+        if area[d] < A_HEAD:
             break
-        y, x = ry, rx
-    for c in cells[:-1] if joins >= 0 else cells:
-        if 0 <= c[0] < M and 0 <= c[1] < M:
-            river_of[c] = len(traces)
-    if len(cells) >= 6:
-        traces.append((cells, joins))
+        path.append(d)
+    return path
+
+
+def branches(path, a_min, count, spacing):
+    """The biggest side streams joining a stream (path: downstream order),
+    their junctions at least spacing cells apart."""
+    on = set(path)
+    cand = []
+    for i, c in enumerate(path[:-1]):
+        for d in donors_of.get(c, []):
+            if d not in on and area[d] >= a_min:
+                cand.append((area[d], i, d))
+    cand.sort(reverse=True)
+    out = []
+    for a_, i, d in cand:
+        if len(out) >= count:
+            break
+        if all(abs(i - j) >= spacing for _, j, _ in out):
+            out.append((a_, i, d))
+    return out
+
+
+trunk = trace_up(mouth)[::-1]
+traces = [(trunk + [tuple(recv[mouth])], -1)]   # (one step into the sea)
+for a2, i2, d2 in branches(trunk, 2.0e5, 6, 40):
+    t2 = trace_up(d2)[::-1]
+    if len(t2) * CELL < 500.0:
+        continue
+    traces.append((t2 + [trunk[i2]], 0))
+    j2 = len(traces) - 1
+    for a3, i3, d3 in branches(t2, 6.0e4, 2, 30):
+        t3 = trace_up(d3)[::-1]
+        if len(t3) * CELL >= 400.0:
+            traces.append((t3 + [t2[i3]], j2))
+log("catchment %.1f km2, %d streams" % (a_mouth / 1e6, len(traces)))
 
 
 def bilinear(a, wx, wz):
@@ -758,117 +805,307 @@ for cells, joins in traces:
     ar = np.interp(ss, s, ar)
     rivers.append({"pts": pts, "area": ar, "joins": int(joins), "s": np.array(ss)})
 
-# gentle meanders where the valley floor is flat (not on the trunk's last
-# stretch into the sea, nor at the ends, which stay put for the joins)
+# widths for game scale: 9 m across at the heads, ~130 m at the mouth
+def half_width(area_):
+    return 4.5 + 60.0 * np.sqrt(np.clip(area_ / a_mouth, 0, 1))
+
+
+# gentle meanders where the valley floor is flat (not at the ends, which stay
+# put for the joins)
 for rv in rivers:
     pts, s = rv["pts"], rv["s"]
     if s[-1] < 600:
         continue
-    hw = 4.5 + 25.5 * np.sqrt(rv["area"] / a_mouth)
+    hw = half_width(rv["area"])
     tan = np.gradient(pts, axis=0)
     tan /= np.maximum(np.linalg.norm(tan, axis=1, keepdims=True), 1e-9)
     nrm = np.stack([-tan[:, 1], tan[:, 0]], 1)
     g = bilinear(hf, pts[:, 0], pts[:, 1])
     slope = np.abs(np.gradient(ndimage.uniform_filter1d(g, 25))) / 6.0
     flat = ndimage.gaussian_filter1d(1.0 - np.clip((slope - 0.005) / 0.03, 0, 1), 20)
-    lam = 16.0 * 2 * hw * rng.uniform(0.9, 1.2)
+    lam = 14.0 * 2 * hw * rng.uniform(0.9, 1.2)
     ph = np.cumsum(np.concatenate([[0], np.diff(s) / lam[1:]])) * 2 * math.pi + rng.uniform(0, 6.3)
     taper = np.clip(s / 300.0, 0, 1) * np.clip((s[-1] - s) / 300.0, 0, 1)
-    a_t = 0.22 * lam * flat * taper
+    a_t = 0.18 * lam * flat * taper
     pts += nrm * (a_t * np.sin(ph))[:, None] + tan * (0.3 * a_t * np.cos(ph))[:, None]
 
+
+def resample(pts, attrs, step=6.0):
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    s = np.concatenate([[0], np.cumsum(seg)])
+    ss = np.arange(0, s[-1], step).tolist() + [s[-1]]
+    out = np.stack([np.interp(ss, s, pts[:, 0]), np.interp(ss, s, pts[:, 1])], 1)
+    return out, [np.interp(ss, s, a) for a in attrs]
+
+
+# confluences: each tributary's last stretch curves round into its river's
+# downstream direction and meets it on its centreline, as real tributaries
+# join: at an acute angle, the two currents running together
+for rv in rivers:
+    if rv["joins"] < 0:
+        continue
+    main = rivers[rv["joins"]]
+    mp = main["pts"]
+    pts = rv["pts"]
+    k = int(np.argmin(np.linalg.norm(mp - pts[-1], axis=1)))
+    hw_m = float(half_width(main["area"][k]))
+    ke = min(k + max(int(0.8 * hw_m / 6.0), 1), len(mp) - 1)
+    t_m = mp[min(ke + 3, len(mp) - 1)] - mp[max(ke - 3, 0)]
+    t_m /= max(np.linalg.norm(t_m), 1e-9)
+    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    total = seg.sum()
+    lb = float(np.clip(4.0 * hw_m + 40.0, 60.0, 0.45 * total))
+    back = np.cumsum(seg[::-1])
+    s_i = len(pts) - 1 - int(np.searchsorted(back, lb)) - 1
+    s_i = max(s_i, 2)
+    p0 = pts[s_i]
+    t0 = pts[s_i] - pts[s_i - 2]
+    t0 /= max(np.linalg.norm(t0), 1e-9)
+    e = mp[ke]
+    c1 = p0 + t0 * lb * 0.35
+    c2 = e - t_m * lb * 0.45
+    u = np.linspace(0, 1, max(int(lb / 3.0), 8))[:, None]
+    curve = (1 - u) ** 3 * p0 + 3 * (1 - u) ** 2 * u * c1 + 3 * (1 - u) * u ** 2 * c2 + u ** 3 * e
+    pts = np.concatenate([pts[:s_i], curve])
+    ar = np.concatenate([rv["area"][:s_i], np.full(len(curve), rv["area"][s_i])])
+    rv["pts"], (rv["area"],) = resample(pts, [ar])
+    rv["join_k"] = ke
+
+
+def staircase(g, base, steep):
+    """Over steep stretches the stream steps down in pools and waterfalls:
+    each pool lies at the level of the lip that holds it (cut into the ground
+    above), and the water drops over the lip into the next one."""
+    lvl = base.copy()
+    n = len(g)
+    k = 0
+    while k < n:
+        if not steep[k]:
+            k += 1
+            continue
+        a = k
+        while k < n and steep[k]:
+            k += 1
+        b = k - 1
+        if b - a < 4:
+            continue
+        last = a
+        drop = rng.uniform(6.0, 15.0)
+        for q in range(a + 1, b + 1):
+            if g[last] - g[q] >= drop:
+                lvl[last + 1:q + 1] = g[q] - 0.3
+                last = q
+                drop = rng.uniform(6.0, 15.0)
+    return lvl
+
+
 # widths, depths and the water surface: the downhill profile closest to the
-# ground under the channel (tributaries end at their river's level, the trunk
-# at sea level)
-for i, rv in enumerate(rivers):
-    f = np.sqrt(np.clip(rv["area"] / a_mouth, 0, 1))
-    rv["hw"] = 4.5 + 25.5 * f   # (never narrower than the 2.5 m grid can carve cleanly)
-    rv["depth"] = 0.8 + 2.7 * f
+# ground under the channel, stepped where it runs steep (tributaries end at
+# their river's level, the trunk at sea level)
+falls = 0
+for rv in rivers:
+    rv["hw"] = half_width(rv["area"])   # (never narrower than the 2.5 m grid can carve cleanly)
+    rv["depth"] = 0.8 + 4.2 * np.sqrt(np.clip(rv["area"] / a_mouth, 0, 1))
     g = bilinear(hf, rv["pts"][:, 0], rv["pts"][:, 1])
     g = ndimage.minimum_filter1d(g, 5)
-    rv["level"] = downhill_fit(np.maximum(g - 0.3, 0.0))
-for i, rv in enumerate(rivers):
+    base = downhill_fit(np.maximum(g - 0.3, 0.0))
+    gs = ndimage.uniform_filter1d(g, 9)
+    slope = (np.roll(gs, 5) - np.roll(gs, -5)) / 60.0
+    slope[:5] = 0.0
+    slope[-5:] = 0.0
+    rv["level"] = np.minimum.accumulate(np.minimum(staircase(g, base, slope > 0.12), base + 0.0))
+    rv["smooth"] = base
+for rv in rivers:
     if rv["joins"] >= 0:
         main = rivers[rv["joins"]]
-        end = rv["pts"][-1]
-        k = int(np.argmin(np.linalg.norm(main["pts"] - end, axis=1)))
-        rv["pts"][-1] = main["pts"][k]
+        k = rv["join_k"]
         rv["level"] = np.maximum(rv["level"], main["level"][k])
         rv["level"][-1] = main["level"][k]
+        rv["smooth"] = np.maximum(rv["smooth"], main["smooth"][k])
     else:
         rv["level"][-1] = min(rv["level"][-1], 0.0)
         rv["level"] = np.minimum.accumulate(rv["level"])
+# each fall made sheer: a point just past the lip already at the pool below
+for rv in rivers:
+    p, L, Ls = rv["pts"], rv["level"], rv["smooth"]
+    keep_p, keep = [p[0]], [[rv["hw"][0], rv["depth"][0], L[0], rv["area"][0], Ls[0]]]
+    for k in range(1, len(p)):
+        plunge = 0.0
+        if L[k - 1] - L[k] > 2.0:
+            # the fall leans out a little over 4 m (the 2.5 m grid can carve
+            # that cleanly under it), into a plunge pool dug deeper below
+            d = p[k] - p[k - 1]
+            plunge = min(0.4 * (L[k - 1] - L[k]), 6.0)
+            keep_p.append(p[k - 1] + d / max(np.linalg.norm(d), 1e-9) * min(4.0, 0.8 * np.linalg.norm(d)))
+            keep.append([rv["hw"][k], rv["depth"][k] + plunge, L[k], rv["area"][k], 0.5 * (Ls[k - 1] + Ls[k])])
+            falls += 1
+        keep_p.append(p[k])
+        keep.append([rv["hw"][k], rv["depth"][k] + plunge * 0.6, L[k], rv["area"][k], Ls[k]])
+    a = np.array(keep)
+    rv["pts"] = np.array(keep_p)
+    rv["hw"], rv["depth"], rv["level"], rv["area"], rv["smooth"] = a[:, 0], a[:, 1], a[:, 2], a[:, 3], a[:, 4]
+    # the water thins in over a stream's first 250 m (as the game draws it):
+    # the channel deepens in with it
+    seg = np.linalg.norm(np.diff(rv["pts"], axis=0), axis=1)
+    arc = np.concatenate([[0], np.cumsum(seg)])
+    x = np.clip(arc / 250.0, 0, 1)
+    rv["depth"] = rv["depth"] * np.maximum(x * x * (3 - 2 * x), 0.05)
+log("waterfalls:", falls)
 
 
 @njit(cache=True)
-def carve(h, ax, az, bx, bz, la, lb, hwa, hwb, da, db, world, T, W, R, I, rid):
-    """Rasterise one channel segment's ground: the bed (a parabola below the
-    water), banks rising just above it and a floodplain easing out into the
-    land. T holds the target ground at a pixel, W how much of the ground is
-    the river's there: within one river the nearest segment decides (R, I:
-    its distance and river), where rivers meet the lowest ground wins."""
-    n = h.shape[0]
+def _seg_window(ax, az, bx, bz, reach, world, cell, x0, z0, hx, hz):
+    i0 = max(int((min(ax, bx) - reach + world / 2) / cell) - x0, 0)
+    i1 = min(int((max(ax, bx) + reach + world / 2) / cell) + 1 - x0, hx - 1)
+    j0 = max(int((min(az, bz) - reach + world / 2) / cell) - z0, 0)
+    j1 = min(int((max(az, bz) + reach + world / 2) / cell) + 1 - z0, hz - 1)
+    return i0, i1, j0, j1
+
+
+@njit(cache=True)
+def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
+    """One river's ground over a window (T, W, R start at x0, z0): the bed (a
+    parabola below the water), banks rising just above it and a floodplain
+    easing out into the land. The level, width and depth come from the
+    nearby reaches, blended with a falloff that is sharp at the channel (so a
+    waterfall stays sheer) and wide far out (so where the nearest reach jumps
+    from one arm of a bend to the other the floodplain doesn't step). The bed
+    and banks follow the water level (L), steps and all; beyond the banks the
+    floodplain eases over to the smooth valley profile (Ls), so a waterfall's
+    cliff spans the stream, not the whole valley. The river's ground reaches
+    VR half widths out: wide floodplains in the lowlands, a narrow strip
+    beside a mountain stream. W is how much of the ground is the river's, R
+    the distance in half widths."""
     cell = world / n
-    reach = 9.0 * max(hwa, hwb)
-    x0 = int(((min(ax, bx) - reach) + world / 2) / cell)
-    x1 = int(((max(ax, bx) + reach) + world / 2) / cell) + 1
-    z0 = int(((min(az, bz) - reach) + world / 2) / cell)
-    z1 = int(((max(az, bz) + reach) + world / 2) / cell) + 1
-    abx = bx - ax; abz = bz - az
-    ll = abx * abx + abz * abz + 1e-9
-    for j in range(max(z0, 0), min(z1, n - 1) + 1):
-        pz = j * cell - world / 2
-        for i in range(max(x0, 0), min(x1, n - 1) + 1):
-            px = i * cell - world / 2
-            u = min(max(((px - ax) * abx + (pz - az) * abz) / ll, 0.0), 1.0)
-            dx = px - (ax + abx * u); dz = pz - (az + abz * u)
-            hw = hwa + (hwb - hwa) * u
-            r = math.sqrt(dx * dx + dz * dz) / hw
-            if r > 9.0:
+    hz, hx = T.shape
+    D = np.full((hz, hx), 1e9, np.float32)
+    for k in range(px_.size - 1):
+        ax = px_[k]; az = pz_[k]; bx = px_[k + 1]; bz = pz_[k + 1]
+        i0, i1, j0, j1 = _seg_window(ax, az, bx, bz, 9.0 * max(HW[k], HW[k + 1]), world, cell, x0, z0, hx, hz)
+        abx = bx - ax; abz = bz - az
+        ll = abx * abx + abz * abz + 1e-9
+        for j in range(j0, j1 + 1):
+            pz = (j + z0) * cell - world / 2
+            for i in range(i0, i1 + 1):
+                px = (i + x0) * cell - world / 2
+                u = min(max(((px - ax) * abx + (pz - az) * abz) / ll, 0.0), 1.0)
+                dx = px - (ax + abx * u); dz = pz - (az + abz * u)
+                d = math.sqrt(dx * dx + dz * dz)
+                if d < D[j, i]:
+                    D[j, i] = d
+    SWr = np.zeros((hz, hx), np.float32)
+    SL = np.zeros((hz, hx), np.float32)
+    SLs = np.zeros((hz, hx), np.float32)
+    SH = np.zeros((hz, hx), np.float32)
+    SD = np.zeros((hz, hx), np.float32)
+    SV = np.zeros((hz, hx), np.float32)
+    for k in range(px_.size - 1):
+        ax = px_[k]; az = pz_[k]; bx = px_[k + 1]; bz = pz_[k + 1]
+        i0, i1, j0, j1 = _seg_window(ax, az, bx, bz, 9.0 * max(HW[k], HW[k + 1]), world, cell, x0, z0, hx, hz)
+        abx = bx - ax; abz = bz - az
+        ll = abx * abx + abz * abz + 1e-9
+        for j in range(j0, j1 + 1):
+            pz = (j + z0) * cell - world / 2
+            for i in range(i0, i1 + 1):
+                dm = D[j, i]
+                px = (i + x0) * cell - world / 2
+                u = min(max(((px - ax) * abx + (pz - az) * abz) / ll, 0.0), 1.0)
+                dx = px - (ax + abx * u); dz = pz - (az + abz * u)
+                d = math.sqrt(dx * dx + dz * dz)
+                e = (d - dm) / (0.2 * dm + 0.5)
+                if e > 9.0:
+                    continue
+                w = math.exp(-e)
+                SWr[j, i] += w
+                SL[j, i] += w * (L[k] + (L[k + 1] - L[k]) * u)
+                SLs[j, i] += w * (Ls[k] + (Ls[k + 1] - Ls[k]) * u)
+                SH[j, i] += w * (HW[k] + (HW[k + 1] - HW[k]) * u)
+                SD[j, i] += w * (DP[k] + (DP[k + 1] - DP[k]) * u)
+                SV[j, i] += w * (VR[k] + (VR[k + 1] - VR[k]) * u)
+    for j in range(hz):
+        for i in range(hx):
+            sw = SWr[j, i]
+            if sw <= 0.0:
                 continue
-            lvl = la + (lb - la) * u
-            dep = da + (db - da) * u
+            hw = SH[j, i] / sw
+            r = D[j, i] / hw
+            vr = SV[j, i] / sw
+            if r > vr:
+                continue
+            lvl = SL[j, i] / sw
+            if r > 1.6:
+                y = min((r - 1.6) / 1.9, 1.0)
+                lvl += (SLs[j, i] / sw - lvl) * y * y * (3.0 - 2.0 * y)
+            dep = SD[j, i] / sw
             if r < 1.0:
                 tgt = lvl - dep * (1.0 - r * r)
             else:
-                # the bank rises steeply out of the water, then the floodplain
-                # climbs gently away
+                # the bank rises steeply out of the water, then the
+                # floodplain climbs gently away
                 x = min((r - 1.0) / 0.3, 1.0)
-                tgt = lvl + (0.4 + 0.15 * dep) * x * (2.0 - x) + max(r - 1.3, 0.0) * hw * 0.012
-            x = min(max((r - 1.3) / (9.0 - 1.3), 0.0), 1.0)
-            w = 1.0 - x * x * (3.0 - 2.0 * x)
-            if w > W[j, i] + 0.02:
-                W[j, i] = w
-                T[j, i] = tgt
-                R[j, i] = r
-                I[j, i] = rid
-            elif w > W[j, i] - 0.02:
-                W[j, i] = max(W[j, i], w)
-                if I[j, i] == rid:
-                    if r < R[j, i]:
-                        T[j, i] = tgt
-                        R[j, i] = r
-                elif tgt < T[j, i]:
-                    T[j, i] = tgt
-                    R[j, i] = r
-                    I[j, i] = rid
+                tgt = lvl + min(0.4 + 0.15 * dep, dep * 0.8) * x * (2.0 - x) + max(r - 1.3, 0.0) * hw * 0.012
+            x = min(max((r - 1.3) / (vr - 1.3), 0.0), 1.0)
+            T[j, i] = tgt
+            W[j, i] = 1.0 - x * x * (3.0 - 2.0 * x)
+            R[j, i] = r
 
 
-T = np.zeros((N, N))
-Wt = np.zeros((N, N))
-Rn = np.full((N, N), 1e9)
-In = -np.ones((N, N), np.int64)
+@njit(cache=True)
+def blend_in(T, W, R, x0, z0, trib, SW, ST, WM, RM):
+    """Add one river's ground to the network's: weighted by its claim on the
+    ground (W^8), so where two rivers' valleys overlap the stronger takes over
+    smoothly; a tributary's channel fades out inside the water of the rivers
+    already carved (it ends inside one of them)."""
+    hz, hx = T.shape
+    for j in range(hz):
+        for i in range(hx):
+            w = W[j, i]
+            if w <= 0.0:
+                continue
+            jj = j + z0; ii = i + x0
+            if trib:   # (only inside the other river's water, so the two channels meet)
+                x = min(max((RM[jj, ii] - 0.55) / 0.45, 0.0), 1.0)
+                w *= x * x * (3.0 - 2.0 * x)
+            o = w ** 8
+            SW[jj, ii] += o
+            ST[jj, ii] += o * T[j, i]
+            WM[jj, ii] = max(WM[jj, ii], w)
+    for j in range(hz):
+        for i in range(hx):
+            if W[j, i] > 0.0:
+                RM[j + z0, i + x0] = min(RM[j + z0, i + x0], R[j, i])
+
+
+SW = np.zeros((N, N), np.float32)
+ST = np.zeros((N, N), np.float32)
+Wt = np.zeros((N, N), np.float32)
+RM = np.full((N, N), 1e9, np.float32)
 for ri, rv in enumerate(rivers):
-    p, L, hw, dp = rv["pts"], rv["level"], rv["hw"], rv["depth"]
-    for k in range(len(p) - 1):
-        carve(hf, p[k, 0], p[k, 1], p[k + 1, 0], p[k + 1, 1], L[k], L[k + 1], hw[k], hw[k + 1], dp[k], dp[k + 1], WORLD, T, Wt, Rn, In, ri)
+    p = rv["pts"]
+    reach = 9.0 * rv["hw"].max() + 10.0
+    x0 = max(int((p[:, 0].min() - reach + WORLD / 2) / (WORLD / N)), 0)
+    x1 = min(int((p[:, 0].max() + reach + WORLD / 2) / (WORLD / N)) + 1, N)
+    z0 = max(int((p[:, 1].min() - reach + WORLD / 2) / (WORLD / N)), 0)
+    z1 = min(int((p[:, 1].max() + reach + WORLD / 2) / (WORLD / N)) + 1, N)
+    Tw = np.zeros((z1 - z0, x1 - x0), np.float32)
+    Ww = np.zeros_like(Tw)
+    Rw = np.full_like(Tw, 1e9)
+    # the floodplain reaches far where the valley floor is flat, little on steep ground
+    sl = np.abs(np.gradient(ndimage.uniform_filter1d(rv["smooth"], 15))) / np.maximum(
+        np.linalg.norm(np.gradient(p, axis=0), axis=1), 0.5)
+    vr = 3.0 + 6.0 * np.clip(1.0 - (sl - 0.02) / 0.06, 0, 1)
+    carve_river(p[:, 0].copy(), p[:, 1].copy(), rv["level"], rv["smooth"], rv["hw"], rv["depth"], vr, WORLD, N, x0, z0, Tw, Ww, Rw)
+    blend_in(Tw, Ww, Rw, x0, z0, rv["joins"] >= 0, SW, ST, Wt, RM)
+T = np.where(SW > 0, ST / np.maximum(SW, 1e-30), 0.0).astype(np.float32)
+del ST, RM
 # blended in (the land beside the river pulled toward its floodplain, both
 # ways), except out at sea
-hf = np.where((Wt > 0) & ((hf > -1.0) | (T < hf)), hf + (T - hf) * Wt, hf)
+hf = np.where((SW > 0) & ((hf > -1.0) | (T < hf)), hf + (T - hf) * Wt, hf)
+del SW, T
 log("rivers: %d, %d points" % (len(rivers), sum(len(r["pts"]) for r in rivers)))
 
 # --- masks ---------------------------------------------------------------------------------
-G = 2048
+G = N // 2
 hg = hf.reshape(G, 2, G, 2).mean(axis=(1, 3))
 XG, ZG = world_coords(G)
 cellg = WORLD / G
@@ -884,7 +1121,7 @@ sand = np.maximum(sand, np.where(land_g, 0.0, 1.0))
 clump = field_fbm(XG, ZG, 650.0, 4, SEED + 11) + 0.35 * field_fbm(XG, ZG, 120.0, 3, SEED + 12)
 forest = np.clip((clump + 0.15) / 0.45, 0, 1) * np.clip(1.0 - (slope - 24.0) / 10.0, 0, 1) \
     * np.clip((hg - 4.0) / 6.0, 0, 1) * np.clip(1.0 - (hg - 560.0) / 160.0, 0, 1) \
-    * (1.0 - sand) * (1.0 - np.clip((river_r - 0.75) / 0.2, 0, 1))
+    * (1.0 - sand) * (1.0 - np.clip((river_r - 0.55) / 0.25, 0, 1))
 c1 = ndimage.gaussian_filter(hg, 3) - hg
 c2 = ndimage.gaussian_filter(hg, 14) - hg
 occl = np.clip(0.5 * c1 / 2.0 + 0.5 * c2 / 12.0, 0, 1)
@@ -904,8 +1141,10 @@ keep = rng.random(TX.shape) < fd * 0.8
 tx, tz = TX[keep], TZ[keep]
 th = np.clip(rng.lognormal(math.log(14.0), 0.25, tx.size), 7.0, 25.0)
 q = lambda v: np.clip((v + WORLD / 2) / WORLD * 65535.0, 0, 65535).astype(np.uint16)
-rec = np.zeros(tx.size, dtype=[("x", "<u2"), ("z", "<u2"), ("h", "u1"), ("s", "u1")])
+ty = bilinear(hf, tx, tz)
+rec = np.zeros(tx.size, dtype=[("x", "<u2"), ("z", "<u2"), ("y", "<u2"), ("h", "u1"), ("s", "u1")])
 rec["x"] = q(tx); rec["z"] = q(tz); rec["h"] = np.clip(th * 10.0, 0, 255).astype(np.uint8)
+rec["y"] = np.clip((ty - H_MIN) / (H_MAX - H_MIN) * 65535.0 + 0.5, 0, 65535).astype(np.uint16)
 rec["s"] = rng.integers(0, 256, tx.size).astype(np.uint8)
 open(ROOT + "trees.bin", "wb").write(zlib.compress(rec.tobytes(), 9))
 log("trees:", tx.size)
@@ -914,10 +1153,10 @@ log("trees:", tx.size)
 mw = np.array([mouth[1] * CELL - WORLD / 2, mouth[0] * CELL - WORLD / 2])
 owner_g = owner.repeat(2, 0).repeat(2, 1)
 cand = np.argwhere(land_g & (hg > 1.2) & (hg < 6.0) & (slope < 8.0) & (river_r < 0.05) & (sea_d < 60) & (owner_g == main_id))
-pos = (cand[:, ::-1] + 0.25) * cellg - WORLD / 2   # (2048 cells are 2 x 2 means of the samples)
+pos = (cand[:, ::-1] + 0.25) * cellg - WORLD / 2   # (mask cells are 2 x 2 means of the samples)
 dd = np.linalg.norm(pos - mw, axis=1)
-okc = (dd > 250) & (dd < 900)
-spot = pos[okc][np.argmin(np.abs(dd[okc] - 450))] if okc.any() else pos[np.argmin(dd)]
+okc = (dd > 400) & (dd < 1800)
+spot = pos[okc][np.argmin(np.abs(dd[okc] - 800))] if okc.any() else pos[np.argmin(dd)]
 # the boat: the nearest point at least 7 m deep, seaward
 deep = np.argwhere(hg < -7.0)
 dpos = (deep[:, ::-1] + 0.25) * cellg - WORLD / 2

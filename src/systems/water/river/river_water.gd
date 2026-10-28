@@ -18,7 +18,7 @@ func setup(world: WorldData, height_hi: Texture2D, height_lo: Texture2D) -> void
 	material.set_shader_parameter("texels", world.texels)
 	material.set_shader_parameter("h_min", world.h_min)
 	material.set_shader_parameter("h_scale", world.h_scale)
-	material.set_shader_parameter("top_lod", Terrain.LODS - 1)
+	material.set_shader_parameter("top_lod", Terrain.lods_for(world) - 1)
 	material.set_shader_parameter("lod_range0", 4.0 * Terrain.GRID * world.spacing)
 	var mi := MeshInstance3D.new()
 	mi.name = "Water"

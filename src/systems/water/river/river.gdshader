@@ -44,7 +44,7 @@ varying vec2 rp;        // across (m), downstream (m)
 varying float speed;
 varying float fill;
 varying float hw;
-varying vec2 down;      // world xz, downstream
+varying vec3 down;      // world, downstream (sloping down over a fall)
 varying vec3 wpos;      // the water surface, world (before the planet's curve)
 
 void vertex() {
@@ -59,9 +59,9 @@ void vertex() {
 	VERTEX = (inverse(MODEL_MATRIX) * vec4(world, 1.0)).xyz;
 	speed = COLOR.r * 8.0;
 	fill = COLOR.b;
-	hw = COLOR.a * 64.0;
+	hw = COLOR.a * 128.0;
 	rp = vec2(UV.x * hw, UV.y);
-	down = normalize(NORMAL.xz + 1e-6);   // the mesh's normals carry the downstream direction
+	down = normalize(NORMAL + vec3(0.0, 0.0, 1e-6));   // the mesh's normals carry the downstream direction
 	NORMAL = vec3(0.0, 1.0, 0.0);
 }
 
@@ -140,11 +140,15 @@ float view_depth(vec2 uv, mat4 inv_proj) {
 void fragment() {
 	// ripples in river space, turned into world space along the ribbon
 	vec2 sl = ripples(rp, speed) * ripple_strength * (0.6 + 0.5 * clamp(speed / 2.0, 0.0, 1.5));
-	// river space to world: UV.x grows toward the left of downstream
-	vec2 dn = normalize(down);
-	vec2 ax = vec2(-dn.y, dn.x);
-	vec2 slope = ax * sl.x + dn * sl.y;
-	vec3 n_world = normalize(vec3(-slope.x, 1.0, -slope.y));
+	// river space to world: UV.x grows toward the left of downstream;
+	// the surface's frame: downstream, and across (horizontal, to the left);
+	// level water faces up, a fall faces downstream
+	vec3 dn = normalize(down);
+	vec3 ax = normalize(vec3(-dn.z, 0.0, dn.x) + vec3(1e-6, 0.0, 0.0));
+	vec3 n0 = normalize(cross(ax, dn));
+	vec3 tilt = ax * sl.x + dn * sl.y;
+	vec2 slope = tilt.xz;
+	vec3 n_world = normalize(n0 - tilt);
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
 	// light coming up through the water: the bed, refracted, absorbed with depth
@@ -171,5 +175,7 @@ void fragment() {
 	// smooth heights (not where it happens to cut the terrain's triangles,
 	// which steps from above), and thinning in at a river's head
 	float depth_here = wpos.y - ground_at(wpos.xz);
-	ALPHA = smoothstep(0.05, 0.9, depth_here) * smoothstep(0.0, 0.25, fill);
+	// (a falling sheet has no depth over the ground beneath it: it stays whole)
+	float falling = smoothstep(0.3, 0.7, -dn.y);
+	ALPHA = max(smoothstep(0.05, 0.9, depth_here), falling) * smoothstep(0.0, 0.25, fill);
 }

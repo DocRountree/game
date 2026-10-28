@@ -45,8 +45,8 @@ func setup(world: WorldData) -> void:
 		var centre := Vector3((b % per_side + 0.5) * CHUNK - world.size * 0.5, 0.0, (b / per_side + 0.5) * CHUNK - world.size * 0.5)
 		for k in ids.size():
 			var t := world.tree(ids[k])
-			var h := t.y
-			var ground := world.height_at(t.x, t.z)
+			var h := world.tree_height(ids[k])
+			var ground := t.y
 			var w := h * rng.randf_range(0.8, 1.15)
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))
 			mm.set_instance_transform(k, Transform3D(basis, Vector3(t.x, ground - 0.3, t.z) - centre))

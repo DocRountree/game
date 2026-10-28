@@ -123,14 +123,14 @@ an object would sink into its own displacement trough.
 
 ### Terrain (`src/systems/terrain/`)
 
-**The world is generated offline.** `tools/gen_world.py` makes a 10 x 10 km
+**The world is generated offline.** `tools/gen_world.py` makes a 20 x 20 km
 test world of islands from a seed and writes it to `world/` (see
 `world/README.md`): 16-bit heights at 2.5 m with their mips, ground masks,
 rivers, stand-in trees and the start. Everything that makes terrain look
 real (erosion at 10 m, 5 m and 2.5 m, rivers carved together with their
 water level) happens there, where there's time for it, so the game only
-loads and draws. The world is small and the mountains are game-scale (peaks
-600-900 m); detail at every scale, haze, ambient occlusion and the trees are
+loads and draws (about a second for the 8192 x 8192 heights). The world is
+small and the mountains are game-scale (peaks 600-900 m); detail at every scale, haze, ambient occlusion and the trees are
 what make it read as big.
 
 - **`WorldData`** loads it once: the two height byte planes (high and low)
@@ -156,6 +156,11 @@ what make it read as big.
   across, reaching just past the banks, ripples streaming downstream. The
   shader fades the water by its depth over the ground read from the same
   height map and LOD the terrain draws, so the shoreline is soft and exact.
+  Cross-sections are 2 m apart, so waterfalls stay sheer, and the surface's
+  frame follows the flow in 3D: over a fall the water faces downstream and
+  its streaks run down it. A tributary curves into its river's direction
+  (in the generator) and fades out across that river's bank, so inside the
+  river only one surface shows.
   `RiverBody` is the water body: level and current from the nearest reaches
   (a tile index of segments), so swimmers and boats are carried downstream.
 - **The ocean** is the sea wherever the ground is below sea level; its waves

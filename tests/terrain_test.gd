@@ -15,8 +15,8 @@ func _initialize() -> void:
 	if w == null:
 		_finish()
 		return
-	_check(is_equal_approx(w.size, 10240.0) and w.texels == 4096 and is_equal_approx(w.spacing, 2.5),
-			"10 x 10 km at 2.5 m (%.0f m, %d samples)" % [w.size, w.texels])
+	_check(is_equal_approx(w.size, 20480.0) and w.texels == 8192 and is_equal_approx(w.spacing, 2.5),
+			"20 x 20 km at 2.5 m (%.0f m, %d samples)" % [w.size, w.texels])
 
 	# mip 1 is the mean of 2 x 2 samples of mip 0 (the GPU reads both)
 	var n := w.texels
@@ -40,7 +40,7 @@ func _initialize() -> void:
 			land += 1 if h > 0.0 else 0
 	var km2 := land * 64.0 * w.spacing * w.spacing / 1e6
 	_check(hmax > 500.0 and hmax < 1000.0, "mountains of game scale: the highest peak %.0f m" % hmax)
-	_check(km2 > 15.0 and km2 < 60.0, "land %.1f km2 of the 105 km2 world" % km2)
+	_check(km2 > 40.0 and km2 < 160.0, "land %.1f km2 of the 420 km2 world" % km2)
 	var kinds := {}
 	for lm in w.landmasses:
 		kinds[lm.kind] = kinds.get(lm.kind, 0) + 1
@@ -66,6 +66,8 @@ func _initialize() -> void:
 			var p := pts[k]
 			if w.height_at(p.x, p.z) < 0.0:
 				continue   # (out in the estuary)
+			if pts[k - 4].y - pts[k + 4].y > 2.0 or r.depth[k] < 0.4:
+				continue   # (a waterfall, where the water falls past the lip; a head, where it is a trickle)
 			checked += 1
 			in_bed += 1 if w.height_at(p.x, p.z) < p.y - 0.2 else 0
 			if _near_other(w, ri, p, hw[k] * 3.0):
@@ -80,6 +82,36 @@ func _initialize() -> void:
 	_check(downhill, "rivers only run downhill, to the sea")
 	_check(checked > 100 and in_bed > checked * 0.97, "the water lies in a bed below it (%d of %d points)" % [in_bed, checked])
 	_check(banks_hold > checked * 0.95, "banks rise above the water on both sides (%d of %d points)" % [banks_hold, checked])
+
+	# waterfalls on the mountain streams: sheer drops of several metres
+	var falls := 0
+	for r in w.rivers:
+		var pts: PackedVector3Array = r.points
+		for k in range(1, pts.size()):
+			var run := Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length()
+			if pts[k - 1].y - pts[k].y > 2.0 and run < 5.0:
+				falls += 1
+	_check(falls >= 5, "%d waterfalls down the mountainsides" % falls)
+
+	# confluences: each tributary meets its river running the same way
+	var aligned := 0
+	var tribs := 0
+	for r in w.rivers:
+		if r.joins < 0:
+			continue
+		tribs += 1
+		var pts: PackedVector3Array = r.points
+		var end := pts[pts.size() - 1]
+		var before := pts[maxi(pts.size() - 6, 0)]
+		var main: PackedVector3Array = w.rivers[r.joins].points
+		var best := 0
+		for k in main.size():
+			if Vector2(main[k].x - end.x, main[k].z - end.z).length() < Vector2(main[best].x - end.x, main[best].z - end.z).length():
+				best = k
+		var md := Vector2(main[mini(best + 3, main.size() - 1)].x - main[maxi(best - 3, 0)].x, main[mini(best + 3, main.size() - 1)].z - main[maxi(best - 3, 0)].z).normalized()
+		var td := Vector2(end.x - before.x, end.z - before.z).normalized()
+		aligned += 1 if md.dot(td) > 0.5 else 0
+	_check(tribs > 0 and aligned == tribs, "tributaries join their rivers flowing downstream (%d of %d)" % [aligned, tribs])
 
 	# trees: on dry land, off the beaches and out of the rivers
 	var dry := 0

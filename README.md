@@ -12,11 +12,13 @@ rendering agree on exactly, spring buoyancy for anything that floats, and an
 interactive GPU ripple simulation that turns hulls and swimmers into wakes that
 lift and shove whatever they reach.
 
-The land is a generated 10 x 10 km test world (`world/`, made by
-`tools/gen_world.py` from a seed): a main island with a mountain range and a
-river system, a peripheral island, an archipelago of small islands on a shallow
-bank, a chain of volcanic cones and a southern group, eroded and carved at
-2.5 m, with dark green pyramids standing in for the trees. You start on a beach
+The land is a generated 20 x 20 km test world (`world/`, made by
+`tools/gen_world.py` from a seed): a main island about 8 km across with a
+mountain range and a river system (waterfalls on the mountain streams, a trunk
+about 130 m wide at the mouth), a peripheral island, an archipelago of about
+150 low islands on a shallow bank, a chain of volcanic cones and a southern
+group, eroded and carved at 2.5 m, with dark green pyramids standing in for
+the trees. You start on a beach
 near the river mouth with your boat moored offshore.
 
 Starting the project opens a menu: **Debug mode** enters the sandbox world (Start game is not made yet).

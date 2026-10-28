@@ -11,7 +11,7 @@ extends Node3D
 ## Gameplay asks Terrain.height_at(x, z).
 
 const GRID := 16                    ## Quads per patch side.
-const LODS := 9                     ## LOD k: vertices 2.5 m * 2^k apart; LOD 8 covers the world in one patch.
+## LOD k: vertices 2.5 m * 2^k apart, up to the LOD whose one patch covers the world.
 const MAX_PATCHES := 4000
 const COLLIDER_SIZE := 161          ## Samples per side of the collider (400 m).
 
@@ -20,6 +20,7 @@ static var _current: Terrain
 @export var focus: Node3D           ## The collider follows this (the player).
 
 var world: WorldData
+var lods := 1
 
 var _multimesh: MultiMesh
 var _mesh_instance: MultiMeshInstance3D
@@ -34,6 +35,11 @@ var _patch_heights := PackedFloat32Array()
 
 static func current() -> Terrain:
 	return _current
+
+
+## How many LODs cover a world: the coarsest has one patch over all of it.
+static func lods_for(w: WorldData) -> int:
+	return ceili(log(w.size / (GRID * w.spacing)) / log(2.0)) + 1
 
 
 ## Ground height (m) at a world point (deep sea before the world exists).
@@ -56,6 +62,7 @@ func _ready() -> void:
 	world = WorldData.get_world()
 	if world == null:
 		return
+	lods = lods_for(world)
 	_body = StaticBody3D.new()
 	_body.name = "Collider"
 	var cs := CollisionShape3D.new()
@@ -113,7 +120,7 @@ func _build_drawing() -> void:
 	_material.set_shader_parameter("texels", world.texels)
 	_material.set_shader_parameter("h_min", world.h_min)
 	_material.set_shader_parameter("h_scale", world.h_scale)
-	_material.set_shader_parameter("top_lod", LODS - 1)
+	_material.set_shader_parameter("top_lod", lods - 1)
 	_material.set_shader_parameter("grid_dim", float(GRID))
 	_multimesh = MultiMesh.new()
 	_multimesh.transform_format = MultiMesh.TRANSFORM_3D
@@ -171,7 +178,7 @@ var _patches: Array[Vector4] = []   # origin x, origin z, lod, size
 func _select_patches(cam: Vector2) -> void:
 	_patches.clear()
 	var half := world.size * 0.5
-	_visit(Vector2(-half, -half), LODS - 1, cam)
+	_visit(Vector2(-half, -half), lods - 1, cam)
 	var count := mini(_patches.size(), MAX_PATCHES)
 	for i in count:
 		var p := _patches[i]

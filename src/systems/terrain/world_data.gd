@@ -9,8 +9,8 @@ extends RefCounted
 
 const DIR := "res://world/"
 
-var size := 10240.0                 ## World side (m); the world is +-size/2 around the origin.
-var texels := 4096                  ## Height samples per side.
+var size := 20480.0                 ## World side (m); the world is +-size/2 around the origin.
+var texels := 8192                  ## Height samples per side.
 var spacing := 2.5                  ## m between samples.
 var h_min := -300.0
 var h_max := 1100.0
@@ -25,7 +25,7 @@ var boat := Vector2.ZERO            ## Where the boat is moored.
 ## (the index of the river it runs into, -1 for the sea). Downstream order.
 var rivers: Array[Dictionary] = []
 var landmasses: Array = []
-var trees := PackedByteArray()      ## 6 bytes per tree: uint16 x, uint16 z, uint8 height (dm), uint8 spare.
+var trees := PackedByteArray()      ## 8 bytes per tree: uint16 x, uint16 z, uint16 ground height (as the heights), uint8 height (dm), uint8 spare.
 
 static var _shared: WorldData
 
@@ -66,7 +66,7 @@ func _load() -> bool:
 	ground = Image.new()
 	ground.load_png_from_buffer(FileAccess.get_file_as_bytes(DIR + "ground.png"))
 	var tz := FileAccess.get_file_as_bytes(DIR + "trees.bin")
-	trees = tz.decompress(int(meta.get("trees", 0)) * 6, FileAccess.COMPRESSION_DEFLATE)
+	trees = tz.decompress(int(meta.get("trees", 0)) * 8, FileAccess.COMPRESSION_DEFLATE)
 	for r: Dictionary in meta.rivers:
 		var pts := PackedVector3Array()
 		for p: Array in r.points:
@@ -79,7 +79,7 @@ func _load() -> bool:
 			var a := pts[maxi(k - 4, 0)]
 			var b := pts[mini(k + 4, pts.size() - 1)]
 			var run := maxf(Vector2(b.x - a.x, b.z - a.z).length(), 1.0)
-			speed.append(clampf(0.5 + 0.03 * hw[k] + 9.0 * sqrt(maxf(a.y - b.y, 0.0) / run), 0.5, 3.5))
+			speed.append(clampf(0.5 + 0.02 * hw[k] + 9.0 * sqrt(maxf(a.y - b.y, 0.0) / run), 0.5, 6.0))
 		rivers.append({"points": pts, "half_width": hw, "depth": depth, "speed": speed, "joins": int(r.joins)})
 	return true
 
@@ -124,11 +124,16 @@ func height_textures() -> Array[ImageTexture]:
 
 
 func tree_count() -> int:
-	return trees.size() / 6
+	return trees.size() / 8
 
 
-## Tree i: world x, z and height (m).
+## Tree i: world x, ground height and z.
 func tree(i: int) -> Vector3:
-	var o := i * 6
-	return Vector3(trees.decode_u16(o) / 65535.0 * size - size * 0.5, trees[o + 4] / 10.0,
+	var o := i * 8
+	return Vector3(trees.decode_u16(o) / 65535.0 * size - size * 0.5, trees.decode_u16(o + 4) * h_scale + h_min,
 			trees.decode_u16(o + 2) / 65535.0 * size - size * 0.5)
+
+
+## Tree i's height (m).
+func tree_height(i: int) -> float:
+	return trees[i * 8 + 6] / 10.0

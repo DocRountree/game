@@ -1,19 +1,20 @@
 class_name RiverRibbons
 extends RefCounted
 ## The rivers' water as ribbon meshes that follow each channel, built from the
-## baked centrelines (WorldMaps.rivers). This is how big open-world games
+## generated centrelines (WorldData.rivers). This is how big open-world games
 ## build rivers: the mesh's UVs run along the river (UV.x across, -1 at the
 ## left bank to 1 at the right; UV.y the distance downstream in metres), so
 ## the shader moves its ripples down the channel and they follow every bend.
-## Rivers come from WorldData.rivers.
 ## The ribbon reaches a little past each bank and dips under the ground there,
-## so the ground cuts the shoreline. The mesh's normals carry the downstream
-## direction (the shader sets the real normals). Vertex colour carries the current (m/s,
-## red / 8), the depth (green / 8) and how much the water thins in at a
-## river's head and where it runs into another (blue: 0..1) and the half width
-## (alpha, m / 64).
+## so the ground cuts the shoreline. Cross-sections are close enough that a
+## waterfall stays a sheer drop. The mesh's normals carry the downstream
+## direction, sloping down over falls (the shader builds the real normals from
+## it). Vertex colour carries the current (m/s, red / 8), the depth (green /
+## 8), how much water there is (blue: thinning in at a river's head, and
+## fading out where a tributary enters the river it joins, so the two never
+## lie one over the other) and the half width (alpha, m / 128).
 
-const STEP := 8.0          ## Distance between cross-sections (m).
+const STEP := 2.0          ## Distance between cross-sections (m).
 const ACROSS := 9          ## Vertices across the ribbon.
 const REACH := 1.5         ## The ribbon reaches this many half widths from the centre.
 
@@ -28,11 +29,7 @@ static func build(rivers: Array[Dictionary]) -> ArrayMesh:
 		var r: Dictionary = rivers[ri]
 		if r.points.size() < 2:
 			continue
-		var joins_hw := 0.0
-		if int(r.joins) >= 0:
-			var main: Dictionary = rivers[int(r.joins)]
-			joins_hw = _hw_near(main, r.points[r.points.size() - 1])
-		_ribbon(r, joins_hw, verts, uvs, cols, dirs, idx)
+		_ribbon(r, rivers[int(r.joins)] if int(r.joins) >= 0 else {}, verts, uvs, cols, dirs, idx)
 	var mesh := ArrayMesh.new()
 	if verts.is_empty():
 		return mesh
@@ -47,7 +44,7 @@ static func build(rivers: Array[Dictionary]) -> ArrayMesh:
 	return mesh
 
 
-static func _ribbon(r: Dictionary, joins_hw: float, verts: PackedVector3Array, uvs: PackedVector2Array,
+static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, uvs: PackedVector2Array,
 		cols: PackedColorArray, dirs: PackedVector3Array, idx: PackedInt32Array) -> void:
 	var src: PackedVector3Array = r.points
 	var hw_src: PackedFloat32Array = r.half_width
@@ -83,12 +80,18 @@ static func _ribbon(r: Dictionary, joins_hw: float, verts: PackedVector3Array, u
 		dep.append(lerpf(dep_src[j], dep_src[j + 1], t))
 		spd.append(lerpf(spd_src[j], spd_src[j + 1], t))
 		fill.append(lerpf(fill_src[j], fill_src[j + 1], t) if fill_src.size() == src.size() else smoothstep(0.0, 250.0, s))
-	# where a tributary runs into the river it joins, it fades out over the
-	# last stretch, inside the bigger river's water
-	if joins_hw > 0.0:
-		for k in count:
-			var to_end := total * (1.0 - float(k) / (count - 1))
-			fill[k] = minf(fill[k], smoothstep(joins_hw * 0.6, joins_hw * 1.6, to_end) * 0.85 + 0.15)
+	# where a tributary enters the river it joins it fades out across that
+	# river's bank, so inside its water only the river's own surface shows
+	var near_pts := PackedVector3Array()
+	var near_hw := PackedFloat32Array()
+	if not main.is_empty():
+		var end := src[src.size() - 1]
+		var mp: PackedVector3Array = main.points
+		var mhw: PackedFloat32Array = main.half_width
+		for k in mp.size():
+			if Vector2(mp[k].x - end.x, mp[k].z - end.z).length() < mhw[k] * 6.0 + 80.0:
+				near_pts.append(mp[k])
+				near_hw.append(mhw[k])
 	# the across direction, from a tangent averaged over about a width, so
 	# tight bends don't fold the ribbon's inner edge over itself
 	var base := verts.size()
@@ -99,8 +102,13 @@ static func _ribbon(r: Dictionary, joins_hw: float, verts: PackedVector3Array, u
 		var b := pts[mini(k + win, count - 1)]
 		var tan := Vector2(b.x - a.x, b.z - a.z).normalized()
 		var nrm := Vector2(-tan.y, tan.x)
+		# downstream in 3D: steeply down over a fall
+		var pa := pts[maxi(k - 1, 0)]
+		var pb := pts[mini(k + 1, count - 1)]
+		var run := Vector2(pb.x - pa.x, pb.z - pa.z).length()
+		var down := Vector3(tan.x * run, pb.y - pa.y, tan.y * run).normalized()
 		if k > 0:
-			along += Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length()
+			along += pts[k].distance_to(pts[k - 1])
 		var w := hw[k] * sqrt(maxf(fill[k], 0.05))
 		for q in ACROSS:
 			var u := lerpf(-1.0, 1.0, float(q) / (ACROSS - 1))
@@ -108,10 +116,11 @@ static func _ribbon(r: Dictionary, joins_hw: float, verts: PackedVector3Array, u
 			# the surface is level across; past the bank it dips a little, so
 			# the ground always covers the ribbon's edge
 			var dip := maxf(0.0, absf(u) * REACH - 1.1) * 0.6
-			verts.append(Vector3(pts[k].x + off.x, pts[k].y - dip, pts[k].z + off.y))
+			var v := Vector3(pts[k].x + off.x, pts[k].y - dip, pts[k].z + off.y)
+			verts.append(v)
 			uvs.append(Vector2(u * REACH, along))
-			cols.append(Color(spd[k] / 8.0, dep[k] / 8.0, fill[k], w / 64.0))
-			dirs.append(Vector3(tan.x, 0.0, tan.y))
+			cols.append(Color(spd[k] / 8.0, dep[k] / 8.0, fill[k] * _fade_in_main(v, near_pts, near_hw), w / 128.0))
+			dirs.append(down)
 	for k in count - 1:
 		for q in ACROSS - 1:
 			var a := base + k * ACROSS + q
@@ -119,14 +128,9 @@ static func _ribbon(r: Dictionary, joins_hw: float, verts: PackedVector3Array, u
 			idx.append_array([a, c, a + 1, a + 1, c, c + 1])
 
 
-static func _hw_near(river: Dictionary, p: Vector3) -> float:
-	var pts: PackedVector3Array = river.points
-	var hw: PackedFloat32Array = river.half_width
-	var best := INF
-	var out := 0.0
+# 1 outside the joined river's channel, falling to 0 inside it.
+static func _fade_in_main(v: Vector3, pts: PackedVector3Array, hw: PackedFloat32Array) -> float:
+	var r := INF
 	for k in pts.size():
-		var d := Vector2(pts[k].x - p.x, pts[k].z - p.z).length_squared()
-		if d < best:
-			best = d
-			out = hw[k]
-	return out
+		r = minf(r, Vector2(pts[k].x - v.x, pts[k].z - v.z).length() / hw[k])
+	return smoothstep(0.6, 1.05, r)
