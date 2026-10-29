@@ -426,6 +426,48 @@ func _run() -> void:
 	_check(not through and above > 0.3,
 			"the third-person camera never looks through the ground (%.2f m above it, clear view: %s)" % [above, not through])
 
+	# C opens the character picker (debug world): the player stands still,
+	# a camera faces them; sliders reshape the hair, swatches recolour, and
+	# Done saves the look (here to a scratch file) and puts everything back
+	var c_bound := InputMap.action_get_events(&"character_picker").any(
+			func(e: InputEvent) -> bool: return e is InputEventKey and e.physical_keycode == KEY_C)
+	var picker: CharacterPicker = world.picker
+	picker.save_path = "user://test_character.tres"
+	var cam_before := player.get_viewport().get_camera_3d()
+	var press_c := InputEventAction.new()
+	press_c.action = &"character_picker"
+	press_c.pressed = true
+	world._unhandled_input(press_c)
+	await _frames(3)
+	var opened := picker.is_open and player.frozen and player.get_viewport().get_camera_3d() != cam_before \
+			and player.model.visible and Input.mouse_mode == Input.MOUSE_MODE_VISIBLE
+	# (once it has settled from wherever the last test left it)
+	await _frames(60)
+	var stood := player.global_position
+	Input.action_press(&"move_forward")
+	await _frames(60)
+	Input.action_release(&"move_forward")
+	var moved := player.global_position - stood
+	var drift := Vector2(moved.x, moved.z).length()
+	var dress := player.model.get_meta(&"dress") as MeshInstance3D
+	var tris_before: int = dress.mesh.surface_get_array_index_len(0)
+	picker.hair_length_slider.value = 1.0
+	await _frames(10)
+	var reshaped: bool = dress.mesh.surface_get_array_index_len(0) != tris_before and player.traits.hair_length == 1.0
+	(picker._swatch_groups["skin"][12][0] as Button).pressed.emit()   # (the first simple colour: red)
+	var mat := player.model.get_meta(&"character_material") as ShaderMaterial
+	var red: Vector3 = mat.get_shader_parameter("palette")[CharacterTraits.P_SKIN]
+	var recoloured := red.x > 0.5 and red.y < 0.1
+	world._unhandled_input(press_c)
+	await _frames(3)
+	var saved_look := load("user://test_character.tres") as CharacterTraits
+	var closed := not picker.is_open and not player.frozen and player.get_viewport().get_camera_3d() == cam_before
+	_check(c_bound and opened and drift < 0.05, "C opens the character picker: the player stands still (moved %.2f m with W held) and a camera faces them" % drift)
+	_check(reshaped and recoloured, "the picker's sliders reshape the hair and its swatches recolour (skin %s)" % red)
+	_check(closed and saved_look != null and saved_look.hair_length == 1.0 and saved_look.skin_color.is_equal_approx(CharacterTraits.BRIGHT_COLORS[0]),
+			"C closes it, saving the look (it loads back the same), with the view as it was")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://test_character.tres"))
+
 	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	quit(1 if _failures else 0)
 

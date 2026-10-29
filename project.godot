@@ -106,6 +106,10 @@ sprint={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":4194326)]
 }
+character_picker={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"physical_keycode":67)]
+}
 debug_meteors={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"physical_keycode":77)]

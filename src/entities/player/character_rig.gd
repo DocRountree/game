@@ -28,6 +28,7 @@ const FOREARM := 0.27
 const HIP := Vector3(0.095, -0.45, 0.0)        ## Model space (the player's origin is the chest).
 const SHOULDER := Vector3(0.205, 0.13, 0.0)
 const FOOT_DROP := 0.04                         ## Ankle above the sole.
+const HEAD := Vector3(0, 0.31, -0.005)         ## The head's centre in model space.
 const RUN_SPEED := 4.5                          ## m/s: above it the feet run a cycle instead of planting.
 
 var player: Player
@@ -48,50 +49,91 @@ var _hold_t := PackedFloat32Array([-1.0, -1.0, -1.0, -1.0])
 var _climb_ready := false
 var _climb_pair := 0
 var _time := 0.0
+var material: ShaderMaterial        ## The one palette material (character.gdshader).
+var _dress: MeshInstance3D
+var _head_prev := Vector3.ZERO
+var _sway := Vector3.ZERO
+var _wet := 0.0
 
 
-## Build the body under the player's model node (named parts carry a "tint"
-## meta that CharacterTraits.apply_to() recolours).
+## Build the body under the player's model node: the static parts (torso,
+## head, face, pack ...) as one mesh, the hair, beard, hat and accessories as
+## another (CharacterDress, rebuilt by CharacterTraits.apply_to), the limbs
+## one mesh each (posed every frame). All of them use the one palette
+## material (character.gdshader), left on the model as meta for apply_to().
 func build() -> void:
 	var m := player.model
-	var skin := _mat(Color(0.85, 0.6, 0.45))
-	var shirt := _mat(Color(0.75, 0.12, 0.08))
-	var trousers := _mat(Color(0.08, 0.15, 0.35))
-	var hair := _mat(Color(0.2, 0.13, 0.08))
-	var leather := _mat(Color(0.32, 0.2, 0.11))
-	var canvas := _mat(Color(0.62, 0.53, 0.36))
-	var dark := _mat(Color(0.07, 0.06, 0.05))
-	var roll := _mat(Color(0.33, 0.38, 0.3))
+	material = ShaderMaterial.new()
+	material.shader = preload("res://src/entities/player/character.gdshader")
+	var default := CharacterTraits.new()
+	material.set_shader_parameter("palette", default.palette())
+	m.set_meta(&"character_material", material)
+	var P := CharacterTraits
+	var mb := MeshBuilder.new()
 	# torso
-	_part(m, "Torso", _cyl(0.19, 0.155, 0.44), shirt, Vector3(0, -0.1, 0), Vector3(1, 1, 0.68), "shirt")
+	mb.add_mesh(_cyl(0.19, 0.155, 0.44), _xf(Vector3(0, -0.1, 0), Vector3(1, 1, 0.68)), P.P_SHIRT)
 	for x: float in [-1.0, 1.0]:
-		_part(m, "Shoulder", _sphere(0.075), shirt, Vector3(0.2 * x, 0.11, 0), Vector3(1, 0.9, 0.9), "shirt")
-	_part(m, "Belt", _cyl(0.159, 0.159, 0.05), leather, Vector3(0, -0.33, 0), Vector3(1, 1, 0.7))
-	_part(m, "Buckle", _box(Vector3(0.05, 0.035, 0.01)), canvas, Vector3(0, -0.33, -0.112), Vector3.ONE)
-	_part(m, "Shorts", _cyl(0.158, 0.17, 0.17), trousers, Vector3(0, -0.43, 0), Vector3(1, 1, 0.74), "shorts")
-	# head
-	_part(m, "Neck", _cyl(0.05, 0.055, 0.1), skin, Vector3(0, 0.2, 0), Vector3.ONE, "skin")
-	var head := _part(m, "Head", _sphere(0.12), skin, Vector3(0, 0.31, -0.005), Vector3(0.95, 1.08, 1.0), "skin")
-	_part(head, "Hair", _sphere(0.126), hair, Vector3(0, 0.022, 0.016), Vector3(1.02, 0.82, 1.05), "hair")
+		mb.add_mesh(_sphere(0.075), _xf(Vector3(0.2 * x, 0.11, 0), Vector3(1, 0.9, 0.9)), P.P_SHIRT)
+	mb.add_mesh(_cyl(0.075, 0.085, 0.035), _xf(Vector3(0, 0.125, 0.0), Vector3(1, 1, 0.9)), P.P_SHIRT)   # collar
+	mb.add_mesh(_cyl(0.159, 0.159, 0.05), _xf(Vector3(0, -0.33, 0), Vector3(1, 1, 0.7)), P.P_LEATHER)
+	mb.add_mesh(_box(Vector3(0.05, 0.035, 0.01)), _xf(Vector3(0, -0.33, -0.112)), P.P_CANVAS)
+	mb.add_mesh(_cyl(0.158, 0.17, 0.17), _xf(Vector3(0, -0.43, 0), Vector3(1, 1, 0.74)), P.P_SHORTS)
+	# head: an ellipsoid, with ears, a nose, eyes and brows and a mouth
+	var hs := Vector3(0.95, 1.08, 1.0)
+	mb.add_mesh(_cyl(0.05, 0.055, 0.1), _xf(Vector3(0, 0.2, 0)), P.P_SKIN)
+	mb.add_mesh(_sphere(0.12, 20, 10), _xf(HEAD, hs), P.P_SKIN)
 	for x: float in [-1.0, 1.0]:
-		_part(head, "Eye", _sphere(0.017), dark, Vector3(0.043 * x, 0.012, -0.108), Vector3.ONE)
-		_part(head, "Ear", _sphere(0.026), skin, Vector3(0.118 * x, -0.005, 0.0), Vector3(0.5, 1.0, 0.8), "skin")
-	_part(head, "Nose", _sphere(0.022), skin, Vector3(0, -0.012, -0.118), Vector3(0.8, 1.0, 1.1), "skin")
-	_part(head, "HatBrim", _cyl(0.21, 0.21, 0.014), canvas, Vector3(0, 0.072, 0), Vector3(1, 1, 1.05))
-	_part(head, "HatCrown", _cyl(0.1, 0.122, 0.1), canvas, Vector3(0, 0.125, 0), Vector3(1, 1, 1.05))
-	_part(head, "HatBand", _cyl(0.123, 0.123, 0.022), leather, Vector3(0, 0.088, 0), Vector3(1, 1, 1.05))
+		mb.add_mesh(_sphere(0.017, 10, 6), _xf(HEAD + hs * Vector3(0.043 * x, 0.012, -0.108), hs), P.P_DARK)
+		mb.add_mesh(_sphere(0.026, 10, 6), _xf(HEAD + hs * Vector3(0.118 * x, -0.005, 0.0), hs * Vector3(0.5, 1.0, 0.8)), P.P_SKIN)
+		mb.add_mesh(_box(Vector3(0.034, 0.008, 0.006)), _xf(HEAD + Vector3(0.045 * x, 0.045, -0.1085), Vector3.ONE, Vector3(0.1, 0, -0.18 * x)), P.P_HAIR)
+	mb.add_mesh(_sphere(0.022, 10, 6), _xf(HEAD + hs * Vector3(0, -0.012, -0.118), hs * Vector3(0.8, 1.0, 1.1)), P.P_SKIN)
+	mb.add_mesh(_box(Vector3(0.04, 0.005, 0.006)), _xf(HEAD + Vector3(0, -0.05, -0.1075)), P.P_MOUTH)
 	# the knapsack, with a bedroll on top
-	_part(m, "Pack", _box(Vector3(0.28, 0.34, 0.13)), leather, Vector3(0, -0.07, 0.165), Vector3.ONE)
-	var bed := _part(m, "Bedroll", _cyl(0.055, 0.055, 0.34), roll, Vector3(0, 0.14, 0.17), Vector3.ONE)
-	bed.rotation = Vector3(0, 0, PI * 0.5)
+	mb.add_mesh(_box(Vector3(0.28, 0.34, 0.13)), _xf(Vector3(0, -0.07, 0.165)), P.P_LEATHER)
+	mb.add_mesh(_cyl(0.055, 0.055, 0.34), _xf(Vector3(0, 0.14, 0.17), Vector3.ONE, Vector3(0, 0, PI * 0.5)), P.P_ROLL)
+	var body := MeshInstance3D.new()
+	body.name = "Body"
+	body.mesh = mb.commit()
+	body.material_override = material
+	m.add_child(body, true)
+	# the head: where the camera sits in first person, and the hair etc. hang
+	var head := Node3D.new()
+	head.name = "Head"
+	head.position = HEAD
+	m.add_child(head, true)
+	_dress = MeshInstance3D.new()
+	_dress.name = "Dress"
+	_dress.material_override = material
+	head.add_child(_dress)
+	m.set_meta(&"dress", _dress)
 	# limbs: placed in world space every frame
 	for side: String in ["L", "R"]:
-		_limb["upper" + side] = _limb_part(m, _capsule(0.056, UPPER_ARM + 0.08), shirt, "shirt")
-		_limb["fore" + side] = _limb_part(m, _capsule(0.046, FOREARM + 0.06), skin, "skin")
-		_limb["hand" + side] = _limb_part(m, _sphere(0.05), skin, "skin")
-		_limb["thigh" + side] = _limb_part(m, _capsule(0.08, THIGH + 0.08), trousers, "shorts")
-		_limb["shin" + side] = _limb_part(m, _capsule(0.066, SHIN + 0.04), trousers, "shorts")
-		_limb["boot" + side] = _limb_part(m, _box(Vector3(0.11, 0.09, 0.25)), leather)
+		var arm := MeshBuilder.new()
+		arm.add_mesh(_capsule(0.056, UPPER_ARM + 0.08), Transform3D.IDENTITY, P.P_SHIRT)
+		arm.add_mesh(_cyl(0.062, 0.062, 0.035), _xf(Vector3(0, 0.1, 0)), P.P_SHIRT)   # a rolled sleeve
+		_limb["upper" + side] = _limb_part(m, arm.commit())
+		var fore := MeshBuilder.new()
+		fore.add_mesh(_capsule(0.046, FOREARM + 0.06), Transform3D.IDENTITY, P.P_SKIN)
+		_limb["fore" + side] = _limb_part(m, fore.commit())
+		var hand := MeshBuilder.new()
+		hand.add_mesh(_sphere(0.05, 10, 5), Transform3D.IDENTITY, P.P_SKIN)
+		hand.add_mesh(_capsule(0.017, 0.07), _xf(Vector3(0, 0.0, 0.055), Vector3.ONE, Vector3(0.7, 0, 0)), P.P_SKIN)   # a thumb
+		_limb["hand" + side] = _limb_part(m, hand.commit())
+		var thigh := MeshBuilder.new()
+		thigh.add_mesh(_capsule(0.08, THIGH + 0.08), Transform3D.IDENTITY, P.P_SHORTS)
+		_limb["thigh" + side] = _limb_part(m, thigh.commit())
+		var shin := MeshBuilder.new()
+		shin.add_mesh(_capsule(0.066, SHIN + 0.04), Transform3D.IDENTITY, P.P_SHORTS)
+		_limb["shin" + side] = _limb_part(m, shin.commit())
+		var boot := MeshBuilder.new()
+		boot.add_mesh(_box(Vector3(0.11, 0.09, 0.25)), Transform3D.IDENTITY, P.P_LEATHER)
+		_limb["boot" + side] = _limb_part(m, boot.commit())
+	_dress.mesh = CharacterDress.build(default)
+
+
+## Dress the body in traits (scale, palette, hair ...).
+func apply(traits: CharacterTraits) -> void:
+	traits.apply_to(player.model)
 
 
 func _process(delta: float) -> void:
@@ -102,6 +144,7 @@ func _process(delta: float) -> void:
 		return
 	var b := player.model.global_transform
 	var s := b.basis.get_scale().y
+	_hair_motion(b, delta)
 	var hips: Array[Vector3] = [b * Vector3(-HIP.x, HIP.y, 0), b * Vector3(HIP.x, HIP.y, 0)]
 	var shoulders: Array[Vector3] = [b * Vector3(-SHOULDER.x, SHOULDER.y, 0), b * Vector3(SHOULDER.x, SHOULDER.y, 0)]
 	var fwd := -b.basis.z.normalized()
@@ -185,6 +228,22 @@ func _process(delta: float) -> void:
 		var bx := sole.cross(toe).normalized()
 		boot.global_transform = Transform3D(Basis(bx, sole, -toe).scaled(Vector3.ONE * s),
 				feet[i] - sole * FOOT_DROP * 0.3 * s + toe * 0.06 * s)
+
+
+## The hair follows the head: it trails behind the head's motion and settles
+## under gravity (whichever way the body leans), and is darker and flatter
+## after time in the water.
+func _hair_motion(b: Transform3D, delta: float) -> void:
+	var hp := b * HEAD
+	var vel := (hp - _head_prev) / maxf(delta, 1e-3) if _head_prev != Vector3.ZERO else Vector3.ZERO
+	_head_prev = hp
+	var inv := b.basis.orthonormalized().inverse()
+	var target := (inv * (-vel)).limit_length(8.0) * 0.006 + inv * Vector3.DOWN * 0.03
+	_sway = _sway.lerp(target, minf(1.0, 7.0 * delta))
+	material.set_shader_parameter("sway", _sway)
+	var in_water := player.state == &"SWIMMING" or player.state == &"TREADING" or player.state == &"SINKING" or player.head_under
+	_wet = minf(1.0, _wet + delta / 2.0) if in_water else maxf(0.0, _wet - delta / 40.0)
+	material.set_shader_parameter("wet", _wet)
 
 
 # --- walking ----------------------------------------------------------------------
@@ -347,29 +406,17 @@ static func _place(m: MeshInstance3D, a: Vector3, b: Vector3, s: float) -> void:
 
 # --- building ------------------------------------------------------------------------------
 
-static func _mat(c: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = c
-	m.roughness = 0.85
-	return m
+static func _xf(pos: Vector3, scale_ := Vector3.ONE, rot := Vector3.ZERO) -> Transform3D:
+	return Transform3D(Basis.from_euler(rot).scaled(scale_), pos)
 
 
-static func _part(parent: Node3D, part_name: String, mesh: Mesh, mat: Material, pos: Vector3, scale_: Vector3, tint := "") -> MeshInstance3D:
+func _limb_part(parent: Node3D, mesh: Mesh) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	mi.name = part_name
+	mi.name = "Limb"
 	mi.mesh = mesh
-	mi.material_override = mat
-	mi.position = pos
-	mi.scale = scale_
-	if tint != "":
-		mi.set_meta(&"tint", tint)
-	parent.add_child(mi, true)
-	return mi
-
-
-static func _limb_part(parent: Node3D, mesh: Mesh, mat: Material, tint := "") -> MeshInstance3D:
-	var mi := _part(parent, "Limb", mesh, mat, Vector3.ZERO, Vector3.ONE, tint)
+	mi.material_override = material
 	mi.top_level = true
+	parent.add_child(mi, true)
 	return mi
 
 
@@ -383,12 +430,12 @@ static func _cyl(top: float, bottom: float, h: float) -> CylinderMesh:
 	return c
 
 
-static func _sphere(r: float) -> SphereMesh:
+static func _sphere(r: float, segs := 16, rings := 8) -> SphereMesh:
 	var sp := SphereMesh.new()
 	sp.radius = r
 	sp.height = r * 2.0
-	sp.radial_segments = 16
-	sp.rings = 8
+	sp.radial_segments = segs
+	sp.rings = rings
 	return sp
 
 
@@ -396,8 +443,8 @@ static func _capsule(r: float, h: float) -> CapsuleMesh:
 	var c := CapsuleMesh.new()
 	c.radius = r
 	c.height = h
-	c.radial_segments = 12
-	c.rings = 4
+	c.radial_segments = 10
+	c.rings = 2
 	return c
 
 

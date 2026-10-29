@@ -33,6 +33,7 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 const LAND_GRAVITY := 9.8                   ## Real gravity (m/s^2)
 const MANTLE_TIME := 0.45                   ## s to pull up over the top of a climb.
 const MANTLE_SETTLE := 1.0                  ## s of slower walking after pulling up (no stepping straight off the edge).
+const SAVED_TRAITS := "user://player_traits.tres"   ## The look chosen in the character picker.
 const JUMP_CARRY := 15.0                    ## A jump keeps at most this much of your speed across the ground (m/s).
 const FALL_GRAVITY := 2.2                   ## Gravity is this many times stronger coming down (no floating down mountains; jumps rise as before).
 const CLIMBABLE_Y := 0.72                   ## Ground steeper than this (normal.y below it, ~44 deg) can't be walked: it's climbed.
@@ -50,6 +51,8 @@ var climb_normal := Vector3.BACK   ## The rock's normal where you're holding on.
 var _mantle_t := -1.0              ## Progress pulling up over the top (-1: not).
 var _mantle_from := Vector3.ZERO
 var _mantle_to := Vector3.ZERO
+var frozen := false               ## Input ignored (the character picker is open); the body faces `frozen_facing`.
+var frozen_facing := 0.0
 var _settle := 0.0                 ## Time left walking slowly after a mantle.
 
 @onready var left_hand: Inventory = $LeftHand
@@ -76,14 +79,31 @@ func _ready() -> void:
 	rig.player = self
 	add_child(rig)
 	rig.build()
-	if traits:
-		traits.apply_to(model)
+	if traits == null and FileAccess.file_exists(SAVED_TRAITS):
+		traits = load(SAVED_TRAITS) as CharacterTraits
+	if traits == null:
+		traits = CharacterTraits.new()
+	traits.apply_to(model)
 	var game := WorldConfig._game()
 	if game:
 		game.player = self
 
 
+func _get_vector(a: StringName, b: StringName, c: StringName, d: StringName) -> Vector2:
+	return Vector2.ZERO if frozen else Input.get_vector(a, b, c, d)
+
+
+func _get_axis(a: StringName, b: StringName) -> float:
+	return 0.0 if frozen else Input.get_axis(a, b)
+
+
+func _pressed(a: StringName) -> bool:
+	return false if frozen else Input.is_action_pressed(a)
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if frozen:
+		return
 	# double-tap Space: fly (debug), like Minecraft's creative mode
 	if event.is_action_pressed(&"tread") and not event.is_echo() and not boat:
 		var now := Time.get_ticks_msec() / 1000.0
@@ -134,8 +154,8 @@ func _physics_process(delta: float) -> void:
 	# 3D swimming: forward follows the camera's pitch, so look down to dive and
 	# up to climb; Space swims straight up, Shift straight down
 	var cam := get_viewport().get_camera_3d()
-	var input := Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
-	var rise := Input.get_axis(&"dive", &"tread")
+	var input := _get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
+	var rise := _get_axis(&"dive", &"tread")
 	var move := Vector3.ZERO
 	if cam and (input != Vector2.ZERO or rise != 0.0):
 		var fwd := -cam.global_basis.z
@@ -144,10 +164,10 @@ func _physics_process(delta: float) -> void:
 		move = fwd.normalized() * input.y + right.normalized() * input.x + Vector3.UP * rise
 		if move.length() > 1.0:
 			move = move.normalized()
-	var treading := Input.is_action_pressed(&"tread")
+	var treading := _pressed(&"tread")
 	var moving := move != Vector3.ZERO
 	var deep := pos.y + 0.4 < water_height - 0.8   # head well under: free 3D swimming
-	var sprint := sprint_factor if Input.is_action_pressed(&"sprint") and input.y > 0.0 else 1.0
+	var sprint := sprint_factor if _pressed(&"sprint") and input.y > 0.0 else 1.0
 
 	var fy := -MASS * Water.G + water.density() * Water.G * VOLUME * s
 	if s > 0.0:
@@ -224,11 +244,11 @@ func _on_land(delta: float) -> void:
 # stop on the ground, little control in the air (momentum carries a jump).
 # Ctrl runs, Shift sneaks, holding Space jumps whenever your feet touch down.
 func _walk(delta: float, grounded: bool) -> void:
-	var wish := _camera_relative(Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward"))
+	var wish := _camera_relative(_get_vector(&"move_left", &"move_right", &"move_back", &"move_forward"))
 	var speed := walk_speed
-	if Input.is_action_pressed(&"sprint") and Input.get_axis(&"move_back", &"move_forward") > 0.0:
+	if _pressed(&"sprint") and _get_axis(&"move_back", &"move_forward") > 0.0:
 		speed *= run_factor
-	if Input.is_action_pressed(&"dive"):
+	if _pressed(&"dive"):
 		speed *= 0.3
 	speed *= lerpf(1.0, 0.3, _settle / MANTLE_SETTLE)   # (just after pulling up over an edge)
 	var target := wish * speed
@@ -238,7 +258,7 @@ func _walk(delta: float, grounded: bool) -> void:
 	# the faster you run, the harder you keep to the ground (running over a
 	# crest or down a slope doesn't throw you into the air)
 	floor_snap_length = 1.2 + 0.08 * vh.length()
-	if grounded and Input.is_action_pressed(&"tread"):
+	if grounded and _pressed(&"tread"):
 		velocity.y = jump_speed
 		vh = vh.limit_length(JUMP_CARRY)   # (a running jump carries you no further than a brisk one)
 	velocity.x = vh.x
@@ -248,9 +268,9 @@ func _walk(delta: float, grounded: bool) -> void:
 # Debug flight: no gravity, Space up, Shift down, Ctrl faster. Touching the
 # ground while descending lands you.
 func _fly(delta: float) -> void:
-	var wish := _camera_relative(Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward"))
-	var up := Input.get_axis(&"dive", &"tread")
-	var speed := fly_speed * (3.0 if Input.is_action_pressed(&"sprint") else 1.0)
+	var wish := _camera_relative(_get_vector(&"move_left", &"move_right", &"move_back", &"move_forward"))
+	var up := _get_axis(&"dive", &"tread")
+	var speed := fly_speed * (3.0 if _pressed(&"sprint") else 1.0)
 	var target := Vector3(wish.x, up, wish.y) * speed
 	velocity = velocity.lerp(target, 1.0 - exp(-6.0 * delta))
 	move_and_slide()
@@ -304,7 +324,7 @@ func _climb(delta: float) -> void:
 		# there's nothing to hold
 		var top := Vector3.INF
 		if not hit.is_empty():
-			if Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward").y <= 0.0:
+			if _get_vector(&"move_left", &"move_right", &"move_back", &"move_forward").y <= 0.0:
 				velocity = Vector3.ZERO   # (just hold on here)
 				return
 			top = hit.position
@@ -326,8 +346,8 @@ func _climb(delta: float) -> void:
 	climb_normal = climb_normal.slerp(hit.normal, minf(1.0, 10.0 * delta)).normalized()
 	var up_dir := (Vector3.UP - climb_normal * Vector3.UP.dot(climb_normal)).normalized()
 	var right_dir := up_dir.cross(climb_normal).normalized()
-	var input := Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
-	var speed := climb_speed * (1.6 if Input.is_action_pressed(&"sprint") else 1.0)
+	var input := _get_vector(&"move_left", &"move_right", &"move_back", &"move_forward")
+	var speed := climb_speed * (1.6 if _pressed(&"sprint") else 1.0)
 	var move := (up_dir * input.y + right_dir * input.x).limit_length(1.0) * speed
 	# hold the chest about 0.45 m off the rock
 	var off: float = (global_position - (hit.position as Vector3)).dot(climb_normal)
@@ -404,6 +424,11 @@ func _camera_relative(input: Vector2) -> Vector2:
 func _process(delta: float) -> void:
 	# face where the camera looks; aboard, only the body turns, not the boat
 	var cam := get_viewport().get_camera_3d()
+	if frozen:
+		_facing = frozen_facing
+		_lean = 0.0
+		model.rotation = Vector3(0.0, _facing, 0.0)
+		return
 	if climbing:
 		# face the rock, the body parallel to it
 		_facing = atan2(climb_normal.x, climb_normal.z)
@@ -512,8 +537,8 @@ func _leave_boat() -> void:
 
 
 func _drive() -> void:
-	boat.throttle = Input.get_axis(&"move_back", &"move_forward")
-	boat.steer = Input.get_axis(&"move_right", &"move_left")
+	boat.throttle = _get_axis(&"move_back", &"move_forward")
+	boat.steer = _get_axis(&"move_right", &"move_left")
 	global_transform = boat.helm.global_transform
 	velocity = boat.linear_velocity
 	state = &"ON BOAT"

@@ -438,9 +438,28 @@ The view switches to third person while you climb, and back to the view you
 had once you're off the rock.
 
 **The body** (`CharacterRig`, `src/entities/player/character_rig.gd`) is a
-stylized explorer built from primitives (hat, hair, knapsack and bedroll,
-sleeved arms, trousers, boots; `CharacterTraits.apply_to()` recolours the
-parts tagged skin, hair, shirt and shorts) and animated entirely
+stylized explorer built from primitives (a face with eyes, brows, nose and
+mouth; a collared shirt with rolled sleeves, hands with thumbs, knapsack and
+bedroll, trousers, boots), drawn as 14 meshes with one material
+(`character.gdshader`): every vertex names its colour slot in a palette
+uniform, so a recolour is one uniform change. The static body is one mesh,
+each limb one, and the part that changes shape with the look is another
+(`CharacterDress`, in the head's frame): hair grown by `HairBuilder` (a
+scalp cap and clumps of tapered tubes from fixed roots; length runs them on,
+falling under gravity, combed back from the face and slid round the head,
+neck, shoulders, pack and bedroll; curl turns them to helices, shortens and
+fattens them; a ponytail or bun gathers them; a hat presses them down),
+facial hair (stubble, moustache, goatee, beard), the hat (wide brim, cap,
+beanie, bandana) and accessories (glasses, earrings, necklace, scarf,
+headband). The hair trails the head's motion and hangs to gravity (a sway
+uniform from a spring on the head) and is darker and flatter after time in
+the water. `CharacterTraits.apply_to()` scales the model, sets the palette
+and rebuilds the dress. In the debug world C opens the character picker
+(`CharacterPicker`): a camera facing the frozen player (drag to turn them)
+and a panel of sliders and swatches (skin: 12 skin tones, then simple
+colours red to violet); Done (or C, Esc) saves the look to
+`user://player_traits.tres`, which the player loads on start. It is all
+animated
 procedurally, with two-bone solvers for arms and legs. Walking plants each
 foot on whatever is below (a ray down) and steps it in an arc when the body
 has moved on; faster than feet can be planted it becomes a running cycle
@@ -494,4 +513,4 @@ culling. `Perf` keeps smoothed frame time and render counts.
 | `SpeciesDef` | An organism: kind (fish, invertebrate, plant, microbe), catch methods (rod, net, trap, sample), habitat (waters, depth, salinity, temperature, active hours), size, schooling, rarity. |
 | `BiomeDef` | A habitat (`open_ocean.tres` so far): medium, depth range, map colour, species list, `species_for(depth, hour, water)`. |
 | `BoatSpec` | Handling, speed and cargo: mass, size, thrusts, steering, drags, bow lift, lean, hold slots and weight. `small_motorboat.tres` reproduces the original boat. |
-| `CharacterTraits` | Height, build, skin, hair and clothing colours, free-form features. `generate(rng)` for NPCs; `apply_to(model)` dresses the capsule model. |
+| `CharacterTraits` | Height, build, skin, hair (length, curl, colour), facial hair, hat, accessories and clothing colours; the picker's palettes. `generate(rng)` for NPCs; `apply_to(model)` scales, recolours and dresses a CharacterRig model. |

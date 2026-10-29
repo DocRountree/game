@@ -15,6 +15,7 @@ extends Node3D
 @onready var hud: Hud = $HUD
 @onready var atmosphere: Atmosphere = $Atmosphere
 @onready var clock: GameClock = $Clock
+var picker := CharacterPicker.new()   ## C: style the character.
 
 
 func _enter_tree() -> void:
@@ -27,6 +28,8 @@ func _exit_tree() -> void:
 
 
 func _ready() -> void:
+	picker.name = "CharacterPicker"
+	add_child(picker)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Settings.apply_to_viewport(get_viewport())
 	add_child(DebugOverlay.new())   # F3
@@ -99,11 +102,19 @@ func _process(_delta: float) -> void:
 	camera.turn_with_target = driving
 	camera.distance = 9.0 if driving else 4.5
 	camera.target_offset = Vector3(0, 2.4, 0) if driving else Vector3(0, 0.5, 0)
+	hud.visible = not picker.is_open
 	hud.refresh(player, boat, clock.time_text() + "\nmoon   " + atmosphere.moon_phase_text())
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(&"quit"):
+	if picker.is_open:   # (the picker's own keys: C or Esc close it)
+		if event.is_action_pressed(&"character_picker") or event.is_action_pressed(&"toggle_mouse"):
+			picker.close()
+			get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed(&"character_picker") and not player.boat:
+		picker.open(player)
+	elif event.is_action_pressed(&"quit"):
 		get_tree().quit()
 	elif event.is_action_pressed(&"toggle_view"):
 		_set_first_person(not camera.first_person)
