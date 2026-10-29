@@ -25,6 +25,9 @@ var boat := Vector2.ZERO            ## Where the boat is moored.
 ## (the index of the river it runs into, -1 for the sea). Downstream order.
 var rivers: Array[Dictionary] = []
 var landmasses: Array = []
+## Islands in the rivers: Dictionaries with "x", "z" (middle), "dx", "dz"
+## (downstream), "length", "width" (half width at its middle), "top" (m).
+var islands: Array = []
 var trees := PackedByteArray()      ## 8 bytes per tree: uint16 x, uint16 z, uint16 ground height (as the heights), uint8 height (dm), uint8 spare.
 
 static var _shared: WorldData
@@ -54,6 +57,7 @@ func _load() -> bool:
 	spawn = Vector2(meta.spawn[0], meta.spawn[1])
 	boat = Vector2(meta.boat[0], meta.boat[1])
 	landmasses = meta.landmasses
+	islands = meta.get("islands", [])
 	var total := 0
 	var s := texels
 	while s >= 1:
@@ -102,8 +106,8 @@ func river_mask() -> ImageTexture:
 		var pts: PackedVector3Array = r.points
 		var hw: PackedFloat32Array = r.half_width
 		for k in pts.size() - 1:
-			if pts[k].y > 12.0 or pts[k].y < 0.2:
-				continue
+			if pts[k].y > 12.0:
+				continue   # (right down to the sea, so the mask fades out smoothly at the coast)
 			var steps := maxi(ceili(Vector2(pts[k + 1].x - pts[k].x, pts[k + 1].z - pts[k].z).length() / 5.0), 1)
 			for st in steps:
 				var t := float(st) / steps
@@ -128,14 +132,25 @@ func river_mask() -> ImageTexture:
 
 
 ## A river's current (m/s) at each point: faster where the water falls (the
-## drop over 80 m of it), bigger rivers a little faster, and smoothed over
-## about 120 m, so it never changes abruptly from one point to the next
-## (however unevenly the points are spaced).
+## drop over 80 m of it, not counting waterfalls), bigger rivers a little
+## faster, and smoothed over about 120 m, so it never changes abruptly from
+## one point to the next (however unevenly the points are spaced). Below a
+## waterfall the water gathers in its pool and picks its current up again
+## over a few widths.
 static func _current(pts: PackedVector3Array, hw: PackedFloat32Array) -> PackedFloat32Array:
 	var n := pts.size()
 	var arc := PackedFloat32Array([0.0])
 	for k in range(1, n):
 		arc.append(arc[k - 1] + Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length())
+	# the level with its waterfalls taken out (a fall doesn't speed a river up)
+	var lvl := PackedFloat32Array([pts[0].y])
+	var since_fall := PackedFloat32Array([1e9])
+	for k in range(1, n):
+		var drop := pts[k - 1].y - pts[k].y
+		var run := arc[k] - arc[k - 1]
+		var fall := drop > 3.0 and drop > run
+		lvl.append(lvl[k - 1] - (0.0 if fall else drop))
+		since_fall.append(0.0 if fall else since_fall[k - 1] + run)
 	var raw := PackedFloat32Array()
 	var a := 0
 	var b := 0
@@ -144,7 +159,7 @@ static func _current(pts: PackedVector3Array, hw: PackedFloat32Array) -> PackedF
 			a += 1
 		while b < n - 1 and arc[b] - arc[k] < 40.0:
 			b += 1
-		var slope := maxf(pts[a].y - pts[b].y, 0.0) / maxf(arc[b] - arc[a], 1.0)
+		var slope := maxf(lvl[a] - lvl[b], 0.0) / maxf(arc[b] - arc[a], 1.0)
 		raw.append(clampf(0.5 + 0.02 * hw[k] + 9.0 * sqrt(slope), 0.5, 6.0))
 	var out := PackedFloat32Array()
 	a = 0
@@ -158,7 +173,7 @@ static func _current(pts: PackedVector3Array, hw: PackedFloat32Array) -> PackedF
 		while arc[k] - arc[a] > 60.0:
 			sum -= raw[a]
 			a += 1
-		out.append(sum / (b - a))
+		out.append(sum / (b - a) * lerpf(0.2, 1.0, smoothstep(0.0, 4.0 * hw[k] + 20.0, since_fall[k])))
 	return out
 
 

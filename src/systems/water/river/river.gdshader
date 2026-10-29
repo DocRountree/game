@@ -30,8 +30,14 @@ render_mode blend_mix, depth_draw_never, cull_disabled;
 //
 // Falls: the sheet leaves the lip smooth and glassy and speeds up as it
 // drops (as falling water does), its streaks stretching as they go, with the
-// water thicker and thinner in bands across it; in the plunge pool below,
-// ripples run out from the foot and the surface is stirred up.
+// water thicker and thinner in bands across it; below the lip it splits into
+// strands down the rock (which shows between them), white where it tumbles
+// over the little ledges in the face and churns at the foot; in the pool
+// below, ripples run out from the foot and the surface is stirred up. Above
+// a lip the water runs rough and streaked with white (the rapids, among their
+// rocks). Round an island the current parts and closes again, with a ring of
+// white at its shore and a ruffled wake behind it. The sun's highlight is
+// capped (light()), so it never blooms into a blinding blob.
 
 uniform float time;
 uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
@@ -53,6 +59,11 @@ uniform float noise_scale = 2.0;      // cycles per metre of the coarsest ripple
 uniform float flow_period = 1.0;      // s: each flow phase lasts this long
 uniform float sheet_streaks = 0.6;    // ripple strength on a fall's sheet
 uniform float pool_ripples = 0.5;    // ripple strength in a plunge pool
+uniform float foam_strength = 1.0;
+uniform float glint_cap = 2.5;       // the sun's highlight on the water is never brighter than this
+uniform int island_count = 0;
+uniform vec4 islands[8];             // middle x, z; downstream x, z
+uniform vec3 island_sizes[8];        // half length, half width (at its middle), top
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 
@@ -66,6 +77,7 @@ varying vec3 wpos;      // the water surface, world (before the planet's curve)
 varying float sheet;    // m down a fall's sheet (-1 off it)
 varying float fall_h;   // that fall's height
 varying float below;    // m below the last fall's foot
+varying float to_fall;  // m above the next fall's lip
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -83,6 +95,7 @@ void vertex() {
 	sheet = CUSTOM0.x;
 	fall_h = CUSTOM0.y;
 	below = CUSTOM0.z;
+	to_fall = CUSTOM0.w;
 }
 
 // --- Adrift's water ---------------------------------------------------------
@@ -204,6 +217,33 @@ vec3 fall_sheet(float across, float tau, float v) {
 	return vec3(clamp(acc.x * 0.9 + 0.5, 0.0, 1.0), acc.yz * 0.15);
 }
 
+// The nearest island to p: (distance from its shore in m, negative on it;
+// along it, -1 at its head to 1 at its tail; across it, m; its half width
+// there), and its outward direction there.
+vec4 island_at(vec2 p, out vec2 outward) {
+	vec4 best = vec4(1e5, 0.0, 0.0, 1.0);
+	outward = vec2(0.0);
+	for (int i = 0; i < 8; i++) {
+		if (i >= island_count)
+			break;
+		vec2 c = islands[i].xy;
+		vec2 d = islands[i].zw;
+		vec2 side = vec2(-d.y, d.x);
+		float half_len = island_sizes[i].x;
+		vec2 r = p - c;
+		float a = dot(r, d) / half_len;
+		float b = dot(r, side);
+		float w = island_sizes[i].y * clamp(1.15 - 0.45 * clamp(a, -1.0, 1.0), 0.0, 1.3);   // blunt head, tapering tail
+		float e = length(vec2(a, b / max(w, 0.5)));
+		float dist = (e - 1.0) * min(w, half_len);
+		if (dist < best.x) {
+			best = vec4(dist, a, b, w);
+			outward = normalize(d * (a / half_len) + side * (b / max(w * w, 0.25)) + vec2(1e-6));
+		}
+	}
+	return best;
+}
+
 float view_depth(vec2 uv, mat4 inv_proj) {
 	float raw = texture(depth_tex, uv).r;
 	vec4 p = inv_proj * vec4(uv * 2.0 - 1.0, raw, 1.0);
@@ -221,8 +261,17 @@ void fragment() {
 	// level water: the current, fastest mid-channel, slowing toward the
 	// banks; stirred up in a plunge pool, with ripples running out from the fall
 	float pool = below < 999.0 ? exp(-below / (1.5 * hw + 6.0)) * clamp(fall_h / 8.0, 0.0, 1.0) : 0.0;
+	float rapids = to_fall < 999.0 ? smoothstep(35.0, 3.0, to_fall) : 0.0;
 	vec2 flow = normalize(dn.xz + vec2(1e-6)) * speed * (1.0 - 0.6 * min(across * across, 1.0));
-	vec3 n_flat = flowing_normal(wpos.xz, flow, 1.0 + 1.5 * pool);
+	// round an island the current parts: it turns along the shore rather
+	// than into it, closes again behind, and the water there is ruffled
+	vec2 outward;
+	vec4 isl = island_at(wpos.xz, outward);
+	float near_isl = exp(-max(isl.x, 0.0) / max(0.8 * isl.w, 2.0));
+	flow -= outward * min(dot(flow, outward), 0.0) * near_isl;
+	float behind = max(isl.y - 1.0, 0.0) * (isl.w * 2.2);   // m past its tail
+	float wake = isl.y > 1.0 ? exp(-abs(abs(isl.z) - behind * 0.3) / 2.0) * exp(-behind / 70.0) : 0.0;
+	vec3 n_flat = flowing_normal(wpos.xz, flow, 1.0 + 1.5 * pool + 1.5 * rapids + 1.2 * near_isl + wake);
 	float ring = sin(below * 1.7 - time * 5.0 + 2.5 * gnoise(rp * 0.12).x) * pool;
 	vec2 dn_h = normalize(dn.xz + vec2(1e-6));
 	n_flat = normalize(n_flat - vec3(dn_h.x, 0.0, dn_h.y) * ring * pool_ripples);
@@ -234,6 +283,12 @@ void fragment() {
 	float tau = (v - v0) / 9.8;
 	vec3 fs = fall_sheet(rp.x, tau, v);
 	float glassy = smoothstep(0.2, 1.8, d);
+	// below the lip the sheet splits into strands down the rock, and tumbles
+	// white over the little ledges in the face
+	float split = smoothstep(0.5, 4.0, d) * falling;
+	float strand_n = gnoise(vec2(rp.x * 0.32, 31.7)).x + 0.5 * gnoise(vec2(rp.x * 0.9, 7.1)).x;   // (straight down the face)
+	float strands = smoothstep(-0.35, -0.05, strand_n + 0.15);   // (most of the face; each strand runs right down to the pool)
+	float ledge = smoothstep(0.72, 1.0, fract(d / 4.0 + 0.2 * gnoise(vec2(rp.x * 0.15, 3.3)).x));
 	// how much water a pixel spans (in 3D: a fall's sheet is upright)
 	float px = max(length(dFdx(wpos)), length(dFdy(wpos)));
 	vec2 sl = fs.yz * sheet_streaks * glassy / (1.0 + px * px * 4.0);   // (no sparkle far off)
@@ -269,8 +324,10 @@ void fragment() {
 		thickness = depth * max(1.0 - across * across, 0.0) / max(abs(view_world.y), 0.1);
 		offset = n_world.xz * refraction * clamp(thickness * 0.5, 0.0, 1.0);
 	}
-	vec3 background = texture(screen_tex, SCREEN_UV + offset).rgb;
-	vec3 transmit = water_extinction(thickness) * bed_visibility * (1.0 - 0.85 * falling);
+	vec3 background = min(texture(screen_tex, SCREEN_UV + offset).rgb, vec3(4.0));   // (not the sun's disc, seen through a sheet)
+	vec3 transmit = water_extinction(thickness) * bed_visibility * (1.0 - smoothstep(0.0, 0.4, falling));   // (water pouring over a lip is its own body, not glass)
+	if (dot(n_geom, to_eye) < 0.0)
+		transmit = vec3(0.0);   // (seen from below or behind: its own body, not what lies beyond it)
 	float sun_dot_v = dot(sun_direction, -view_world);
 	float diffuse = max(dot(n_world, sun_direction), 0.0);
 	vec3 body = (deep_color * (0.5 + 0.8 * diffuse) + scatter_color * 0.45 * (0.5 + 0.5 * diffuse) * (1.0 + 0.5 * sun_dot_v));
@@ -283,24 +340,58 @@ void fragment() {
 	body = mix(body, sheet_body, falling) * (0.12 + 0.88 * sun_color);
 	vec3 refracted = background * transmit * mix(bed_tint, vec3(1.0), sea) + body * (1.0 - transmit);
 
+	// white water: down a fall (more as it drops, banded at its ledges),
+	// churning at its foot, streaked through the rapids above a lip, and in
+	// a ring round an island's shore and along its wake
+	float foam = falling * clamp(0.1 + 0.55 * smoothstep(1.0, 14.0, d) + 0.45 * ledge * glassy, 0.0, 0.9) * (0.4 + 0.6 * fs.x);
+	float churn = gnoise(rp * 0.3 - vec2(0.0, time * 0.6)).x * 0.5 + 0.5;
+	foam += exp(-below / (0.5 * hw + 4.0)) * clamp(fall_h / 6.0, 0.0, 1.0) * churn * (1.0 - falling);
+	float streak = gnoise(vec2(rp.x * 0.8, rp.y * 0.12 - time * max(speed, 1.0) * 0.12)).x;
+	foam += rapids * smoothstep(0.15, 0.55, streak) * 0.55 * (1.0 - falling);
+	float lace = gnoise(wpos.xz * 0.5 + vec2(time * 0.3, 0.0)).x * 0.5 + 0.5;
+	foam += (exp(-max(isl.x, 0.0) / 2.5) * step(-0.5, isl.x) * (0.5 + 0.5 * clamp(-isl.y, 0.0, 1.0)) + 0.5 * wake) * lace * 0.5;
+	foam = clamp(foam * foam_strength, 0.0, 1.0);
+
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
 	// gloss falls away where a pixel spans more water: the ripples too fine to
 	// show still roughen it, so far water has a soft sheen, never a mirror
 	// that turns the sun into one white-hot blob
 	float gloss = 1.0 - clamp(0.05 + px * 0.08, 0.05, 0.45);
-	ALBEDO = vec3(0.0);
+	ALBEDO = vec3(0.92) * foam;
 	// a fall's sheet is broken water: never a mirror (it would flash the sun
 	// from far off), rougher the further it is
 	// (from the curve of its lip down, which would otherwise catch the sun
 	// over a wide range of angles like a lens)
 	float on_fall = max(falling, smoothstep(-0.9, 0.0, sheet));
-	ROUGHNESS = mix(clamp(1.0 - gloss, 0.02, 0.6), clamp(0.55 + px * 0.1, 0.55, 0.85), on_fall);
+	ROUGHNESS = mix(mix(clamp(1.0 - gloss, 0.02, 0.6), clamp(0.55 + px * 0.1, 0.55, 0.85), on_fall), 0.9, foam);
 	SPECULAR = mix(0.5, 0.15, on_fall);
-	EMISSION = refracted * (1.0 - fresnel);
+	EMISSION = refracted * (1.0 - fresnel) * (1.0 - foam);
 	// whole across the channel (the banks cut its edge); a soft fringe only
 	// at the ribbon's very edge (ragged down a fall's sides), thinning in at a
 	// river's head, and fading out where it comes down to the sea
 	float edge = mix(1.25, 0.95 + 0.12 * fs.x, falling);
 	ALPHA = (1.0 - smoothstep(edge, edge + 0.25, across)) * smoothstep(0.0, 0.25, fill)
 			* smoothstep(0.15, 1.2, wpos.y);   // (by then it's sea water, as the sea is: a long, gentle crossfade)
+	// the strands of a fall, the rock between them showing; and the very edge
+	// of the water fading in over its first 30 cm, so the shore is soft
+	ALPHA *= mix(1.0, max(strands, foam * 0.5), split);
+	ALPHA *= mix(smoothstep(0.0, 0.3, thickness * max(abs(view_world.y), 0.05)), 1.0, on_fall);
+}
+
+// The sun (and moon) on the water: a GGX highlight, capped, so a calm reach
+// turned to the sun shines rather than blooms; foam lit as a rough white.
+void light() {
+	float ndl = clamp(dot(NORMAL, LIGHT), 0.0, 1.0);
+	DIFFUSE_LIGHT += ndl * ATTENUATION * LIGHT_COLOR / PI;
+	vec3 h = normalize(VIEW + LIGHT);
+	float ndh = clamp(dot(NORMAL, h), 0.0, 1.0);
+	float ndv = clamp(dot(NORMAL, VIEW), 1e-3, 1.0);
+	float a = max(ROUGHNESS * ROUGHNESS, 0.002);
+	float a2 = a * a;
+	float dd = ndh * ndh * (a2 - 1.0) + 1.0;
+	float dist = a2 / (PI * dd * dd);
+	float fr = 0.02 + 0.98 * pow(1.0 - clamp(dot(VIEW, h), 0.0, 1.0), 5.0);
+	float k = a * 0.5;
+	float vis = 0.25 / ((ndl * (1.0 - k) + k) * (ndv * (1.0 - k) + k));
+	SPECULAR_LIGHT += min(dist * fr * vis * ndl, glint_cap) * ATTENUATION * LIGHT_COLOR / PI;
 }

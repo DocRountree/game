@@ -68,6 +68,8 @@ func _initialize() -> void:
 				continue   # (out in the estuary)
 			if pts[k - 4].y - pts[k + 4].y > 2.0 or r.depth[k] < 0.4:
 				continue   # (a waterfall, where the water falls past the lip; a head, where it is a trickle)
+			if _on_island(w, p):
+				continue   # (the river parts round an island there)
 			checked += 1
 			in_bed += 1 if w.height_at(p.x, p.z) < p.y - 0.2 else 0
 			if _near_other(w, ri, p, hw[k] * 3.0):
@@ -81,6 +83,11 @@ func _initialize() -> void:
 	_check(w.rivers.size() >= 4 and to_sea == 1, "one river system: %d rivers, %d reaching the sea" % [w.rivers.size(), to_sea])
 	_check(downhill, "rivers only run downhill, to the sea")
 	_check(checked > 100 and in_bed > checked * 0.97, "the water lies in a bed below it (%d of %d points)" % [in_bed, checked])
+	var dry_isles := 0
+	for i: Dictionary in w.islands:
+		dry_isles += 1 if w.height_at(i.x, i.z) > Water.surface_height(i.x, i.z) + 0.3 else 0
+	_check(w.islands.size() >= 1 and dry_isles == w.islands.size(),
+			"the river parts round islands standing out of it (%d of %d)" % [dry_isles, w.islands.size()])
 	_check(banks_hold > checked * 0.95, "banks rise above the water on both sides (%d of %d points)" % [banks_hold, checked])
 
 	# waterfalls on the mountain streams: sheer drops of several metres
@@ -136,6 +143,15 @@ func _near_other(w: WorldData, ri: int, p: Vector3, reach: float) -> bool:
 		for q: Vector3 in w.rivers[j].points:
 			if Vector2(q.x - p.x, q.z - p.z).length() < reach:
 				return true
+	return false
+
+
+func _on_island(w: WorldData, p: Vector3) -> bool:
+	for i: Dictionary in w.islands:
+		var a: float = ((p.x - i.x) * i.dx + (p.z - i.z) * i.dz) / (i.length * 0.5)
+		var b: float = (-(p.x - i.x) * i.dz + (p.z - i.z) * i.dx) / (i.width * 2.0)
+		if a * a + b * b < 1.3:
+			return true
 	return false
 
 

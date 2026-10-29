@@ -32,6 +32,8 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 
 const LAND_GRAVITY := 9.8                   ## Real gravity (m/s^2)
 const MANTLE_TIME := 0.45                   ## s to pull up over the top of a climb.
+const MANTLE_SETTLE := 1.0                  ## s of slower walking after pulling up (no stepping straight off the edge).
+const FALL_GRAVITY := 2.2                   ## Gravity is this many times stronger coming down (no floating down mountains; jumps rise as before).
 const CLIMBABLE_Y := 0.72                   ## Ground steeper than this (normal.y below it, ~44 deg) can't be walked: it's climbed.
 @export var traits: CharacterTraits
 
@@ -47,6 +49,7 @@ var climb_normal := Vector3.BACK   ## The rock's normal where you're holding on.
 var _mantle_t := -1.0              ## Progress pulling up over the top (-1: not).
 var _mantle_from := Vector3.ZERO
 var _mantle_to := Vector3.ZERO
+var _settle := 0.0                 ## Time left walking slowly after a mantle.
 
 @onready var left_hand: Inventory = $LeftHand
 @onready var right_hand: Inventory = $RightHand
@@ -200,7 +203,8 @@ func _physics_process(delta: float) -> void:
 func _on_land(delta: float) -> void:
 	water_height = -INF
 	_prev_h = NAN
-	velocity.y -= LAND_GRAVITY * delta
+	velocity.y -= LAND_GRAVITY * delta * (FALL_GRAVITY if velocity.y < 0.0 else 1.0)
+	_settle = maxf(_settle - delta, 0.0)
 	_walk(delta, is_on_floor())
 	move_and_slide()
 	# never under the ground (if something ever pushes the body through the
@@ -225,6 +229,7 @@ func _walk(delta: float, grounded: bool) -> void:
 		speed *= run_factor
 	if Input.is_action_pressed(&"dive"):
 		speed *= 0.3
+	speed *= lerpf(1.0, 0.3, _settle / MANTLE_SETTLE)   # (just after pulling up over an edge)
 	var target := wish * speed
 	var vh := Vector2(velocity.x, velocity.z)
 	var rate := 18.0 if grounded else (2.0 if wish != Vector2.ZERO else 0.1)
@@ -331,6 +336,7 @@ func _mantle(delta: float) -> void:
 		_collision.transform = _collision_rest
 		var on := Vector3(-climb_normal.x, 0.0, -climb_normal.z)
 		velocity = on.normalized() * 1.0 if on.length() > 0.01 else Vector3.ZERO
+		_settle = MANTLE_SETTLE
 
 
 ## Let go of the rock: the body stands upright again, moved off the rock first

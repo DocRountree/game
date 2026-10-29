@@ -131,7 +131,11 @@ real (erosion at 10 m, 5 m and 2.5 m, rivers carved together with their
 water level) happens there, where there's time for it, so the game only
 loads and draws (about a second for the 8192 x 8192 heights). The world is
 small and the mountains are game-scale (peaks around 800 m); detail at every scale, haze, ambient occlusion and the trees are
-what make it read as big.
+what make it read as big. Far land turns blue-grey (the terrain shader shifts
+its colour with distance) under a light haze (the environment's fog, coloured
+by the sky itself and kept off the sky, so sunsets and stars keep theirs).
+Under a river standing above the sea the bed is its sand, blending into the
+seabed's as the river comes down to the sea.
 
 - **`WorldData`** loads it once: the two height byte planes (high and low)
   stay as bytes for CPU queries (`height_at`, bilinear) and become two
@@ -168,14 +172,28 @@ what make it read as big.
   red and green last. The bed (sand and gravel) shows through, fading with
   the water over it, but never more than about 80% of it (clear water:
   whatever lies on the bed shows well), so the water never vanishes at its
-  edges. The water's thickness comes from the depth texture,
+  edges. In a waterfall's pool the current is slack and picks up again over a few
+  widths (`WorldData._current`, which also doesn't count the falls
+  themselves). The water's thickness comes from the depth texture,
   or, where there is none (with MSAA on there isn't), from the channel's own
   depth profile and the viewing angle.
   Falls: the ribbon's sheet leaves the lip level and curves down (a
-  parabola, a cross-section every 0.5 m of the drop), smooth and glassy over
-  the lip, then streaming, its streaks stretching as the water speeds up and
-  banded where the sheet runs thicker and thinner; below it the plunge pool
-  is stirred up, with ripples running out from the foot. The sheet is broken
+  parabola, a cross-section every 0.5 m of the drop) but never out from the
+  rock: down the face it lies on it, a film hugging the cliff. It is smooth
+  and glassy over the lip, then streaming, its streaks stretching as the
+  water speeds up; below the lip it splits into strands down the rock (which
+  shows between them), white where it tumbles over little ledges in the face
+  and churning white at the foot; the pool below is stirred up, with ripples
+  running out from the foot. Above a lip the water runs rough and streaked
+  white among rocks (`RiverRocks`: a few just upstream of each lip, more and
+  bigger in the mountains, and some through steep mountain stretches). Round
+  an island the current parts along its shore and closes behind it, with a
+  ring of white at the shore and a ruffled wake. The sun's highlight is the
+  shader's own (a capped GGX `light()`), so a calm reach turned to the sun
+  shines rather than blooms. The water's very edge fades in over its first
+  30 cm, so the shore is soft; water that would hang out over ground falling
+  away (beside a lip) isn't drawn; level water seen from below shows its own
+  body, not the sky through it. The sheet is broken
   water, never a mirror (rougher the further off it is), so it doesn't flash
   the sun from afar; and level water grows rougher with distance as its
   ripples become too fine to show, so the sun on far water is a soft sheen,
@@ -358,7 +376,10 @@ The same component optionally registers the body as a ripple source.
 
 **Walking** is Minecraft-like: quick to start and stop on the ground,
 little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
-holding Space hops whenever the feet touch down. Gravity is a real 9.8 m/s^2.
+holding Space hops whenever the feet touch down. Gravity is a real 9.8 m/s^2
+going up and 2.2 times that coming down, so a jump rises as before but a fall
+off a cliff drops like one, not a float. For a second after pulling up over
+an edge you walk slowly, so you don't step straight off it.
 Double-tapping Space toggles a fast debug flight; stopping it drops you from
 rest, so you fall straight down, accelerating.
 

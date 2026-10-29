@@ -58,7 +58,11 @@ How it's made:
    follows the ground down to a lip halfway down the drop and falls sheer into a plunge
    pool, so the falls are tall where the mountains are steep and the gorge below one is
    only half the drop. A side valley hanging more than 6 m above its river's floodplain
-   drops the rest in a waterfall where it meets it. The bed, banks and floodplain are carved into the
+   drops the rest in a waterfall where it meets it. Below each fall the river opens into a
+   pool, wider and deeper (most in the lowlands). Where the trunk runs wide and gentle in
+   the lowlands (away from the mouth and its confluences) it parts round a few islands:
+   teardrops of sand and grass, blunt upstream and tapering downstream, the channel opening
+   out round each (listed in world.json as "islands"). The bed, banks and floodplain are carved into the
    2.5 m heights to match, so the water always lies in its bed: each river's ground is one
    continuous field (nearby reaches blended), the floodplain wide in the lowlands and none
    beside mountain streams (their banks meet the valley's own sides, which are left as they
@@ -66,6 +70,8 @@ How it's made:
    and beyond the banks the ground only ever lowered, never built up, and where valleys overlap the river with the stronger claim
    takes over smoothly; every channel is then cut through the others' banks, so a
    tributary keeps its width right into its river.
+   Mountaintops are made a little rounder (narrow crests and spines eased) so they can be
+   stood on, and river banks are never steeper than the 2.5 m grid draws smoothly.
 5. **Masks and trees**: rock on steep and high ground, sand on beaches, the seafloor and
    the rivers' beds,
    forest in clumps on gentle slopes below 700 m, ambient occlusion from the hollows; trees

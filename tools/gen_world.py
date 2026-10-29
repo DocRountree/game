@@ -666,6 +666,11 @@ hf += np.where(land_f, grid_fbm(xs_f, xs_f, 40.0, 3, SEED + 10) * (0.4 + 2.0 * n
                * np.clip(hf / 4.0, 0, 1) * (1.0 - 0.8 * islet_f), 0.0)
 del slope_f, islet_f
 hf = talus(hf, land_f, WORLD / N, math.tan(math.radians(42.0)), 6)
+# mountaintops a little rounder: narrow crests and spines eased (convex
+# ground only, high up), so their tops are something to stand on
+crest = np.maximum(hf - ndimage.gaussian_filter(hf, 5.0), 0.0)
+hf = hf - 0.6 * crest * np.clip((hf - 80.0) / 120.0, 0, 1)
+del crest
 log("fine detail")
 
 
@@ -1090,6 +1095,7 @@ for rv in rivers:
 for rv in rivers:
     p, L, Ls = rv["pts"], rv["level"], rv["smooth"]
     keep_p, keep = [p[0]], [[rv["hw"][0], rv["depth"][0], L[0], rv["area"][0], Ls[0]]]
+    fall_at = []
     for k in range(1, len(p)):
         plunge = 0.0
         if L[k - 1] - L[k] > 5.0:
@@ -1100,6 +1106,7 @@ for rv in rivers:
             keep_p.append(p[k - 1] + d / max(np.linalg.norm(d), 1e-9) * min(4.0, 0.8 * np.linalg.norm(d)))
             keep.append([rv["hw"][k], rv["depth"][k] + plunge, L[k], rv["area"][k], 0.5 * (Ls[k - 1] + Ls[k])])
             falls += 1
+            fall_at.append(len(keep_p) - 1)
         keep_p.append(p[k])
         keep.append([rv["hw"][k], rv["depth"][k] + plunge * 0.6, L[k], rv["area"][k], Ls[k]])
     a = np.array(keep)
@@ -1111,7 +1118,47 @@ for rv in rivers:
     arc = np.concatenate([[0], np.cumsum(seg)])
     x = np.clip(arc / 250.0, 0, 1)
     rv["depth"] = rv["depth"] * np.maximum(x * x * (3 - 2 * x), 0.05)
+    # a pool at the foot of each fall, wider and deeper (most in the
+    # lowlands), where the water gathers before it picks up its current again
+    for fi in fall_at:
+        hw0 = float(rv["hw"][fi])
+        grow = 1.0 if rv["level"][fi] < 120.0 else 0.55
+        d_ = arc - arc[fi]
+        bump = np.where(d_ >= 0.0, np.exp(-((d_ - 1.2 * hw0) / (1.5 * hw0)) ** 2), 0.0)
+        rv["hw"] = rv["hw"] * (1.0 + grow * bump)
+        rv["depth"] = rv["depth"] + 1.5 * bump
+    rv["falls"] = fall_at
 log("waterfalls:", falls)
+
+# islands in the trunk where it runs wide and gentle through the lowlands
+# (away from the mouth and from confluences): the channel opens out round
+# each, a teardrop of sand and grass, blunt upstream, tapering downstream
+trunk_ = rivers[0]
+arc_t = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(trunk_["pts"], axis=0), axis=1))])
+joins_t = [int(np.argmin(np.linalg.norm(trunk_["pts"] - rv["pts"][-1], axis=1))) for rv in rivers if rv["joins"] == 0]
+islands = []
+order_ = np.argsort(-trunk_["hw"])
+for k in order_:
+    if len(islands) >= 4:
+        break
+    hw0 = float(trunk_["hw"][k])
+    if hw0 < 24.0 or trunk_["level"][k] > 90.0 or arc_t[-1] - arc_t[k] < 700.0 or arc_t[k] < 500.0:
+        continue
+    if any(abs(arc_t[k] - arc_t[j]) < 250.0 for j in joins_t) or any(abs(arc_t[k] - i_["s"]) < 600.0 for i_ in islands):
+        continue
+    k0, k1 = max(k - 6, 0), min(k + 6, len(arc_t) - 1)
+    if trunk_["level"][k0] - trunk_["level"][k1] > 1.5:
+        continue   # (not where it runs steep)
+    t_ = trunk_["pts"][k1] - trunk_["pts"][k0]
+    t_ /= max(np.linalg.norm(t_), 1e-9)
+    islands.append({"s": float(arc_t[k]), "k": int(k), "length": 5.0 * hw0, "width": 0.45 * hw0,
+                    "x": float(trunk_["pts"][k][0]), "z": float(trunk_["pts"][k][1]), "dx": float(t_[0]), "dz": float(t_[1]),
+                    "top": float(trunk_["level"][k]) + 1.4})
+for i_ in islands:
+    d_ = arc_t - i_["s"]
+    bump = np.exp(-(d_ / (0.6 * i_["length"])) ** 2)
+    trunk_["hw"] = trunk_["hw"] * (1.0 + 0.5 * bump)   # (room to flow round it)
+log("islands:", len(islands))
 for ri_, rv in enumerate(rivers):   # how far below the ground each river runs (before carving)
     cut_ = bilinear(hf, rv["pts"][:, 0], rv["pts"][:, 1]) - rv["level"]
     log("  river %d: below ground median %.1f m, 90%% %.1f m, max %.1f m" % (ri_, np.median(cut_), np.percentile(cut_, 90), cut_.max()))
@@ -1211,7 +1258,7 @@ def carve_river(px_, pz_, L, Ls, HW, DP, VR, VI, world, n, x0, z0, G, T, W, R):
             else:
                 # the bank rises steeply out of the water, then the
                 # floodplain climbs gently away
-                x = min((r - 1.0) / 0.3, 1.0)
+                x = min((r - 1.0) / max(0.3, 6.0 / hw), 1.0)   # (never steeper than the 2.5 m grid draws smoothly)
                 bank = min(0.4 + 0.15 * dep, dep * 0.8) * x * (2.0 - x) * min(max(water / 2.5, 0.15), 1.0)   # (low by the sea: no ridge along an estuary)
                 tgt = lvl + bank + max(r - 1.3, 0.0) * hw * 0.012
                 vi = SI[j, i] / sw
@@ -1317,6 +1364,22 @@ for rv in rivers:
         * np.clip((along_ + hw_e) / hw_e, 0, 1) * np.clip((1.5 - win_) / 0.9, 0, 1)
     bed_ = -dep_e * np.clip(1.0 - r_ * r_, 0.0, 1.0) - 0.4
     hf[j0:j1, i0:i1] = np.minimum(win_, win_ + (bed_ - win_) * wgt_ * wgt_ * (3.0 - 2.0 * wgt_))
+# the islands raised out of the channel
+cell_f = WORLD / N
+for i_ in islands:
+    half = 0.5 * i_["length"]
+    ext = half + i_["width"] + 10.0
+    i0, i1 = [int(np.clip((v + WORLD / 2) / cell_f, 0, N)) for v in (i_["x"] - ext, i_["x"] + ext)]
+    j0, j1 = [int(np.clip((v + WORLD / 2) / cell_f, 0, N)) for v in (i_["z"] - ext, i_["z"] + ext)]
+    gx, gz = np.meshgrid(np.arange(i0, i1) * cell_f - WORLD / 2, np.arange(j0, j1) * cell_f - WORLD / 2)
+    a_ = ((gx - i_["x"]) * i_["dx"] + (gz - i_["z"]) * i_["dz"]) / half          # -1 upstream .. 1 downstream
+    b_ = (-(gx - i_["x"]) * i_["dz"] + (gz - i_["z"]) * i_["dx"])
+    wid = i_["width"] * np.sqrt(np.clip(1.0 - a_ * a_, 0.0, 1.0)) * np.clip(1.15 - 0.45 * a_, 0.0, 1.3)   # blunt head, tapering tail
+    q_ = np.where(np.abs(a_) < 1.0, np.sqrt(a_ * a_ + (b_ / np.maximum(wid, 0.5)) ** 2), 2.0)   # 0 at its middle, 1 at its edge
+    rise = np.clip((1.0 - q_) / 0.35, 0.0, 1.0)
+    mound = i_["top"] - 3.0 + 3.0 * rise * rise * (3.0 - 2.0 * rise) + 0.4 * np.clip((0.6 - q_) / 0.6, 0, 1)
+    win_ = hf[j0:j1, i0:i1]
+    hf[j0:j1, i0:i1] = np.where(q_ < 1.0, np.maximum(win_, mound), win_)
 del SW, T
 log("rivers: %d, %d points" % (len(rivers), sum(len(r["pts"]) for r in rivers)))
 
@@ -1414,6 +1477,7 @@ out = {
         "depth": [round(float(v), 2) for v in rv["depth"]],
         "joins": rv["joins"],
     } for rv in rivers],
+    "islands": [{k_: round(v_, 2) for k_, v_ in i_.items() if k_ in ("x", "z", "dx", "dz", "length", "width", "top")} for i_ in islands],
 }
 json.dump(out, open(ROOT + "world.json", "w"), separators=(",", ":"))
 log("written: heights %.1f MB, trees %d, max %.0f m, min %.0f m" % (

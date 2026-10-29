@@ -13,10 +13,12 @@ extends RefCounted
 ## 8), how much water there is (blue: thinning in at a river's head, and
 ## gone deep inside the river a tributary joins) and the half width (alpha,
 ## m / 128). CUSTOM0 carries the falls: how far down a fall's sheet the
-## vertex is (m, -1 off the falls), that fall's height, and how far
-## downstream of the last fall's foot it is (m). Over a fall the sheet leaves
-## the lip level and curves down as falling water does (a parabola), its
-## cross-sections close together so the curve is smooth.
+## vertex is (m, -1 off the falls), that fall's height, how far downstream
+## of the last fall's foot it is and how far above the next fall's lip (m).
+## Over a fall the sheet leaves the lip level and curves down as falling water
+## does (a parabola), its cross-sections close together so the curve is
+## smooth, but never out from the rock: down the face it lies on it, a film of
+## water hugging the cliff (and the ledges in it).
 ## The smallest streams come first in the mesh and the trunk last:
 ## the water is drawn in that order, so where a tributary's mouth lies under
 ## its river's ribbon only the river shows, with its one current.
@@ -28,7 +30,7 @@ const FALL_STEP := 0.5     ## Cross-sections over a fall (m along the drop).
 const FALL_SLOPE := 1.0    ## A reach dropping more than this per metre run is a fall.
 
 
-static func build(rivers: Array[Dictionary]) -> ArrayMesh:
+static func build(rivers: Array[Dictionary], world: WorldData = null) -> ArrayMesh:
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
 	var cols := PackedColorArray()
@@ -39,7 +41,7 @@ static func build(rivers: Array[Dictionary]) -> ArrayMesh:
 		var r: Dictionary = rivers[ri]
 		if r.points.size() < 2:
 			continue
-		_ribbon(r, rivers[int(r.joins)] if int(r.joins) >= 0 else {}, verts, uvs, cols, dirs, falls, idx)
+		_ribbon(r, rivers[int(r.joins)] if int(r.joins) >= 0 else {}, world, verts, uvs, cols, dirs, falls, idx)
 	var mesh := ArrayMesh.new()
 	if verts.is_empty():
 		return mesh
@@ -56,7 +58,7 @@ static func build(rivers: Array[Dictionary]) -> ArrayMesh:
 	return mesh
 
 
-static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, uvs: PackedVector2Array,
+static func _ribbon(r: Dictionary, main: Dictionary, world: WorldData, verts: PackedVector3Array, uvs: PackedVector2Array,
 		cols: PackedColorArray, dirs: PackedVector3Array, falls: PackedFloat32Array, idx: PackedInt32Array) -> void:
 	var src: PackedVector3Array = r.points
 	var hw_src: PackedFloat32Array = r.half_width
@@ -87,6 +89,7 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 	var fill := PackedFloat32Array()
 	var fall := PackedFloat32Array()     # down the sheet (m), -1 off it
 	var fall_h := PackedFloat32Array()   # that fall's height
+	var fall_foot := PackedFloat32Array()   # the pool's level below it
 	for k in count:
 		var j := int(samples[k].x)
 		var t := samples[k].y
@@ -104,9 +107,11 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 			p.y = p1.y - drop * t * t
 			fall.append(drop * t * t)
 			fall_h.append(drop)
+			fall_foot.append(p2.y)
 		else:
 			fall.append(-1.0)
 			fall_h.append(0.0)
+			fall_foot.append(p.y)
 		pts.append(p)
 		hw.append(lerpf(hw_src[j], hw_src[j + 1], t))
 		dep.append(lerpf(dep_src[j], dep_src[j + 1], t))
@@ -192,11 +197,24 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 			# the ground always covers the ribbon's edge
 			var dip := maxf(0.0, absf(x) - 1.25) * 0.6
 			var v := Vector3(pts[k].x + off.x, pts[k].y - dip, pts[k].z + off.y)
+			var wet := 1.0
+			if world:
+				var ground := world.height_at(v.x, v.z)
+				if fall[k] >= 0.0:
+					# down the face, a film on the rock (at the lip, its full depth)
+					# (thicker on a steep face, so the sheet's flat triangles stay clear
+					# of the rock between its vertices rather than dipping into it)
+					var steep := Vector2(world.height_at(v.x + 1.0, v.z) - world.height_at(v.x - 1.0, v.z),
+							world.height_at(v.x, v.z + 1.0) - world.height_at(v.x, v.z - 1.0)).length() * 0.5
+					var film := 0.3 + clampf(steep * 1.2, 0.0, 2.5) + maxf(dep[k], 0.0) * (1.0 - smoothstep(0.0, 2.5, fall[k]))
+					v.y = maxf(minf(v.y, ground + film), fall_foot[k])
+				elif ground < v.y - dep[k] - 1.5:
+					wet = 0.0   # (hanging out over the ground falling away, as beside a lip: none there)
 			verts.append(v)
 			uvs.append(Vector2(x, along))
-			cols.append(Color(spd[k] / 8.0, dep[k] / 8.0, fill[k] * _fade_in_main(v, near_pts, near_hw), w / 128.0))
+			cols.append(Color(spd[k] / 8.0, dep[k] / 8.0, fill[k] * wet * _fade_in_main(v, near_pts, near_hw), w / 128.0))
 			dirs.append(down)
-			falls.append_array([fall[k], fall_h[k], minf(below, 1000.0), 0.0])
+			falls.append_array([fall[k], fall_h[k], minf(below, 1000.0), minf(to_fall[k], 1000.0)])
 	for k in count - 1:
 		for q in ACROSS - 1:
 			var a := base + k * ACROSS + q
