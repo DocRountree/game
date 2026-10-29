@@ -131,15 +131,18 @@ real (erosion at 10 m, 5 m and 2.5 m, rivers carved together with their
 water level) happens there, where there's time for it, so the game only
 loads and draws (about a second for the 8192 x 8192 heights). The world is
 small and the mountains are game-scale (peaks around 800 m); detail at every scale, haze, ambient occlusion and the trees are
-what make it read as big. Far land turns blue-grey (the terrain shader shifts
-its colour with distance) under a light haze (the environment's fog, coloured
-by the sky itself and kept off the sky, so sunsets and stars keep theirs).
+what make it read as big. Far land turns blue (the terrain shader shifts
+its colour with distance) under a blue haze: the environment's fog, half its
+own colour (set by `Atmosphere` with the time of day: blue by day,
+blue-violet at dusk, dark at night) and half the sky's toward the horizon,
+and kept off the sky, so sunsets and stars keep theirs.
 Under a river standing above the sea the bed is its sand, blending into the
 seabed's as the river comes down to the sea.
 
 - **`WorldData`** loads it once: the two height byte planes (high and low)
-  stay as bytes for CPU queries (`height_at`, bilinear) and become two
-  mipmapped R8 textures for the shaders, with no per-pixel work at load.
+  stay as bytes for CPU queries (`height_at`, bilinear; `surface_at`, exactly
+  the triangles the terrain draws) and become two mipmapped R8 textures for
+  the shaders, with no per-pixel work at load.
 - **Drawing** (`terrain.gd`, `terrain.gdshader`): a CDLOD quadtree of
   16 x 16 patches (`MultiMesh`). A patch of LOD k has vertices 2.5 m * 2^k
   apart, exactly on mip k's samples, and morphs toward k + 1 at the edge of
@@ -172,42 +175,65 @@ seabed's as the river comes down to the sea.
   red and green last. The bed (sand and gravel) shows through, fading with
   the water over it, but never more than about 80% of it (clear water:
   whatever lies on the bed shows well), so the water never vanishes at its
-  edges. In a waterfall's pool the current is slack and picks up again over a few
-  widths (`WorldData._current`, which also doesn't count the falls
+  edges. Below each riser the current is slack and picks up again over a few
+  widths (`WorldData._current`, which also doesn't count the drops
   themselves). The water's thickness comes from the depth texture,
   or, where there is none (with MSAA on there isn't), from the channel's own
   depth profile and the viewing angle.
-  Falls: the ribbon's sheet leaves the lip level and curves down (a
-  parabola, a cross-section every 0.5 m of the drop) but never out from the
-  rock: down the face it lies on it, a film hugging the cliff. It is smooth
-  and glassy over the lip, then streaming, its streaks stretching as the
-  water speeds up; below the lip it splits into strands down the rock (which
-  shows between them), white where it tumbles over little ledges in the face
-  and churning white at the foot; the pool below is stirred up, with ripples
-  running out from the foot. Above a lip the water runs rough and streaked
-  white among rocks (`RiverRocks`: a few just upstream of each lip, more and
-  bigger in the mountains, and some through steep mountain stretches). Round
-  an island the current parts along its shore and closes behind it, with a
-  ring of white at the shore and a ruffled wake. The sun's highlight is the
-  shader's own (a capped GGX `light()`), so a calm reach turned to the sun
-  shines rather than blooms. The water's very edge fades in over its first
-  30 cm, so the shore is soft; water that would hang out over ground falling
-  away (beside a lip) isn't drawn; level water seen from below shows its own
-  body, not the sky through it. The sheet is broken
-  water, never a mirror (rougher the further off it is), so it doesn't flash
-  the sun from afar; and level water grows rougher with distance as its
-  ripples become too fine to show, so the sun on far water is a soft sheen,
-  not a white-hot blob. Seen from behind (the back of a fall) or from below,
-  the surface turns to face the eye rather than going black. Where a river comes down to the sea (the trunk's
+  Falls: steep water comes down in steps the generator cuts into the rock
+  (cascades of a few tall risers, and step-pool streams; see
+  `world/README.md`), sampled finely. On a pool the water lies level; down
+  a riser it lies on the rock as a film: each vertex 0.45 m above the
+  ground exactly as the terrain draws it (`WorldData.surface_at`), then
+  neighbours lifted wherever the rock between them (across, down, and along
+  each triangle's diagonal) would come through, and every vertex held
+  between its riser's lip and the pool it falls into, and toward the banks
+  no higher than the water's level there (the banks stand higher, so it
+  can't spill over them). Round each riser the cross-sections are about a
+  metre apart each way; just below one the level water is lifted over any
+  rock at its foot (the 2.5 m grid can't make the foot of a tall riser
+  sharp), and the junctions between fine and coarse cross-sections lie on
+  level water, edge to edge. Down a riser the water is glassy for a moment
+  over the lip (the line where it breaks white wavers across it), then
+  white and streaming, streaked lighter and darker, its streaks fixed in the
+  falling water so they stretch as it speeds up, in strands with narrow gaps
+  where the wet rock shows dimly through, whiter where it tumbles over
+  little ledges in the face. Below each riser it churns white at the foot
+  and the foam drifts away downstream, thinning out (its patterns carried
+  out from the foot by two crossfaded phases, so they never shear). Above a
+  lip the water runs rough and streaked with white. `RiverSpray` adds the
+  splash and mist at every riser's foot: one multimesh of camera-facing
+  quads animated entirely on the GPU (`river_spray.gdshader`): clumps of
+  spray thrown up and falling back under gravity, higher below a taller
+  riser, and soft puffs of mist rising and drifting downstream, lit as a
+  translucent white, soft where they meet the ground and gone below the
+  water. Round an island the current parts along its shore and closes behind
+  it, with a little foam at its head and along its shore. Wakes and
+  ripples come from the ocean's ripple simulation (the player swimming, the
+  boat), which the river shader reads as well; in a river the simulation
+  drifts with its current (each wavelength shifted downstream exactly, in
+  the frequency domain), so wakes trail away downstream; steep ones churn
+  white. The sun's highlight is the shader's own (a capped GGX `light()`),
+  capped lower far off and on white water, and the sky the water reflects
+  has the halo round the sun capped (the sky shader's cubemap pass), so no
+  reach turns into a glinting blob, near or far. The water's very edge fades
+  in over its first 30 cm, so the shore is soft; water that would hang out
+  over ground falling away isn't drawn; level water seen from below shows
+  its own body, not the sky through it. Falling water is broken water,
+  never a mirror; and level water grows rougher with distance as its ripples
+  become too fine to show, so the sun on far water is a soft sheen. Seen
+  from behind or from below, the surface turns to face the eye rather than
+  going black. Where a river comes down to the sea (the trunk's
   estuary, its last 1.5 km at nearly sea level) its water turns into the
   sea's (the same colours and absorption), then it fades out into it as the
   ocean fades in (`WorldData.river_mask()`: the sea isn't drawn under river
   water above sea level, where a riverbed lies below it; the river is drawn
   over the sea; the terrain under it gets no sea-level damp line). On the
   inside of a bend the ribbon reaches no further than most of the way to the
-  bend's centre, so a wide reach never overlaps itself. Cross-sections are 2 m apart, so waterfalls stay sheer, and the
-  surface's frame follows the flow in 3D: over a fall the water faces
-  downstream and its streaks run down it. The ribbons are drawn smallest
+  bend's centre, so a wide reach never overlaps itself. Cross-sections are 2 m apart (round
+  risers, much closer), and the surface's frame follows the flow in 3D: down
+  a riser the water faces downstream and its streaks run down it. Coming into
+  its river, a tributary's water reaches further out over its banks. The ribbons are drawn smallest
   stream first and trunk last, so where a tributary's mouth lies under its
   river only the river shows, with its one current (a tributary curves into
   its river's direction in the generator).
@@ -223,8 +249,9 @@ A single-scattering sky after Sebastian Lague's
 [Solar System](https://github.com/SebLague/Solar-System) atmosphere, reworked from
 his whole-planet post-process into a Godot sky shader for a camera on the surface.
 Because it is the sky, it automatically drives water reflections, ambient light
-and distance haze (the environment's fog uses `aerial_perspective = 1`, which
-tints distant geometry with the sky colour in that direction).
+and distance haze (the environment's fog uses `aerial_perspective = 0.5`: half
+the sky colour in that direction, half the fog's own colour, which `atmosphere.gd`
+sets with the time of day; what glossy things reflect has the sun's halo capped).
 
 | File | Role |
 |---|---|

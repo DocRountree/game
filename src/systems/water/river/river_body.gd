@@ -17,6 +17,7 @@ var _tiles: Array[PackedInt32Array] = []
 var _per_side := 0
 var _corner := Vector2.ZERO
 var _sun: DirectionalLight3D
+var _ocean: Ocean
 var _time := 0.0
 
 
@@ -54,8 +55,10 @@ func setup(world: WorldData) -> void:
 
 func _ready() -> void:
 	for b in WaterBody.all():
-		if b is Ocean and b.sun:
-			_sun = b.sun
+		if b is Ocean:
+			_ocean = b
+			if b.sun:
+				_sun = b.sun
 
 
 func _process(delta: float) -> void:
@@ -63,6 +66,11 @@ func _process(delta: float) -> void:
 		return
 	_time += delta
 	material.set_shader_parameter("time", _time)
+	# the wakes and ripples round the player (the ocean's simulation, which
+	# drifts with the current in a river)
+	if _ocean and _ocean.ripples and _ocean.ripples.enabled:
+		material.set_shader_parameter("ripple_tex", _ocean.ripples.texture)
+		material.set_shader_parameter("ripple_rect", Vector3(_ocean.ripples.origin.x, _ocean.ripples.origin.y, _ocean.ripples.size()))
 	if _sun:
 		material.set_shader_parameter("sun_direction", _sun.global_basis.z)
 		material.set_shader_parameter("sun_color", Vector3(_sun.light_color.r, _sun.light_color.g, _sun.light_color.b) * _sun.light_energy)

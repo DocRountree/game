@@ -25,6 +25,11 @@ extends Node
 @export var sun_energy := 1.4
 @export_range(0.0, 1.0) var sunlight_desaturation := 0.5   ## How much of the low sun's colour is taken out of its light.
 @export var moon_energy := 0.12                     ## Full moon light.
+## The haze far land fades into (the environment's fog, half of it; the other
+## half is the sky's own colour toward the horizon, so a sunset keeps its glow):
+## blue by day, blue-violet at dusk, gone dark at night. The sky itself isn't fogged.
+@export var haze_color := Color(0.48, 0.62, 0.88)
+@export var haze_dusk_color := Color(0.36, 0.33, 0.58)
 
 @export_group("Scattering")
 # Lague's model with Earth-like proportions: his planets' atmospheres are 32%
@@ -197,6 +202,10 @@ func _update_sun() -> void:
 	sun.light_energy = sun_energy * clampf(lerpf(peak, lum, 0.5), 0.0, 1.0) * up
 	sun.shadow_enabled = up > 0.0
 	var night := night_amount()
+	if world_environment and world_environment.environment:
+		var day_ := smoothstep(-0.16, 0.1, dir.y)   # (still lit for a while after sunset)
+		var haze := haze_dusk_color.lerp(haze_color, smoothstep(0.0, 0.3, dir.y))
+		world_environment.environment.fog_light_color = haze * lerpf(0.03, 1.0, day_)
 	if starfield:   # stars come out from civil twilight (sun 0-10 degrees below the horizon)
 		starfield.update_sky(equatorial_to_world(), night)
 	if planets:   # they wander from day to day, relative to the fixed sun

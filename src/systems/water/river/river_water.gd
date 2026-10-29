@@ -1,8 +1,9 @@
 class_name RiverWater
 extends Node3D
 ## The world's rivers: their water drawn as ribbon meshes along each channel
-## (RiverRibbons, river.gdshader), the rocks in their rapids (RiverRocks) and
-## their water body (RiverBody). The ground's banks cut the water's edge.
+## (RiverRibbons, river.gdshader), the splash and mist where their waterfalls
+## land (RiverSpray) and their water body (RiverBody). The ground's banks cut
+## the water's edge.
 
 var material: ShaderMaterial
 var body: RiverBody
@@ -19,7 +20,7 @@ func setup(world: WorldData) -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.top_level = true
 	add_child(mi)
-	add_child(RiverRocks.build(world))
+	add_child(RiverSpray.build(world))
 	# the islands, for the water flowing round them
 	var isl: Array[Vector4] = []
 	var sizes: Array[Vector3] = []

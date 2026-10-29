@@ -54,12 +54,20 @@ How it's made:
    and bar there, so nothing stands between it and the sea. The
    water level is the downhill profile closest to the ground, smoothed into one continuous
    run of gentle reaches and rapids. Each tributary gets a waterfall where the ground drops
-   steeply (the most over 144 m, at least 12 m; a second only for 40 m or more): the water
-   follows the ground down to a lip halfway down the drop and falls sheer into a plunge
-   pool, so the falls are tall where the mountains are steep and the gorge below one is
-   only half the drop. A side valley hanging more than 6 m above its river's floodplain
-   drops the rest in a waterfall where it meets it. Below each fall the river opens into a
-   pool, wider and deeper (most in the lowlands). Where the trunk runs wide and gentle in
+   steeply (the most over 144 m, at least 12 m; a second only for 40 m or more), and a side
+   valley hanging more than 6 m above its river's floodplain drops the rest in one where it
+   meets it. Steep water comes down in steps of rock, the water level in a pool on each
+   step and pouring down the riser to the next: each waterfall is a cascade of two to six
+   steep risers (each its own height, width and steepness) with a ledge pool on each tread
+   between them, into a plunge pool at its foot, wider and deeper (most in the lowlands);
+   every other reach steeper than 7% becomes a step-pool stream (risers 1.3-4 m, taller
+   where it's steeper, unevenly spaced, adding up to the reach's drop, each where the
+   smooth profile passes halfway down it, the reach running right up to a cascade's lip).
+   Each riser is narrower than the channel and set off to one side or the other, so the
+   steps zig-zag down between the rocks; the channel runs dead straight over each riser and
+   a little either side, so its lip lies square across the water. Each riser is sampled
+   finely (every 0.8 m) so the carve cuts it cleanly; the points say how far down a riser
+   each is ("riser"), and each cascade's first and last point are listed ("cascades"). Where the trunk runs wide and gentle in
    the lowlands (away from the mouth and its confluences) it parts round a few islands:
    teardrops of sand and grass, blunt upstream and tapering downstream, the channel opening
    out round each (listed in world.json as "islands"). The bed, banks and floodplain are carved into the
@@ -67,9 +75,14 @@ How it's made:
    continuous field (nearby reaches blended), the floodplain wide in the lowlands and none
    beside mountain streams (their banks meet the valley's own sides, which are left as they
    are), the sides laid back in a V wherever a river runs below the ground (below a fall),
-   and beyond the banks the ground only ever lowered, never built up, and where valleys overlap the river with the stronger claim
+   and beyond the banks the ground only ever lowered, never built up (easing over to that
+   between 1.3 and 2.4 half widths out, with no step where it starts); the banks never
+   stand lower than the water nearest them, higher down a cascade (a channel of rock, cut
+   sharply so each step is clean). Where valleys overlap the river with the stronger claim
    takes over smoothly; every channel is then cut through the others' banks, so a
-   tributary keeps its width right into its river.
+   tributary keeps its width right into its river (the cut easing off over its banks).
+   Last, the ground beside every channel is lightly smoothed (not in the water, nor down a
+   cascade), so no step or sawtooth is left along a bank, and held above the water again.
    Mountaintops are made a little rounder (narrow crests and spines eased) so they can be
    stood on, and river banks are never steeper than the 2.5 m grid draws smoothly.
 5. **Masks and trees**: rock on steep and high ground, sand on beaches, the seafloor and

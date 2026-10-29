@@ -67,13 +67,15 @@ func recenter(pos: Vector3) -> void:
 
 
 ## Advance by one physics frame. sources: 8 floats per source (see ripple_sim.glsl).
-func step(frame_dt: float, sources: PackedFloat32Array) -> void:
+## current: the water's drift there (m/s, x and z), which carries the ripples
+## along (a river's wakes trail away downstream).
+func step(frame_dt: float, sources: PackedFloat32Array, current := Vector2.ZERO) -> void:
 	if not enabled:
 		return
 	var data := sources.to_byte_array()
 	var mode := 7 if _fresh else 0
 	RenderingServer.call_on_render_thread(
-		_dispatch.bind(data, sources.size() / 8, mode, _pending_shift, origin, frame_dt))
+		_dispatch.bind(data, sources.size() / 8, mode, _pending_shift, origin, frame_dt, current))
 	_pending_shift = Vector2i.ZERO
 	_fresh = false
 
@@ -175,21 +177,21 @@ func _buffer_uniform(binding: int, rid: RID) -> RDUniform:
 
 
 func _dispatch(data: PackedByteArray, count: int, mode: int, shift: Vector2i, at: Vector2,
-		frame_dt: float) -> void:
+		frame_dt: float, current: Vector2) -> void:
 	if data.size() > 0:
 		_rd.buffer_update(_source_buf, 0, data.size(), data)
 	var cl := _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(cl, _pipeline)
 	_rd.compute_list_bind_uniform_set(cl, _set, 0)
 	for m: int in [mode, 2, 3, 1, 4, 5, 6]:   # sources, FFT, advance, inverse FFT, unpack
-		_pass(cl, m, count, shift, at, frame_dt)
+		_pass(cl, m, count, shift, at, frame_dt, current)
 	_rd.compute_list_end()
 	_rd.texture_get_data_async(_disp, 0, _on_readback.bind(at))
 
 
-func _pass(cl: int, mode: int, count: int, shift: Vector2i, at: Vector2, frame_dt: float) -> void:
+func _pass(cl: int, mode: int, count: int, shift: Vector2i, at: Vector2, frame_dt: float, current: Vector2) -> void:
 	var pc := PackedByteArray()
-	pc.resize(48)
+	pc.resize(64)
 	pc.encode_float(0, at.x)
 	pc.encode_float(4, at.y)
 	pc.encode_s32(8, shift.x)
@@ -201,6 +203,8 @@ func _pass(cl: int, mode: int, count: int, shift: Vector2i, at: Vector2, frame_d
 	pc.encode_s32(32, mode)
 	pc.encode_s32(36, count)
 	pc.encode_s32(40, SPONGE)
+	pc.encode_float(48, current.x)
+	pc.encode_float(52, current.y)
 	_rd.compute_list_set_push_constant(cl, pc, pc.size())
 	_rd.compute_list_dispatch(cl, 1, N, 1)
 	_rd.compute_list_add_barrier(cl)

@@ -21,8 +21,13 @@ var ground: Image                   ## RGBA: rock, sand, forest density, ambient
 var spawn := Vector2.ZERO           ## Where the player starts (world x, z).
 var boat := Vector2.ZERO            ## Where the boat is moored.
 ## Rivers: Dictionaries with "points" (PackedVector3Array: x, water level, z),
-## "half_width", "depth", "speed" (PackedFloat32Array per point) and "joins"
-## (the index of the river it runs into, -1 for the sea). Downstream order.
+## "half_width", "depth", "speed", "riser" (PackedFloat32Array per point),
+## "cascades" (Array[Vector2i]) and "joins" (the index of the river it runs
+## into, -1 for the sea). Downstream order. Steep water comes down in steps,
+## sampled finely: big waterfalls as cascades of a few tall risers (each
+## cascade's first and last point in "cascades"), steep reaches as step-pool
+## streams; "riser" is how far down a riser a point is (0 at its lip, 1 at its
+## foot; -1 off the risers).
 var rivers: Array[Dictionary] = []
 var landmasses: Array = []
 ## Islands in the rivers: Dictionaries with "x", "z" (middle), "dx", "dz"
@@ -78,7 +83,15 @@ func _load() -> bool:
 			pts.append(Vector3(p[0], p[1], p[2]))
 		var hw := PackedFloat32Array(r.half_width)
 		var depth := PackedFloat32Array(r.depth)
-		rivers.append({"points": pts, "half_width": hw, "depth": depth, "speed": _current(pts, hw), "joins": int(r.joins)})
+		var riser := PackedFloat32Array(r.get("riser", []))
+		if riser.size() != pts.size():
+			riser.resize(pts.size())
+			riser.fill(-1.0)
+		var cascades: Array[Vector2i] = []
+		for c: Array in r.get("cascades", []):
+			cascades.append(Vector2i(int(c[0]), int(c[1])))
+		rivers.append({"points": pts, "half_width": hw, "depth": depth, "riser": riser, "cascades": cascades,
+				"speed": _current(pts, hw, riser), "joins": int(r.joins)})
 	return true
 
 
@@ -137,7 +150,7 @@ func river_mask() -> ImageTexture:
 ## one point to the next (however unevenly the points are spaced). Below a
 ## waterfall the water gathers in its pool and picks its current up again
 ## over a few widths.
-static func _current(pts: PackedVector3Array, hw: PackedFloat32Array) -> PackedFloat32Array:
+static func _current(pts: PackedVector3Array, hw: PackedFloat32Array, riser: PackedFloat32Array) -> PackedFloat32Array:
 	var n := pts.size()
 	var arc := PackedFloat32Array([0.0])
 	for k in range(1, n):
@@ -148,7 +161,7 @@ static func _current(pts: PackedVector3Array, hw: PackedFloat32Array) -> PackedF
 	for k in range(1, n):
 		var drop := pts[k - 1].y - pts[k].y
 		var run := arc[k] - arc[k - 1]
-		var fall := drop > 3.0 and drop > run
+		var fall := riser[k] > 0.0
 		lvl.append(lvl[k - 1] - (0.0 if fall else drop))
 		since_fall.append(0.0 if fall else since_fall[k - 1] + run)
 	var raw := PackedFloat32Array()
@@ -197,6 +210,32 @@ func height_at(x: float, z: float) -> float:
 	var fx := gx - ix
 	var fz := gz - iz
 	return lerpf(lerpf(sample(ix, iz), sample(ix + 1, iz), fx), lerpf(sample(ix, iz + 1), sample(ix + 1, iz + 1), fx), fz)
+
+
+## Ground height (m) at a world point exactly as the finest terrain patches
+## draw it: each 2.5 m quad split into two triangles, the diagonal alternating
+## quad by quad (see Terrain._patch_mesh). Water laid over the ground (down a
+## waterfall) uses this, so it lies on the rock the player sees.
+func surface_at(x: float, z: float) -> float:
+	var gx := (x + size * 0.5) / spacing
+	var gz := (z + size * 0.5) / spacing
+	if gx < 0.0 or gz < 0.0 or gx > texels - 1 or gz > texels - 1:
+		return h_min
+	var ix := int(gx)
+	var iz := int(gz)
+	var fx := gx - ix
+	var fz := gz - iz
+	var h00 := sample(ix, iz)
+	var h10 := sample(ix + 1, iz)
+	var h01 := sample(ix, iz + 1)
+	var h11 := sample(ix + 1, iz + 1)
+	if (ix + iz) % 2 == 0:   # (split from (1, 0) to (0, 1))
+		if fx + fz <= 1.0:
+			return h00 + (h10 - h00) * fx + (h01 - h00) * fz
+		return h11 + (h01 - h11) * (1.0 - fx) + (h10 - h11) * (1.0 - fz)
+	if fx >= fz:             # (split from (0, 0) to (1, 1))
+		return h00 + (h10 - h00) * fx + (h11 - h10) * fz
+	return h00 + (h01 - h00) * fz + (h11 - h01) * fx
 
 
 ## The ground masks at a point: rock, sand, forest density, ambient occlusion (0..1).

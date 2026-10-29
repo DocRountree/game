@@ -44,6 +44,10 @@ uniform vec3 sun_direction = vec3(0.0, 0.5, -0.8);
 uniform float sun_disc_size = 0.9998;     // cos of the sun's angular radius
 uniform float sun_disc_brightness = 8.0;  // low enough that a setting sun can show its colour
 uniform vec3 night_sky = vec3(0.001, 0.002, 0.005);
+// What glossy things (water above all) reflect is capped at this: the bright
+// halo round the sun would otherwise show in a reach of water as a glaring
+// blob, and from far off as glints. (The sky itself is drawn uncapped.)
+uniform float reflection_cap = 1.0;
 uniform float planet_radius = 6400000.0;
 
 // (distance to sphere, distance through sphere); (1e30, 0) on a miss
@@ -152,5 +156,9 @@ void sky() {
 		light += view_transmittance * disc * sun_disc_brightness;
 	}
 
+	if (AT_CUBEMAP_PASS) {
+		float peak = max(max(light.r, light.g), light.b);
+		light *= reflection_cap / max(peak, reflection_cap);   // (its hue kept)
+	}
 	COLOR = light + night_sky;
 }

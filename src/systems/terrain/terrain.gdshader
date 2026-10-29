@@ -137,8 +137,8 @@ void fragment() {
 	col *= mix(1.0, 0.72, (1.0 - smoothstep(0.0, 0.6, h)) * step(-0.5, h) * (1.0 - in_river));
 	// far land turns blue-grey (aerial perspective; the haze itself is the
 	// environment's fog, coloured by the sky, so sunsets and stars keep theirs)
-	float far = 1.0 - exp(-length(world_pos - CAMERA_POSITION_WORLD) / 7000.0);
-	col = mix(col, vec3(dot(col, vec3(0.3, 0.59, 0.11))) * vec3(0.7, 0.86, 1.18), far * 0.6);
+	float far = 1.0 - exp(-length(world_pos - CAMERA_POSITION_WORLD) / 4500.0);
+	col = mix(col, vec3(dot(col, vec3(0.3, 0.59, 0.11))) * vec3(0.6, 0.8, 1.25), far * 0.75);
 	ALBEDO = col * mix(0.55, 1.0, gw.a);
 	AO = gw.a;
 	AO_LIGHT_AFFECT = 0.3;

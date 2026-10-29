@@ -66,10 +66,16 @@ func _physics_process(delta: float) -> void:
 	if Engine.is_editor_hint():
 		return
 	time += delta
+	var drift := Vector2.ZERO
 	if focus:
 		ripples.recenter(focus.global_position)
+		# in a river the ripples drift downstream with its current
+		var b := Water.body_at(focus.global_position.x, focus.global_position.z)
+		if b and b != self:
+			var f := b.flow_at(focus.global_position.x, focus.global_position.z)
+			drift = Vector2(f.x, f.z)
 	_gather_ripple_sources()
-	ripples.step(delta, _sources)
+	ripples.step(delta, _sources, drift)
 
 
 func _process(delta: float) -> void:

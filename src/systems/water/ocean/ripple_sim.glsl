@@ -54,6 +54,8 @@ layout(push_constant, std430) uniform Params {
 	int source_count;
 	int sponge;        // border width in cells
 	float pad;
+	vec2 current;      // the water's own drift (m/s): a river carries its wakes downstream
+	vec2 pad2;
 } pc;
 
 shared vec2 lane[2][N];
@@ -175,6 +177,11 @@ void main() {
 			vec2 h2 = (hk * cw + vk * (sw / w)) * fade;
 			vec2 v2 = (vk * cw - hk * (w * sw)) * fade;
 			out_f = h2 + vec2(-v2.y, v2.x);   // h + i v
+			// carried along by the current: every wavelength shifted downstream
+			// by current * dt (a phase turn of -k.u dt; h and v alike)
+			float ph = -dot(n * (TAU / (float(N) * pc.cell)), pc.current) * pc.dt;
+			vec2 rot = vec2(cos(ph), sin(ph));
+			out_f = vec2(out_f.x * rot.x - out_f.y * rot.y, out_f.x * rot.y + out_f.y * rot.x);
 		}
 		field_b[at(y, x)] = out_f;
 	} else if (pc.mode == 6) {
