@@ -35,12 +35,20 @@ How it's made:
    branches and up to two branches off each of those, every stream traced up its own valley
    (by the biggest donor) to where it starts. Smoothed over about its own width (no jogs
    from the grid it was traced on), meandering where the valley floor is flat (never so
-   much round a bend that the course folds over itself); each tributary's last stretch
-   curves round into its river, crossing the bank at 30-45 degrees and easing in alongside
-   to meet it on its centreline. No centreline doubles back on itself or bends tighter
+   much round a bend that the course folds over itself). A tributary keeps its own course
+   only until it first comes within reach of its river (the river's floodplain), so it
+   never runs along beside it; from there it heads in and crosses the bank at 30-45
+   degrees, easing in alongside to meet it on its centreline. Streams that would be only
+   stubs that way (their whole valley beside their river) are left out. Across its river's
+   floodplain a tributary lies no higher than the floodplain, and it ends at its river's
+   level; it is brought down to those gently (the lowering spread back up its course at
+   1 cm a metre), never in a step at the floodplain or the confluence. No centreline doubles back on itself or bends tighter
    than a radius of 2.5 half widths. Widths are set for game scale (9 m wide at the heads,
    about 130 m at the mouth, where the trunk opens out into the sea over its last 500 m),
-   and depths too (1.6 m at the heads to 7 m at the mouth). The
+   and depths too (1.6 m at the heads to 7 m, shoaling to about 3 m at the mouth). The
+   trunk ends in an estuary: over its last 1.5 km it comes down to the sea gently (2.2 m
+   per km, 0.25 m at the coast), its valley floor with it, and its bed is carved right
+   out to the coast. The
    water level is the downhill profile closest to the ground, smoothed into one continuous
    run of gentle reaches and rapids. Each tributary gets at most one waterfall, at its
    steepest spot where the ground drops at least 8 m over 60 m: the pool below is carried

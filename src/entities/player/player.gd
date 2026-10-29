@@ -281,13 +281,21 @@ func _climb(delta: float) -> void:
 		_mantle(delta)
 		return
 	if hit.is_empty() or hit.normal.y >= CLIMBABLE_Y:
-		# the rock ends or turns walkable: pull over the top if there's ground
-		# up there, otherwise there's nothing to hold
-		var over := global_position + Vector3.UP * 1.6 - climb_normal * 0.8
-		var ground := _ray(over, over + Vector3.DOWN * 3.5)
-		if ground and ground.normal.y >= CLIMBABLE_Y:
+		# the rock ends or turns walkable: pull up onto it (where it turned
+		# walkable, or over the top), otherwise there's nothing to hold
+		var top := Vector3.INF
+		if not hit.is_empty():
+			top = hit.position
+		else:
+			for reach: float in [0.8, 1.6]:
+				var over := global_position + Vector3.UP * 1.6 - climb_normal * reach
+				var ground := _ray(over, over + Vector3.DOWN * 3.5)
+				if ground and ground.normal.y >= CLIMBABLE_Y:
+					top = ground.position
+					break
+		if top != Vector3.INF:
 			_mantle_from = global_position
-			_mantle_to = (ground.position as Vector3) + Vector3.UP * (CHEST + 0.05)
+			_mantle_to = top + Vector3.UP * (CHEST + 0.05)
 			_mantle_t = 0.0
 			_collision.disabled = true   # (the body passes over the edge)
 		else:

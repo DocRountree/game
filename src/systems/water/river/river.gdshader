@@ -25,7 +25,8 @@ render_mode blend_mix, depth_draw_never, cull_disabled;
 // The bed shows through, fading with the depth of water over it, but never
 // more than `bed_visibility` of it: the water keeps a body of its own however
 // shallow it is, so it never seems to vanish at its edges. Where a river runs
-// down to the sea it fades out into it (the ocean fades in, WorldData.river_mask()).
+// down to the sea its water turns into the sea's (the same colours and
+// absorption) and it fades out into it (the ocean fades in, WorldData.river_mask()).
 //
 // Falls: the sheet leaves the lip smooth and glassy and speeds up as it
 // drops (as falling water does), its streaks stretching as they go, with the
@@ -43,6 +44,11 @@ uniform vec3 scatter_color = vec3(0.05, 0.12, 0.075);
 uniform float bed_visibility = 0.82;  // at most this much of the bed shows through
 uniform vec3 bed_tint = vec3(0.86, 0.96, 0.9);
 uniform float refraction = 0.03;
+// the sea's water (as water.gdshader has it), which a river's turns into as
+// it comes down to the sea, so the two meet without a seam
+uniform vec3 sea_deep_color = vec3(0.004, 0.03, 0.06);
+uniform vec3 sea_scatter_color = vec3(0.0, 0.13, 0.14);
+uniform vec3 sea_absorption = vec3(0.45, 0.09, 0.06);   // per metre
 uniform float noise_scale = 2.0;      // cycles per metre of the coarsest ripple octave
 uniform float flow_period = 1.0;      // s: each flow phase lasts this long
 uniform float sheet_streaks = 0.6;    // ripple strength on a fall's sheet
@@ -228,7 +234,9 @@ void fragment() {
 	float tau = (v - v0) / 9.8;
 	vec3 fs = fall_sheet(rp.x, tau, v);
 	float glassy = smoothstep(0.2, 1.8, d);
-	vec2 sl = fs.yz * sheet_streaks * glassy;
+	// how much water a pixel spans (in 3D: a fall's sheet is upright)
+	float px = max(length(dFdx(wpos)), length(dFdy(wpos)));
+	vec2 sl = fs.yz * sheet_streaks * glassy / (1.0 + px * px * 4.0);   // (no sparkle far off)
 	vec3 n_fall = normalize(normalize(cross(ax, dn)) - (ax * sl.x + dn * sl.y));
 	vec3 n_world = normalize(mix(n_flat, n_fall, falling));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
@@ -260,23 +268,28 @@ void fragment() {
 	float sun_dot_v = dot(sun_direction, -view_world);
 	float diffuse = max(dot(n_world, sun_direction), 0.0);
 	vec3 body = (deep_color * (0.5 + 0.8 * diffuse) + scatter_color * 0.45 * (0.5 + 0.5 * diffuse) * (1.0 + 0.5 * sun_dot_v));
+	// coming down to the sea (its last few metres of fall) it becomes sea water
+	float sea = 1.0 - smoothstep(0.5, 3.5, wpos.y);
+	transmit = mix(transmit, exp(-sea_absorption * thickness), sea);
+	body = mix(body, sea_deep_color * (0.5 + 0.8 * diffuse) + sea_scatter_color * 0.04 * (0.5 + 0.5 * diffuse), sea);
 	// the sheet is thin water, lit through: lighter, in bands where it's thinner
 	vec3 sheet_body = (deep_color * 1.4 + scatter_color * (0.45 + 0.5 * max(sun_dot_v, 0.0))) * mix(0.65, 1.3, fs.x) * (0.45 + 0.4 * diffuse);
 	body = mix(body, sheet_body, falling) * (0.12 + 0.88 * sun_color);
-	vec3 refracted = background * transmit * bed_tint + body * (1.0 - transmit);
+	vec3 refracted = background * transmit * mix(bed_tint, vec3(1.0), sea) + body * (1.0 - transmit);
 
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
 	// gloss falls away where a pixel spans more water (Adrift's gloss factor)
-	vec2 fw = max(abs(dFdx(wpos.xz)), abs(dFdy(wpos.xz)));
-	float gloss = 0.99 * exp2(-max(fw.x, fw.y) * 0.03);
+	float gloss = 0.99 * exp2(-px * 0.03);
 	ALBEDO = vec3(0.0);
-	ROUGHNESS = clamp(1.0 - gloss, 0.02, 0.6);
-	SPECULAR = 0.5;
+	// a fall's sheet is broken water: never a mirror (it would flash the sun
+	// from far off), rougher the further it is
+	ROUGHNESS = mix(clamp(1.0 - gloss, 0.02, 0.6), clamp(0.25 + px * 0.12, 0.25, 0.6), falling);
+	SPECULAR = mix(0.5, 0.3, falling);
 	EMISSION = refracted * (1.0 - fresnel);
 	// whole across the channel (the banks cut its edge); a soft fringe only
 	// at the ribbon's very edge (ragged down a fall's sides), thinning in at a
 	// river's head, and fading out where it comes down to the sea
 	float edge = mix(1.25, 0.95 + 0.12 * fs.x, falling);
 	ALPHA = (1.0 - smoothstep(edge, edge + 0.25, across)) * smoothstep(0.0, 0.25, fill)
-			* smoothstep(0.2, 2.0, wpos.y);
+			* smoothstep(0.2, 0.8, wpos.y);   // (by then it's sea water, as the sea is)
 }

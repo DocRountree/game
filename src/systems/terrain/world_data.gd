@@ -80,7 +80,9 @@ func _load() -> bool:
 
 ## Where the rivers' water stands above the sea, for the ocean (which isn't
 ## drawn under it): an R8 texture of the world at 1/4 the height resolution,
-## each texel the level of the nearest reach (0..2 m as 0..1; 0 outside the rivers).
+## each texel the level of the nearest reach (0..2 m as 0..1; 0 outside the rivers);
+## where two rivers' water overlaps, the lower (so a tributary's never breaks
+## up the smooth fall of its river's to the sea).
 ## Only the reaches low enough to have sea-level ground under them count.
 func river_mask() -> ImageTexture:
 	if _river_mask:
@@ -92,7 +94,11 @@ func river_mask() -> ImageTexture:
 	var near := PackedFloat32Array()
 	near.resize(n * n)
 	near.fill(INF)
-	for r in rivers:
+	var owner := PackedInt32Array()
+	owner.resize(n * n)
+	owner.fill(-1)
+	for ri in rivers.size():
+		var r: Dictionary = rivers[ri]
 		var pts: PackedVector3Array = r.points
 		var hw: PackedFloat32Array = r.half_width
 		for k in pts.size() - 1:
@@ -102,7 +108,7 @@ func river_mask() -> ImageTexture:
 			for st in steps:
 				var t := float(st) / steps
 				var p := pts[k].lerp(pts[k + 1], t)
-				var rad := lerpf(hw[k], hw[k + 1], t) * 1.2 + 5.0
+				var rad := lerpf(hw[k], hw[k + 1], t) * 1.05   # (the water itself, not the shore beside it)
 				var v := int(clampf(p.y / 2.0, 0.0, 1.0) * 255.0)
 				var cx := (p.x + size * 0.5) / cell
 				var cz := (p.z + size * 0.5) / cell
@@ -111,7 +117,10 @@ func river_mask() -> ImageTexture:
 					for ix in range(maxi(int(cx - rc), 0), mini(int(cx + rc) + 1, n)):
 						var dd := Vector2(ix + 0.5 - cx, iz + 0.5 - cz).length()
 						var i := iz * n + ix
-						if dd <= rc and dd < near[i]:
+						if dd > rc:
+							continue
+						if owner[i] == ri and dd < near[i] or owner[i] == -1 or owner[i] != ri and v < data[i]:
+							owner[i] = ri
 							near[i] = dd
 							data[i] = v
 	_river_mask = ImageTexture.create_from_image(Image.create_from_data(n, n, false, Image.FORMAT_R8, data))

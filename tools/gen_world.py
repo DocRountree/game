@@ -543,6 +543,11 @@ w = np.clip(coast / 250.0, 0, 1)
 hl = he * ratio * w + h0 * (1 - w)
 h = np.where(land, np.maximum(hl, 0.4), h)
 h = talus(h, land, CELL, math.tan(math.radians(40.0)), 20)
+# the coast smoothed over 40 m either side, so the shoreline is a curve, not
+# the 10 m cells' staircase (land is held just above the sea, the sea isn't)
+near_coast = np.minimum(ndimage.distance_transform_edt(land), ndimage.distance_transform_edt(~land)) * CELL
+h = h + (ndimage.gaussian_filter(h, 1.5) - h) * np.clip(1.0 - near_coast / 40.0, 0, 1)
+del near_coast
 log("stream power; max %.0f m" % h.max())
 
 
@@ -833,6 +838,13 @@ for rv in rivers:
     pts += nrm * (a_t * np.sin(ph))[:, None] + tan * (0.3 * a_t * np.cos(ph))[:, None]
 
 
+def mouth_funnel(pts):
+    """How far into the trunk's funnel-shaped mouth each point is: 0 up to
+    500 m from the sea, 1 at the coast."""
+    arc_ = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+    return np.clip(1.0 - (arc_[-1] - arc_) / 500.0, 0, 1)
+
+
 def resample(pts, attrs, step=6.0):
     seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
     s = np.concatenate([[0], np.cumsum(seg)])
@@ -841,12 +853,13 @@ def resample(pts, attrs, step=6.0):
     return out, [np.interp(ss, s, a) for a in attrs]
 
 
-# confluences: each tributary's last stretch curves round into its river and
-# meets it as real tributaries do, crossing the bank at 30-45 degrees and
-# easing in alongside, the two currents running together. The approach is
-# laid out in the main river's frame (along its bends): a parabola from its
-# centreline out to the bank, then straight on at the crossing angle; the
-# tributary's own course is joined onto it with a smooth curve.
+# confluences: a tributary keeps its own course only until it first comes
+# within reach of its river (the river's floodplain), so it never runs along
+# beside it; from there it heads in and meets it as real tributaries do,
+# crossing the bank at 30-45 degrees and easing in alongside, the two
+# currents running together. The approach is laid out in the main river's
+# frame (along its bends): straight in at the crossing angle, then a
+# parabola from the bank to the centreline.
 def unloop(pts, attrs):
     """Drop the points where a centreline doubles back on itself (progress
     measured along a smoothed copy of it), then round off what's left."""
@@ -871,52 +884,60 @@ for rv in rivers:
         continue
     main = rivers[rv["joins"]]
     mp = main["pts"]
+    m_hw = half_width(main["area"])
+    if main["joins"] < 0:
+        m_hw = m_hw * (1.0 + 0.6 * mouth_funnel(mp) ** 2)   # (the water as wide as it will be)
     m_arc = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(mp, axis=0), axis=1))])
     pts = rv["pts"]
-    k = int(np.argmin(np.linalg.norm(mp - pts[-1], axis=1)))
-    hw_m = float(half_width(main["area"][k]))
-    seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-    total = seg.sum()
+    hw_t = half_width(rv["area"])
 
-    def on_main(sv):
+    def on_main(sv, span):
         sv = float(np.clip(sv, 0.0, m_arc[-1]))
         c = np.array([np.interp(sv, m_arc, mp[:, 0]), np.interp(sv, m_arc, mp[:, 1])])
-        a = np.array([np.interp(sv - hw_m, m_arc, mp[:, 0]), np.interp(sv - hw_m, m_arc, mp[:, 1])])
-        b = np.array([np.interp(sv + hw_m, m_arc, mp[:, 0]), np.interp(sv + hw_m, m_arc, mp[:, 1])])
+        a = np.array([np.interp(sv - span, m_arc, mp[:, 0]), np.interp(sv - span, m_arc, mp[:, 1])])
+        b = np.array([np.interp(sv + span, m_arc, mp[:, 0]), np.interp(sv + span, m_arc, mp[:, 1])])
         t = (b - a) / max(np.linalg.norm(b - a), 1e-9)
         return c, t, np.array([-t[1], t[0]])
 
-    # which side it comes in from (where its course is, well back from the end)
-    lb = float(np.clip(5.0 * hw_m + 80.0, 90.0, 0.5 * total))
-    back = np.cumsum(seg[::-1])
-    s_i = max(len(pts) - 1 - int(np.searchsorted(back, lb)) - 1, 2)
-    c0, _, n0 = on_main(m_arc[k])
-    side = 1.0 if np.dot(pts[s_i] - c0, n0) >= 0.0 else -1.0
-    slope = math.tan(math.radians(rng.uniform(30.0, 45.0)))
-    xc = 2.0 * hw_m / slope              # the parabola meets the bank at that slope
-    x_out = xc + 1.2 * hw_m              # the straight run beyond the bank
-    s_e = min(m_arc[k] + xc, m_arc[-1] - 1.0)
-    approach = []
-    for x in np.linspace(x_out, 0.0, max(int(x_out / 3.0), 8)):
-        y = hw_m * (x / xc) ** 2 if x <= xc else hw_m + slope * (x - xc)
-        c, t, nn = on_main(s_e - x)
-        approach.append(c + nn * side * y)
-    approach = np.array(approach)
-    a0 = approach[0]
-    ta = approach[1] - approach[0]
-    ta /= max(np.linalg.norm(ta), 1e-9)
-    p0 = pts[s_i]
-    t0 = pts[s_i] - pts[s_i - 2]
+    # where it first comes within reach of the main river (its floodplain):
+    # its course is kept that far, and no further (no running alongside)
+    d2 = ((pts[:, None, :] - mp[None, :, :]) ** 2).sum(-1)
+    near = np.argmin(d2, axis=1)
+    dist = np.sqrt(d2[np.arange(len(pts)), near])
+    reach = m_hw[near] + 3.0 * hw_t + 40.0
+    within = np.nonzero(dist < reach)[0]
+    c = int(within[0]) if len(within) else len(pts) - 1
+    c = int(np.clip(c, 3, len(pts) - 1))
+    if c * 6.0 < 400.0:
+        rv["stub"] = True   # (all of its valley beside its river: it would be only a stub)
+    p0 = pts[c]
+    t0 = pts[c] - pts[c - 3]
     t0 /= max(np.linalg.norm(t0), 1e-9)
-    L = float(np.linalg.norm(a0 - p0))
-    u = np.linspace(0, 1, max(int(L / 3.0), 8))[:-1, None]
-    c1 = p0 + t0 * L * 0.4
-    c2 = a0 - ta * L * 0.4
-    link = (1 - u) ** 3 * p0 + 3 * (1 - u) ** 2 * u * c1 + 3 * (1 - u) * u ** 2 * c2 + u ** 3 * a0
-    pts = np.concatenate([pts[:s_i], link, approach])
-    ar = np.concatenate([rv["area"][:s_i], np.full(len(link) + len(approach), rv["area"][s_i])])
+    hw_m = float(m_hw[near[c]])
+    _, tm, _ = on_main(m_arc[near[c]], hw_m)
+    s0 = m_arc[near[c]] + float(np.dot(p0 - mp[near[c]], tm))
+    c0, tm, n0 = on_main(s0, hw_m)
+    side = 1.0 if np.dot(p0 - c0, n0) >= 0.0 else -1.0
+    y0 = max(abs(float(np.dot(p0 - c0, n0))), 1.3 * hw_m + 5.0)
+    # the angle it meets the bank at: 30-45 degrees, steeper only if its own
+    # course is heading back upstream (so it never has to hook round)
+    heading = math.degrees(math.acos(float(np.clip(np.dot(t0, tm), -1.0, 1.0))))
+    angle = min(max(rng.uniform(30.0, 45.0), heading - 70.0), 85.0)
+    slope = math.tan(math.radians(angle))
+    xc = 2.0 * hw_m / slope              # the parabola into the centreline meets the bank at that slope
+    x_line = (y0 - hw_m) / slope         # and a straight run from where it leaves its course
+    s_e = min(s0 + xc + x_line, m_arc[-1] - 1.0)
+    span = xc + x_line
+    approach = []
+    for x in np.linspace(span, 0.0, max(int(span / 3.0), 8))[1:]:
+        y = hw_m * (x / xc) ** 2 if x <= xc else hw_m + slope * (x - xc)
+        cc, _, nn = on_main(s_e - x, hw_m)
+        approach.append(cc + nn * side * y)
+    pts = np.concatenate([pts[:c + 1], np.array(approach)])
+    ar = np.concatenate([rv["area"][:c + 1], np.full(len(approach), rv["area"][c])])
+    # (the corner where its course turns onto the approach is rounded off below)
     rv["pts"], (rv["area"],) = resample(pts, [ar])
-    rv["join_xy"] = on_main(s_e)[0]
+    rv["join_xy"] = on_main(s_e, hw_m)[0]
 
 def ease_bends(pts, hw, iters=240):
     """Ease every bend tighter than a river that wide can turn (a radius of
@@ -934,6 +955,20 @@ def ease_bends(pts, hw, iters=240):
         pts[1:-1] += (0.5 * (pts[:-2] + pts[2:]) - pts[1:-1]) * (0.5 * over)[:, None]
     return pts
 
+
+# streams that would be only stubs are left out (and any joining them)
+new_id = {}
+kept = []
+for i, rv in enumerate(rivers):
+    if rv.get("stub") or (rv["joins"] >= 0 and rv["joins"] not in new_id):
+        continue
+    new_id[i] = len(kept)
+    kept.append(rv)
+for rv in kept:
+    if rv["joins"] >= 0:
+        rv["joins"] = new_id[rv["joins"]]
+log("streams: %d (%d stubs left out)" % (len(kept), len(rivers) - len(kept)))
+rivers = kept
 
 # no centreline doubles back on itself (meanders, joins), nor bends tighter
 # than it could
@@ -975,10 +1010,12 @@ for ri_, rv in enumerate(rivers):
     rv["hw"] = half_width(rv["area"])   # (never narrower than the 2.5 m grid can carve cleanly)
     if rv["joins"] < 0:
         # the trunk opens out into the sea over its last 500 m, a funnel-shaped mouth
-        arc_ = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(rv["pts"], axis=0), axis=1))])
-        x = np.clip(1.0 - (arc_[-1] - arc_) / 500.0, 0, 1)
+        x = mouth_funnel(rv["pts"])
         rv["hw"] = rv["hw"] * (1.0 + 0.6 * x * x)
+        rv["funnel"] = x
     rv["depth"] = 1.6 + 5.4 * np.sqrt(np.clip(rv["area"] / a_mouth, 0, 1))   # (deep enough to read as a river)
+    if "funnel" in rv:
+        rv["depth"] = rv["depth"] * (1.0 - 0.55 * rv.pop("funnel") ** 2)   # shoaling toward the sea
     g = bilinear(hf, rv["pts"][:, 0], rv["pts"][:, 1])
     g = ndimage.minimum_filter1d(g, 5)
     base = downhill_fit(np.maximum(g - 0.3, 0.0))
@@ -989,11 +1026,42 @@ for rv in rivers:
         main = rivers[rv["joins"]]
         k = rv["join_k"]
         rv["level"] = np.maximum(rv["level"], main["level"][k])
-        rv["level"][-1] = main["level"][k]
         rv["smooth"] = np.maximum(rv["smooth"], main["smooth"][k])
+        # where it crosses its river's floodplain (its approach) it lies no
+        # higher than the floodplain (the river's level and a bank's height,
+        # rising gently away from it), so it never runs perched above it, and
+        # it ends at its river's level; and it comes down to those gently:
+        # however much it has to be lowered is spread back up its course,
+        # easing off by 1 cm a metre (a 5 m drop over 500 m), rather than
+        # falling in a step (a waterfall) where it reaches the floodplain or
+        # the confluence. Its natural fall is kept everywhere else.
+        mp_ = main["pts"]
+        d2_ = ((rv["pts"][:, None, :] - mp_[None, :, :]) ** 2).sum(-1)
+        nk = np.argmin(d2_, axis=1)
+        dist_ = np.sqrt(d2_[np.arange(len(nk)), nk])
+        hw_mn = main["hw"][nk]
+        plain = main["level"][nk] + 0.5 + 0.012 * np.maximum(dist_ - 1.3 * hw_mn, 0.0)
+        across_plain = dist_ < hw_mn + 3.0 * rv["hw"] + 50.0
+        target = np.where(across_plain, np.minimum(rv["level"], plain), rv["level"])
+        target[-1] = main["level"][k]
+        low = np.maximum(rv["level"] - target, 0.0)
+        ds_ = np.linalg.norm(np.diff(rv["pts"], axis=0), axis=1)
+        for i in range(len(low) - 2, -1, -1):
+            low[i] = max(low[i], low[i + 1] - 0.01 * ds_[i])
+        rv["level"] = rv["level"] - low
+        rv["smooth"] = np.maximum(rv["smooth"] - low, main["smooth"][k])
+        rv["level"][-1] = main["level"][k]
+        rv["level"] = np.minimum.accumulate(np.maximum(rv["level"], main["level"][k]))
     else:
         rv["level"][-1] = min(rv["level"][-1], 0.0)
         rv["level"] = np.minimum.accumulate(rv["level"])
+        # an estuary: the trunk comes down to the sea gently over its last
+        # kilometre and a half (2.2 m per km, 0.25 m at the coast), its valley
+        # floor with it, rather than running down a beach
+        arc_ = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(rv["pts"], axis=0), axis=1))])
+        tide = 0.25 + 0.0022 * (arc_[-1] - arc_)
+        rv["level"] = np.minimum(rv["level"], tide)
+        rv["smooth"] = np.minimum(rv["smooth"], tide + 0.3)
 # each fall made sheer: a point just past the lip already at the pool below
 for rv in rivers:
     p, L, Ls = rv["pts"], rv["level"], rv["smooth"]
@@ -1120,13 +1188,14 @@ def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
 
 
 @njit(cache=True)
-def blend_in(T, W, R, x0, z0, trib, SW, ST, WM, RM, CUT):
+def blend_in(T, W, R, x0, z0, trib, SW, ST, WM, RM, CUT, BED):
     """Add one river's ground to the network's: weighted by its claim on the
     ground (W^8), so where two rivers' valleys overlap the stronger takes over
     smoothly; a tributary's channel fades out inside the water of the rivers
     already carved (it ends inside one of them). Each river's own channel is
     kept in CUT, so that it can be cut through the others' banks afterwards
-    (a tributary keeps its width right into its river)."""
+    (a tributary keeps its width right into its river); BED is how much of
+    the ground is a river's bed or bank (for the sand and gravel)."""
     hz, hx = T.shape
     for j in range(hz):
         for i in range(hx):
@@ -1139,6 +1208,7 @@ def blend_in(T, W, R, x0, z0, trib, SW, ST, WM, RM, CUT):
                 w *= x * x * (3.0 - 2.0 * x)
             if R[j, i] < 1.1:
                 CUT[jj, ii] = min(CUT[jj, ii], T[j, i])
+            BED[jj, ii] = max(BED[jj, ii], min(max((1.45 - R[j, i]) / 0.15, 0.0), 1.0))
             o = w ** 8
             SW[jj, ii] += o
             ST[jj, ii] += o * T[j, i]
@@ -1154,6 +1224,7 @@ ST = np.zeros((N, N), np.float32)
 Wt = np.zeros((N, N), np.float32)
 RM = np.full((N, N), 1e9, np.float32)
 CUT = np.full((N, N), 1e9, np.float32)
+BED = np.zeros((N, N), np.float32)
 for ri, rv in enumerate(rivers):
     p = rv["pts"]
     reach = 9.0 * rv["hw"].max() + 10.0
@@ -1169,14 +1240,14 @@ for ri, rv in enumerate(rivers):
         np.linalg.norm(np.gradient(p, axis=0), axis=1), 0.5)
     vr = 3.0 + 6.0 * np.clip(1.0 - (sl - 0.02) / 0.06, 0, 1)
     carve_river(p[:, 0].copy(), p[:, 1].copy(), rv["level"], rv["smooth"], rv["hw"], rv["depth"], vr, WORLD, N, x0, z0, Tw, Ww, Rw)
-    blend_in(Tw, Ww, Rw, x0, z0, rv["joins"] >= 0, SW, ST, Wt, RM, CUT)
+    blend_in(Tw, Ww, Rw, x0, z0, rv["joins"] >= 0, SW, ST, Wt, RM, CUT, BED)
 T = np.where(SW > 0, ST / np.maximum(SW, 1e-30), 0.0).astype(np.float32)
 T = np.minimum(T, CUT)   # every channel cut through the banks of the others
 channel = CUT < 1e8      # (the rivers' beds: sand and gravel, below)
 del ST, RM, CUT
 # blended in (the land beside the river pulled toward its floodplain, both
 # ways), except out at sea
-hf = np.where((SW > 0) & ((hf > -1.0) | (T < hf)), hf + (T - hf) * Wt, hf)
+hf = np.where((SW > 0) & ((hf > -1.0) | (T < hf) | channel), hf + (T - hf) * Wt, hf)
 del SW, T
 log("rivers: %d, %d points" % (len(rivers), sum(len(r["pts"]) for r in rivers)))
 
@@ -1194,10 +1265,11 @@ rock = np.clip((slope - 30.0) / 10.0, 0, 1)
 rock = np.maximum(rock, np.clip((hg - 760.0) / 140.0, 0, 1) * np.clip((slope - 18.0) / 10.0, 0, 1))
 sand = np.where(land_g, np.clip(1.0 - (hg - 1.5) / 2.5, 0, 1) * np.clip(1.0 - (sea_d - 25.0) / 50.0, 0, 1), 1.0)
 sand = np.maximum(sand, np.where(land_g, 0.0, 1.0))
-# the rivers' beds are sand and gravel (so the bed shows through the water)
-bed = ndimage.gaussian_filter(channel.reshape(G, 2, G, 2).mean(axis=(1, 3)).astype(np.float32), 0.8)
-sand = np.maximum(sand, np.clip(bed * 1.3, 0, 1) * 0.85)
-del channel
+# the rivers' beds and banks are sand and gravel (so the bed shows through
+# the water, right to its edge)
+bed = ndimage.gaussian_filter(BED.reshape(G, 2, G, 2).mean(axis=(1, 3)), 0.8)
+sand = np.maximum(sand, np.clip(bed * 1.2, 0, 1) * 0.85)
+del channel, BED
 clump = field_fbm(XG, ZG, 650.0, 4, SEED + 11) + 0.35 * field_fbm(XG, ZG, 120.0, 3, SEED + 12)
 forest = np.clip((clump + 0.15) / 0.45, 0, 1) * np.clip(1.0 - (slope - 24.0) / 10.0, 0, 1) \
     * np.clip((hg - 4.0) / 6.0, 0, 1) * np.clip(1.0 - (hg - 560.0) / 160.0, 0, 1) \

@@ -1,8 +1,9 @@
 class_name PlayerCamera
 extends Camera3D
 ## The player's camera. Third person: orbits the target, mouse (when captured)
-## or arrow keys to look. First person: sits at the eyes node and looks where
-## the same yaw and pitch point. The view stays where you leave it; on a
+## or arrow keys to look; it comes in in front of whatever is between it and
+## the target (a hill, a cliff), so you never see through the ground. First
+## person: sits at the eyes node and looks where the same yaw and pitch point. The view stays where you leave it; on a
 ## vehicle it turns with the vehicle, so a look over the side stays a look
 ## over the side.
 
@@ -65,7 +66,22 @@ func _process(delta: float) -> void:
 	var surface := Water.surface_height(eye.x, eye.z, 0.0, 0.0)
 	if target.global_position.y > surface - 1.0:
 		eye.y = maxf(eye.y, surface + 0.4)   # stay above water, unless following a diver
-	global_position = global_position.lerp(eye, minf(1.0, 12.0 * delta))
+	# in front of anything in the way, and never under the ground
+	var blocked := false
+	var q := PhysicsRayQueryParameters3D.create(focus, eye, 1)
+	if target is CollisionObject3D:
+		q.exclude = [(target as CollisionObject3D).get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit:
+		eye = (hit.position as Vector3) + (focus - eye).normalized() * 0.35
+		blocked = true
+	if Terrain.current():
+		var ground := Terrain.height_at(eye.x, eye.z) + 0.4
+		if eye.y < ground:
+			eye.y = ground
+			blocked = true
+	# (straight there when something's in the way, so it never passes through it)
+	global_position = eye if blocked else global_position.lerp(eye, minf(1.0, 12.0 * delta))
 	look_at(focus)
 
 

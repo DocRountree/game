@@ -124,8 +124,6 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 			if Vector2(mp[k].x - end.x, mp[k].z - end.z).length() < mhw[k] * 6.0 + 80.0:
 				near_pts.append(mp[k])
 				near_hw.append(mhw[k])
-	# the across direction, from a tangent averaged over about a width, so
-	# tight bends don't fold the ribbon's inner edge over itself
 	# how far each cross-section is above the next fall: near a fall's lip and
 	# down it the ribbon keeps to the channel, not reaching out past the
 	# gorge's walls over the drop
@@ -138,14 +136,27 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 		elif k < count - 1:
 			gap += Vector2(pts[k + 1].x - pts[k].x, pts[k + 1].z - pts[k].z).length()
 		to_fall[k] = gap
-	var base := verts.size()
-	var along := 0.0
-	var below := 1000.0   # m downstream of the last fall's foot
+	# the across direction, from a tangent averaged over about a width, so
+	# tight bends don't fold the ribbon's inner edge over itself; and on the
+	# inside of a bend the ribbon reaches no further than most of the way to
+	# the bend's centre (where a wide mouth bends, it would overlap itself)
+	var tans := PackedVector2Array()
 	for k in count:
 		var win := maxi(int(hw[k] * 1.2 / STEP), 1)
 		var a := pts[maxi(k - win, 0)]
 		var b := pts[mini(k + win, count - 1)]
-		var tan := Vector2(b.x - a.x, b.z - a.z).normalized()
+		tans.append(Vector2(b.x - a.x, b.z - a.z).normalized())
+	var bend := PackedFloat32Array()   # signed curvature (1/m), + turning left
+	for k in count:
+		var ka := maxi(k - 1, 0)
+		var kb := mini(k + 1, count - 1)
+		var ds := Vector2(pts[kb].x - pts[ka].x, pts[kb].z - pts[ka].z).length()
+		bend.append(tans[ka].angle_to(tans[kb]) / maxf(ds, 0.01) if kb > ka else 0.0)
+	var base := verts.size()
+	var along := 0.0
+	var below := 1000.0   # m downstream of the last fall's foot
+	for k in count:
+		var tan := tans[k]
 		var nrm := Vector2(-tan.y, tan.x)
 		# downstream in 3D: steeply down over a fall
 		var pa := pts[maxi(k - 1, 0)]
@@ -159,15 +170,20 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 			below = 0.0
 		var w := hw[k] * sqrt(maxf(fill[k], 0.05))
 		var reach := lerpf(1.05, REACH, smoothstep(0.5 * hw[k], 2.0 * hw[k] + 4.0, to_fall[k]))
+		var inner := 0.8 / maxf(absf(bend[k]), 1e-6)
 		for q in ACROSS:
 			var u := lerpf(-1.0, 1.0, float(q) / (ACROSS - 1))
-			var off := nrm * u * w * reach
+			var side := u * w * reach   # m across, + to the left
+			if side * bend[k] > 0.0:
+				side = signf(side) * minf(absf(side), inner)
+			var off := nrm * side
+			var x := side / maxf(w, 0.01)   # (half widths)
 			# the surface is level across; past the bank it dips a little, so
 			# the ground always covers the ribbon's edge
-			var dip := maxf(0.0, absf(u) * reach - 1.25) * 0.6
+			var dip := maxf(0.0, absf(x) - 1.25) * 0.6
 			var v := Vector3(pts[k].x + off.x, pts[k].y - dip, pts[k].z + off.y)
 			verts.append(v)
-			uvs.append(Vector2(u * reach, along))
+			uvs.append(Vector2(x, along))
 			cols.append(Color(spd[k] / 8.0, dep[k] / 8.0, fill[k] * _fade_in_main(v, near_pts, near_hw), w / 128.0))
 			dirs.append(down)
 			falls.append_array([fall[k], fall_h[k], minf(below, 1000.0), 0.0])

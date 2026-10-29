@@ -175,10 +175,16 @@ what make it read as big.
   parabola, a cross-section every 0.5 m of the drop), smooth and glassy over
   the lip, then streaming, its streaks stretching as the water speeds up and
   banded where the sheet runs thicker and thinner; below it the plunge pool
-  is stirred up, with ripples running out from the foot. Where a river runs
-  down to the sea it fades out into it, and the ocean fades in
-  (`WorldData.river_mask()`: the sea isn't drawn under river water above sea
-  level, where a riverbed lies below it). Cross-sections are 2 m apart, so waterfalls stay sheer, and the
+  is stirred up, with ripples running out from the foot. The sheet is broken
+  water, never a mirror (rougher the further off it is), so it doesn't flash
+  the sun from afar. Where a river comes down to the sea (the trunk's
+  estuary, its last 1.5 km at nearly sea level) its water turns into the
+  sea's (the same colours and absorption), then it fades out into it as the
+  ocean fades in (`WorldData.river_mask()`: the sea isn't drawn under river
+  water above sea level, where a riverbed lies below it; the river is drawn
+  over the sea; the terrain under it gets no sea-level damp line). On the
+  inside of a bend the ribbon reaches no further than most of the way to the
+  bend's centre, so a wide reach never overlaps itself. Cross-sections are 2 m apart, so waterfalls stay sheer, and the
   surface's frame follows the flow in 3D: over a fall the water faces
   downstream and its streaks run down it. The ribbons are drawn smallest
   stream first and trunk last, so where a tributary's mouth lies under its
@@ -377,7 +383,9 @@ right foot, each pair reaching on when it has fallen behind. No animation
 clips.
 
 `PlayerCamera` has two modes, toggled with F5; the game starts in first person.
-Third person orbits the target and never dips below the water surface. The view
+Third person orbits the target and never dips below the water surface; it
+comes in in front of the ground (a ray from the target to where it would be),
+so it never looks through a hill or the slope behind you. The view
 stays wherever you leave it; aboard a boat it turns with the boat
 (`turn_with_target`), so a look over the side stays a look over the side. The
 player's body faces where the camera looks; aboard, only the body turns, never

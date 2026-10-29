@@ -366,6 +366,22 @@ func _run() -> void:
 			"climbing to the top pulls you over it, standing on the ground (%s after %.1f s, feet %.2f m above it)"
 			% [player.state, climb_frames / 60.0, stand])
 
+	# the third-person camera comes in in front of the ground rather than
+	# looking through it (swung round to the uphill side of the slope)
+	player.respawn(Vector3(at.x, Terrain.height_at(at.x, at.z) + 1.0, at.z))
+	world._set_first_person(false)
+	camera.yaw = atan2(uphill.x, uphill.y)
+	camera.pitch = 0.1
+	await _frames(30)
+	var eye := camera.global_position
+	var focus := player.global_position + camera.target_offset
+	var sight := PhysicsRayQueryParameters3D.create(focus, eye, 1)
+	sight.exclude = [player.get_rid()]
+	var through := not player.get_world_3d().direct_space_state.intersect_ray(sight).is_empty()
+	var above := eye.y - Terrain.height_at(eye.x, eye.z)
+	_check(not through and above > 0.3,
+			"the third-person camera never looks through the ground (%.2f m above it, clear view: %s)" % [above, not through])
+
 	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
 	quit(1 if _failures else 0)
 

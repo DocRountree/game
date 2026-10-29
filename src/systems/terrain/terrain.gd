@@ -116,6 +116,7 @@ func _build_drawing() -> void:
 	_material.set_shader_parameter("height_hi", tex[0])
 	_material.set_shader_parameter("height_lo", tex[1])
 	_material.set_shader_parameter("ground", ImageTexture.create_from_image(world.ground))
+	_material.set_shader_parameter("river_mask", world.river_mask())
 	_material.set_shader_parameter("world_size", world.size)
 	_material.set_shader_parameter("texels", world.texels)
 	_material.set_shader_parameter("h_min", world.h_min)

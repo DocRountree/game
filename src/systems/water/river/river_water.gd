@@ -11,6 +11,7 @@ var body: RiverBody
 func setup(world: WorldData) -> void:
 	material = ShaderMaterial.new()
 	material.shader = preload("res://src/systems/water/river/river.gdshader")
+	material.render_priority = 1   # (over the sea where the two overlap, at a mouth)
 	var mi := MeshInstance3D.new()
 	mi.name = "Water"
 	mi.mesh = RiverRibbons.build(world.rivers)

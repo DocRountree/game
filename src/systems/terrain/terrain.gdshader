@@ -19,6 +19,7 @@ shader_type spatial;
 uniform sampler2D height_hi : filter_nearest, repeat_disable;
 uniform sampler2D height_lo : filter_nearest, repeat_disable;
 uniform sampler2D ground : filter_linear, repeat_disable;   // rock, sand, forest density, ambient occlusion
+uniform sampler2D river_mask : filter_linear, repeat_disable;   // where rivers' water stands above the sea (WorldData.river_mask())
 uniform float world_size = 10240.0;
 uniform int texels = 4096;
 uniform float h_min = -300.0;
@@ -124,12 +125,14 @@ void fragment() {
 	float rock = max(gw.r, smoothstep(0.62, 0.48, n_world.y));
 	vec3 stone = mix(dark_rock_color, rock_color, vnoise(wp / 9.0) * 0.6 + vnoise(wp / 60.0) * 0.4);
 	col = mix(col, stone, rock);
-	// beaches, and sand under the sea
-	col = mix(col, h < 0.0 ? seabed_color : sand_color, gw.g * (1.0 - rock * 0.7));
+	// beaches, and sand under the sea (under a river standing above the sea,
+	// its bed's sand, and no sea-level damp line)
+	float in_river = smoothstep(0.02, 0.1, texture(river_mask, (wp + world_size * 0.5) / world_size).r);
+	col = mix(col, h < 0.0 && in_river < 0.5 ? seabed_color : sand_color, gw.g * (1.0 - rock * 0.7));
 	// mottling, so no ground is one flat colour
 	col *= 0.88 + 0.24 * (vnoise(wp * 0.7) * 0.5 + vnoise(wp * 3.1) * 0.5);
 	// damp just above the waterline
-	col *= mix(1.0, 0.72, (1.0 - smoothstep(0.0, 0.6, h)) * step(-0.5, h));
+	col *= mix(1.0, 0.72, (1.0 - smoothstep(0.0, 0.6, h)) * step(-0.5, h) * (1.0 - in_river));
 	ALBEDO = col * mix(0.55, 1.0, gw.a);
 	AO = gw.a;
 	AO_LIGHT_AFFECT = 0.3;
