@@ -33,6 +33,7 @@ const VOLUME := 0.97 * MASS / Water.RHO_SEA ## 3% denser than seawater.
 const LAND_GRAVITY := 9.8                   ## Real gravity (m/s^2)
 const MANTLE_TIME := 0.45                   ## s to pull up over the top of a climb.
 const MANTLE_SETTLE := 1.0                  ## s of slower walking after pulling up (no stepping straight off the edge).
+const JUMP_CARRY := 15.0                    ## A jump keeps at most this much of your speed across the ground (m/s).
 const FALL_GRAVITY := 2.2                   ## Gravity is this many times stronger coming down (no floating down mountains; jumps rise as before).
 const CLIMBABLE_Y := 0.72                   ## Ground steeper than this (normal.y below it, ~44 deg) can't be walked: it's climbed.
 @export var traits: CharacterTraits
@@ -234,9 +235,12 @@ func _walk(delta: float, grounded: bool) -> void:
 	var vh := Vector2(velocity.x, velocity.z)
 	var rate := 18.0 if grounded else (2.0 if wish != Vector2.ZERO else 0.1)
 	vh = vh.lerp(target, 1.0 - exp(-rate * delta))
+	# the faster you run, the harder you keep to the ground (running over a
+	# crest or down a slope doesn't throw you into the air)
+	floor_snap_length = 1.2 + 0.08 * vh.length()
 	if grounded and Input.is_action_pressed(&"tread"):
 		velocity.y = jump_speed
-		vh += wish * speed * 0.2   # a running jump carries you a bit further
+		vh = vh.limit_length(JUMP_CARRY)   # (a running jump carries you no further than a brisk one)
 	velocity.x = vh.x
 	velocity.z = vh.y
 

@@ -64,7 +64,8 @@ How it's made:
    each fall's first and last point are listed ("falls"). The game breaks the water down
    the face into separate streams over light terracing (see docs/ARCHITECTURE.md). Where the trunk runs wide and gentle in
    the lowlands (away from the mouth and its confluences) it parts round a few islands:
-   teardrops of sand and grass, blunt upstream and tapering downstream, the channel opening
+   teardrops of sand and grass, blunt upstream and tapering downstream, smooth mounds whose
+   feet slope on down into the bed (no step, so their shores are smooth), the channel opening
    out round each (listed in world.json as "islands"). The bed, banks and floodplain are carved into the
    2.5 m heights to match, so the water always lies in its bed: each river's ground is one
    continuous field (nearby reaches blended), the floodplain wide in the lowlands and none

@@ -16,9 +16,9 @@ extends RefCounted
 ## and streams (see river.gdshader) to draw the streams and leave the rock
 ## between them bare.
 
-const ROW_H := Vector2(1.3, 2.2)    ## Range of the rows' height (m).
-const COL_W := Vector2(1.6, 3.2)    ## Range of the cells' width (m).
-const LEDGE := Vector2(0.25, 0.7)   ## How far each ledge stands out (m).
+const ROW_H := Vector2(2.2, 3.4)    ## Range of the rows' height (m).
+const COL_W := Vector2(3.0, 5.5)    ## Range of the cells' width (m).
+const LEDGE := Vector2(0.3, 0.75)   ## How far each ledge stands out (m).
 const TOP_CLEAR := 0.35             ## The lip's top and the foot are smooth (m).
 const FOOT_CLEAR := 0.6
 const STREAM_STEP := 0.25           ## The streams are kept every this much down the face (m).
@@ -177,7 +177,7 @@ func cell_at(u: float, d: float) -> Vector3:
 ## the walls beside it (where it fades into them), 1 in the face proper.
 func _relief(u: float, d: float) -> float:
 	return smoothstep(0.0, TOP_CLEAR, d) * (1.0 - smoothstep(height - FOOT_CLEAR, height, d)) \
-			* (1.0 - smoothstep(1.0, 1.5, absf(u) / maxf(half_width, 0.5)))
+			* (1.0 - smoothstep(0.9, 1.5, absf(u) / maxf(half_width, 0.5)))
 
 
 ## How far out from the cliff the rock stands at (u, d) (m): each ledge

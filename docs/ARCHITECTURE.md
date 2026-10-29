@@ -191,8 +191,10 @@ seabed's as the river comes down to the sea.
   two or (a thin one) giving out. `RiverRibbons` builds the face's rock (a
   relief standing out from the ground exactly as the terrain draws it,
   `WorldData.surface_at`, reaching out over the walls beside it and fading
-  into them; `fall_rock.gdshader`, faceted like the land, dark and glossy
-  where wet, a little moss on dry ledges) and lays the water over it with
+  into them; `fall_rock.gdshader`, smoothly shaded and coloured exactly as
+  the terrain colours the ground there, so its sides can't be told from the
+  walls, dark and glossy where wet, a little moss on dry ledges; solid, so
+  you climb on the ledges you see and the camera keeps out of them) and lays the water over it with
   cross-sections about 0.4 m apart each way; the shader reads the same
   ledges and streams from two small textures, draws each stream (glassy for
   a moment at each ledge, then white and streaming in strands, churning
@@ -209,9 +211,10 @@ seabed's as the river comes down to the sea.
   gravity along each fall's foot (higher below a taller fall) and smaller
   ones wherever a stream lands on a ledge, and soft puffs of mist rising and
   drifting downstream, lit as a translucent white, soft where they meet the
-  ground and gone below the  water. Round an island the current parts along its shore and closes behind
-  it, with a little foam at its head and along its shore. Wakes and
-  ripples come from the ocean's ripple simulation (the player swimming, the
+  ground and gone below the water. Round an island the current parts along
+  its shore and closes behind it, with a thin, broken lace of foam along its
+  real waterline (where the water over the ground is only centimetres deep),
+  a little more at its head. Wakes and ripples come from the ocean's ripple simulation (the player swimming, the
   boat), which the river shader reads as well; in a river the simulation
   drifts with its current (each wavelength shifted downstream exactly, in
   the frequency domain), so wakes trail away downstream; steep ones churn
@@ -407,7 +410,10 @@ The same component optionally registers the body as a ripple source.
 little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
 holding Space hops whenever the feet touch down. Gravity is a real 9.8 m/s^2
 going up and 2.2 times that coming down, so a jump rises as before but a fall
-off a cliff drops like one, not a float. For a second after pulling up over
+off a cliff drops like one, not a float. A jump carries at most 15 m/s of
+your speed across the ground (a running jump doesn't sail), and the faster
+you run the harder you keep to the ground, so running over a crest or down a
+slope doesn't throw you into the air. For a second after pulling up over
 an edge you walk slowly, so you don't step straight off it.
 Double-tapping Space toggles a fast debug flight; stopping it drops you from
 rest, so you fall straight down, accelerating.

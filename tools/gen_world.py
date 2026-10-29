@@ -1458,22 +1458,24 @@ y_ = np.clip((RM - 1.0) / 0.15, 0.0, 1.0)
 z_ = np.clip((RM - 1.45) / 0.4, 0.0, 1.0)
 hf = np.where((RM >= 1.0) & (RM < 2.0) & (WL > 0.4), np.maximum(hf, WL + b_ * y_ * y_ * (3.0 - 2.0 * y_) - (b_ + 2.0) * z_ * z_ * (3.0 - 2.0 * z_)), hf)
 del b_, y_, z_, RM, WL, CC
-# the islands raised out of the channel
+# the islands raised out of the channel: a smooth mound, its shore where it
+# comes up through the water (0.86 of the way out), its foot sloping on down
+# into the bed (no step anywhere, so the 2.5 m grid draws its edge smoothly)
 cell_f = WORLD / N
 for i_ in islands:
     half = 0.5 * i_["length"]
-    ext = half + i_["width"] + 10.0
+    ext = 1.6 * half + 2.0 * i_["width"] + 10.0
     i0, i1 = [int(np.clip((v + WORLD / 2) / cell_f, 0, N)) for v in (i_["x"] - ext, i_["x"] + ext)]
     j0, j1 = [int(np.clip((v + WORLD / 2) / cell_f, 0, N)) for v in (i_["z"] - ext, i_["z"] + ext)]
     gx, gz = np.meshgrid(np.arange(i0, i1) * cell_f - WORLD / 2, np.arange(j0, j1) * cell_f - WORLD / 2)
     a_ = ((gx - i_["x"]) * i_["dx"] + (gz - i_["z"]) * i_["dz"]) / half          # -1 upstream .. 1 downstream
     b_ = (-(gx - i_["x"]) * i_["dz"] + (gz - i_["z"]) * i_["dx"])
-    wid = i_["width"] * np.sqrt(np.clip(1.0 - a_ * a_, 0.0, 1.0)) * np.clip(1.15 - 0.45 * a_, 0.0, 1.3)   # blunt head, tapering tail
-    q_ = np.where(np.abs(a_) < 1.0, np.sqrt(a_ * a_ + (b_ / np.maximum(wid, 0.5)) ** 2), 2.0)   # 0 at its middle, 1 at its edge
-    rise = np.clip((1.0 - q_) / 0.35, 0.0, 1.0)
-    mound = i_["top"] - 3.0 + 3.0 * rise * rise * (3.0 - 2.0 * rise) + 0.4 * np.clip((0.6 - q_) / 0.6, 0, 1)
+    wid = i_["width"] * np.clip(1.15 - 0.45 * np.clip(a_, -1.0, 1.0), 0.3, 1.3)   # blunt head, tapering tail
+    q_ = np.sqrt(a_ * a_ + (b_ / wid) ** 2)   # 0 at its middle
+    s_ = np.clip((q_ - 0.6) / 0.9, 0.0, 1.0)
+    mound = i_["top"] + 0.4 * np.clip((0.6 - q_) / 0.6, 0, 1) - 7.0 * s_ * s_ * (3.0 - 2.0 * s_)
     win_ = hf[j0:j1, i0:i1]
-    hf[j0:j1, i0:i1] = np.where(q_ < 1.0, np.maximum(win_, mound), win_)
+    hf[j0:j1, i0:i1] = np.maximum(win_, mound)
 del SW, T
 log("rivers: %d, %d points" % (len(rivers), sum(len(r["pts"]) for r in rivers)))
 

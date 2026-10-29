@@ -229,13 +229,16 @@ float drift_noise(vec2 p, float v, float period) {
 // it falls at `v` m/s: (thickness 0..1, slope across, slope down; per m).
 // The pattern is fixed in the falling water, so it streams down, stretching
 // as the water speeds up.
-vec3 fall_sheet(float across, float tau, float v) {
+// Each octave fades out where it would be finer than about two pixels (px:
+// metres a pixel spans), so far off the streaks don't shimmer.
+vec3 fall_sheet(float across, float tau, float v, float px) {
 	vec3 acc = vec3(0.0);
 	float amp = 1.0;
 	float fx = 1.1;    // cycles per metre across
 	float ft = 2.2;    // cycles per second of fall
 	for (int o = 0; o < 4; o++) {
 		vec3 g = gnoise(vec2(across * fx, (tau - time) * ft) + float(o) * 17.3);
+		g *= 1.0 - smoothstep(0.25, 0.5, px * fx);
 		acc += vec3(g.x, g.y * fx, g.z * ft / max(v, 0.5)) * amp;
 		amp *= 0.5;
 		fx *= 2.1;
@@ -319,9 +322,9 @@ vec4 island_at(vec2 p, out vec2 outward) {
 		vec2 r = p - c;
 		float a = dot(r, d) / half_len;
 		float b = dot(r, side);
-		float w = island_sizes[i].y * clamp(1.15 - 0.45 * clamp(a, -1.0, 1.0), 0.0, 1.3);   // blunt head, tapering tail
+		float w = island_sizes[i].y * clamp(1.15 - 0.45 * clamp(a, -1.0, 1.0), 0.3, 1.3);   // blunt head, tapering tail
 		float e = length(vec2(a, b / max(w, 0.5)));
-		float dist = (e - 1.0) * min(w, half_len);
+		float dist = (e - 0.86) * min(w, half_len);   // (its shore 0.86 of the way out, as the generator raises it)
 		if (dist < best.x) {
 			best = vec4(dist, a, b, w);
 			outward = normalize(d * (a / half_len) + side * (b / max(w * w, 0.25)) + vec2(1e-6));
@@ -393,7 +396,7 @@ void fragment() {
 	float v0 = max(speed, 1.5);
 	float v = sqrt(v0 * v0 + 19.6 * dl);
 	float tau = (v - v0) / 9.8;
-	vec3 fs = fall_sheet(rp.x, tau, v);
+	vec3 fs = fall_sheet(rp.x, tau, v, px);
 	float rf = cl.y;
 	float wav = gnoise(vec2(rp.x * 0.7, 2.1 + 3.7 * floor(d))).x * 0.5 + 0.5;
 	float lip = (1.0 - smoothstep(0.0, 0.2 + 0.35 * wav, dl)) * step(0.0, sheet);
@@ -402,6 +405,7 @@ void fragment() {
 	// strands straight down each little fall, thin water between them
 	float sn = gnoise(vec2(rp.x * 1.1, 31.7)).x + 0.5 * gnoise(vec2(rp.x * 2.7, 7.1 + tau)).x;
 	float strands = mix(0.55, 1.0, smoothstep(-0.55, -0.25, sn + 0.25 * fs.x));
+	strands = mix(strands, 0.85, smoothstep(0.08, 0.3, px));   // (too fine to show far off: no barcode)
 	float ledge = smoothstep(0.75, 1.0, rf);   // (landing on the ledge below)
 	vec2 sl = fs.yz * sheet_streaks * mix(2.0, 1.0, lip) / (1.0 + px * px * 4.0);   // (streaked, the light catching it unevenly; no sparkle far off)
 	vec3 n_fall = normalize(normalize(cross(ax, dn)) - (ax * sl.x + dn * sl.y));
@@ -469,9 +473,14 @@ void fragment() {
 	foam = max(foam, (1.0 - smoothstep(0.3, 2.5, below)) * step(sheet, -0.5) * fh * (0.7 + 0.25 * churn_n));
 	float streak = drift_noise(vec2(rp.x * 0.8, rp.y * 0.12), max(speed, 1.0) * 0.12, 3.0);
 	foam += rapids * smoothstep(0.2, 0.6, streak) * 0.45;
-	float lace = drift_noise(vec2(rp.x * 0.5, rp.y * 0.5), max(speed, 0.6) * 0.5, 3.0);
-	foam += exp(-max(isl.x, 0.0) / 1.5) * step(-0.3, isl.x) * (0.3 + 0.7 * clamp(-isl.y, 0.0, 1.0))
-			* smoothstep(-0.1, 0.4, lace) * 0.55 * (1.0 - falling);
+	// round an island: a thin, broken lace of foam along its waterline (where
+	// the water over the ground is only a few centimetres deep), a little
+	// more at its head where the current meets it, drifting with the current
+	float lace = drift_noise(vec2(rp.x * 1.3, rp.y * 1.3), max(speed, 0.6) * 1.3, 3.0)
+			+ 0.5 * drift_noise(vec2(rp.x * 3.1, rp.y * 3.1) + 5.1, max(speed, 0.6) * 3.1, 2.0);
+	float shallow = 1.0 - smoothstep(0.03, 0.35 + 0.25 * clamp(-isl.y, 0.0, 1.0), thickness * max(abs(view_world.y), 0.05));
+	foam += shallow * (1.0 - smoothstep(0.0, 6.0, isl.x)) * smoothstep(0.15, 0.6, lace)
+			* (0.35 + 0.25 * clamp(-isl.y, 0.0, 1.0)) * (1.0 - falling);
 	foam += smoothstep(0.2, 0.55, rip) * 0.6 * (gnoise(wpos.xz * 1.7).x * 0.5 + 0.6);
 	foam = clamp(foam * foam_strength, 0.0, 1.0);
 
@@ -499,7 +508,7 @@ void fragment() {
 	// the strands down a riser, the wet rock between them showing; and the
 	// very edge of the water fading in over its first 30 cm, so the shore is soft
 	ALPHA *= cell_a * mix(1.0, strands, falling);
-	ALPHA *= mix(smoothstep(0.0, 0.3, thickness * max(abs(view_world.y), 0.05)), 1.0, on_fall);
+	ALPHA *= mix(max(smoothstep(0.0, 0.3, thickness * max(abs(view_world.y), 0.05)), foam * 0.85), 1.0, on_fall);
 }
 
 // The sun (and moon) on the water: a GGX highlight, capped (lower far off and

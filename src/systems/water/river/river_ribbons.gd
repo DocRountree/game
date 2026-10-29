@@ -33,7 +33,7 @@ const ACROSS := 9          ## Vertices across the ribbon.
 const ACROSS_FINE := 25    ## At most this many across it near a fall (about a metre apart).
 const FINE_MARGIN := 3.0   ## The fine cross-sections reach this far either side of a fall (m).
 const FALL_SPACING := 0.4  ## Across a fall's face, vertices this far apart (m).
-const ACROSS_FALL := 161   ## At most this many.
+const ACROSS_FALL := 181   ## At most this many.
 const REACH := 1.5         ## The ribbon reaches this many half widths from the centre.
 const FILM := 0.45         ## The water's thickness down a riser (m), over the rock under each vertex.
 const FILM_MIN := 0.2      ## And at least this, over the rock between vertices.
@@ -62,7 +62,11 @@ class Falls:
 		arrays[Mesh.ARRAY_COLOR] = cols
 		arrays[Mesh.ARRAY_INDEX] = idx
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		return mesh
+		# (smooth normals: the ledges are rounded rock, not facets)
+		var st := SurfaceTool.new()
+		st.create_from(mesh, 0)
+		st.generate_normals()
+		return st.commit()
 
 
 static func build(rivers: Array[Dictionary], world: WorldData = null, fo: Falls = null) -> ArrayMesh:
@@ -241,7 +245,7 @@ static func _ribbon(r: Dictionary, main: Dictionary, world: WorldData, verts: Pa
 	# (down a fall's face, much finer: the ledges and little falls on it)
 	for k in count:
 		if face_of[k] >= 0:
-			fine[k] = clampi(2 * ceili(1.7 * fo.faces[face_of[k]].half_width / FALL_SPACING) + 1, ACROSS, ACROSS_FALL)
+			fine[k] = clampi(2 * ceili(2.0 * fo.faces[face_of[k]].half_width / FALL_SPACING) + 1, ACROSS, ACROSS_FALL)
 	# a tributary's ribbon ends inside the river it joins (which is drawn
 	# over it)
 	var near_pts := PackedVector3Array()
@@ -456,7 +460,7 @@ static func _section(k: int, n: int, pts: PackedVector3Array, hw: PackedFloat32A
 	if sheet[k] >= 0.0:
 		# (down a fall's face, out over the walls beside it: its rock fades
 		# into them)
-		reach = 1.7 if face else 1.05
+		reach = 2.0 if face else 1.05
 	var inner := 0.8 / maxf(absf(bend[k]), 1e-6)
 	for q in n:
 		var u := lerpf(-1.0, 1.0, float(q) / (n - 1))
@@ -479,8 +483,9 @@ static func _section(k: int, n: int, pts: PackedVector3Array, hw: PackedFloat32A
 				gb = maxf(gb, world.surface_at(v.x + d.x, v.z + d.y))
 			var ends := 1.0 - smoothstep(0.0, 0.5, sheet[k]) * (1.0 - smoothstep(fall_h_of(top[k], floor_[k]) - 0.5,
 					fall_h_of(top[k], floor_[k]), sheet[k]))   # (1 at its lip and foot)
-			var b := Vector3(v.x, gb + 0.1 - 0.8 * smoothstep(1.1, 1.5, absf(x))
-					- 0.4 * smoothstep(1.0, 1.15, absf(x)) * ends, v.z)
+			var ax := absf(x)
+			var b := Vector3(v.x, gb + 0.1 * (1.0 - smoothstep(1.4, 1.9, ax)) - 0.3 * smoothstep(1.7, 2.0, ax)
+					- 0.3 * smoothstep(1.0, 1.3, ax) * ends, v.z)
 			var outv := Vector3(tan.x, 0.0, tan.y)
 			rock.append(b + outv * face.rock_out(side, sheet[k]))
 			v = b + outv * face.water_out(side, sheet[k])

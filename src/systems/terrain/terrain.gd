@@ -109,6 +109,12 @@ func height_textures() -> Array:
 	return [_material.get_shader_parameter("height_hi"), _material.get_shader_parameter("height_lo")]
 
 
+## The ground masks texture (rock, sand, forest, ambient occlusion), for any
+## shader that colours things as the ground is coloured.
+func ground_texture() -> Texture2D:
+	return _material.get_shader_parameter("ground")
+
+
 func _build_drawing() -> void:
 	var tex := world.height_textures()
 	_material = ShaderMaterial.new()

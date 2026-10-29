@@ -2,9 +2,9 @@ class_name RiverWater
 extends Node3D
 ## The world's rivers: their water drawn as ribbon meshes along each channel
 ## (RiverRibbons, river.gdshader), with the rock of their waterfalls' faces
-## (fall_rock.gdshader) and the splash and mist where the water lands
-## (RiverSpray), and their water body (RiverBody). The ground's banks cut the
-## water's edge.
+## (fall_rock.gdshader, solid, to climb on) and the splash and mist where the
+## water lands (RiverSpray), and their water body (RiverBody). The ground's
+## banks cut the water's edge.
 
 var material: ShaderMaterial
 var body: RiverBody
@@ -27,9 +27,23 @@ func setup(world: WorldData) -> void:
 	rock.mesh = fo.rock_mesh()
 	var rock_mat := ShaderMaterial.new()
 	rock_mat.shader = preload("res://src/systems/water/river/fall_rock.gdshader")
+	var terrain := get_parent() as Terrain
+	if terrain:   # (coloured as the ground is, so it fades into the walls)
+		rock_mat.set_shader_parameter("ground", terrain.ground_texture())
+		rock_mat.set_shader_parameter("world_size", world.size)
 	rock.material_override = rock_mat
 	rock.top_level = true
 	add_child(rock)
+	# (solid: you climb and stand on the ledges you see, not the ground behind
+	# them, and the camera keeps out of them)
+	if rock.mesh.get_surface_count() > 0:
+		var body := StaticBody3D.new()
+		body.name = "FallRockBody"
+		body.top_level = true
+		var cs := CollisionShape3D.new()
+		cs.shape = rock.mesh.create_trimesh_shape()
+		body.add_child(cs)
+		add_child(body)
 	# the falls' ledges and streams, for the water down their faces
 	var params := PackedVector4Array()
 	var u0s := PackedFloat32Array()
