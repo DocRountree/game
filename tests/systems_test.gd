@@ -366,6 +366,50 @@ func _run() -> void:
 			"climbing to the top pulls you over it, standing on the ground (%s after %.1f s, feet %.2f m above it)"
 			% [player.state, climb_frames / 60.0, stand])
 
+	# up a waterfall's rock you climb on past its ledges (too small to stand
+	# on), not pulled up onto every one, until you're up near its lip
+	var tall := {}
+	for r: Dictionary in w.rivers:
+		var rp: PackedVector3Array = r.points
+		for f: Vector2i in r.falls:
+			if tall.is_empty() or rp[f.x].y - rp[f.y].y > tall.h:
+				tall = {"r": r, "k0": f.x, "k1": f.y, "h": rp[f.x].y - rp[f.y].y}
+	var fp: PackedVector3Array = tall.r.points
+	var km: int = (tall.k0 + tall.k1) / 2
+	var fdir := fp[km + 1] - fp[km - 1]
+	fdir.y = 0.0
+	fdir = fdir.normalized()
+	var fside := Vector3(-fdir.z, 0.0, fdir.x) * float(tall.r.half_width[km]) * 0.4   # (in among its streams and ledges)
+	var out_there := fp[km] + fside + fdir * 10.0
+	terrain.prepare_at(out_there)
+	await _frames(3)
+	var to_rock := PhysicsRayQueryParameters3D.create(out_there, out_there - fdir * 20.0)
+	to_rock.exclude = [player.get_rid()]
+	var rock_hit := player.get_world_3d().direct_space_state.intersect_ray(to_rock)
+	var on_face: Vector3 = (rock_hit.position + rock_hit.normal * 0.6) if rock_hit else out_there
+	player.respawn(on_face)
+	camera.yaw = atan2(fdir.x, fdir.z)
+	camera.pitch = 0.0
+	await _frames(1)
+	Input.parse_input_event(e_key)
+	await _frames(3)
+	var face_grab := player.climbing
+	var top_y: float = fp[tall.k0].y
+	var highest := player.global_position.y
+	Input.action_press(&"move_forward")
+	climb_frames = 0
+	while player.climbing and climb_frames < 2400:
+		await physics_frame
+		climb_frames += 1
+		highest = maxf(highest, player.global_position.y)
+	Input.action_release(&"move_forward")
+	if player.climbing:
+		Input.parse_input_event(e_key)
+		await _frames(5)
+	_check(face_grab and highest > top_y - 3.0,
+			"up a waterfall's rock (%.0f m) you climb on past its ledges to near its lip (from %.1f m below it to %.1f m below it)"
+			% [tall.h, top_y - on_face.y, top_y - highest])
+
 	# the third-person camera comes in in front of the ground rather than
 	# looking through it (swung round to the uphill side of the slope)
 	player.respawn(Vector3(at.x, Terrain.height_at(at.x, at.z) + 1.0, at.z))

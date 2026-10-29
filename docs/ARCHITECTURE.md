@@ -190,11 +190,14 @@ seabed's as the river comes down to the sea.
   swelling or narrowing where it drops off one, now and then splitting in
   two or (a thin one) giving out. `RiverRibbons` builds the face's rock (a
   relief standing out from the ground exactly as the terrain draws it,
-  `WorldData.surface_at`, reaching out over the walls beside it and fading
-  into them; `fall_rock.gdshader`, smoothly shaded and coloured exactly as
-  the terrain colours the ground there, so its sides can't be told from the
-  walls, dark and glossy where wet, a little moss on dry ledges; solid, so
-  you climb on the ledges you see and the camera keeps out of them) and lays the water over it with
+  `WorldData.surface_at`, where the streams come down, sinking back under
+  the ground out beside them; just above the lip it rises out of the bed
+  between the streams and stands above the water, so the river parts round
+  it into them; `fall_rock.gdshader` colours it exactly as the terrain
+  colours the ground there, sand and all, and shades it mostly by the
+  ground's own normal, so it looks the same as the cliff round it and only
+  its outline tells the ledges apart; solid, so you climb on the ledges you
+  see and the camera keeps out of them) and lays the water over it with
   cross-sections about 0.4 m apart each way; the shader reads the same
   ledges and streams from two small textures, draws each stream (glassy for
   a moment at each ledge, then white and streaming in strands, churning
@@ -202,13 +205,15 @@ seabed's as the river comes down to the sea.
   rock between bare. Just below a fall the level water is lifted over any
   rock at its foot (the 2.5 m grid can't make it sharp), and the junctions
   between fine and coarse cross-sections lie on smooth water, edge to edge.
-  Below a fall it churns white at the foot and the foam drifts away
-  downstream, thinning out (its patterns carried out from the foot by two
+  Below a fall it churns white where each stream landed and the foam spreads
+  and drifts away downstream, thinning out (its patterns carried out from the foot by two
   crossfaded phases, so they never shear). Above a lip the water runs rough
-  and streaked with white. `RiverSpray` adds the splash and mist: one
+  and flecked with white, level right to the brink, and frets round the rock
+  between the streams. `RiverSpray` adds the splash and mist: one
   multimesh of camera-facing quads animated entirely on the GPU
   (`river_spray.gdshader`): clumps of spray thrown up and falling back under
-  gravity along each fall's foot (higher below a taller fall) and smaller
+  gravity wherever one of a fall's streams lands at its foot (higher below a
+  taller fall) and smaller
   ones wherever a stream lands on a ledge, and soft puffs of mist rising and
   drifting downstream, lit as a translucent white, soft where they meet the
   ground and gone below the water. Round an island the current parts along
@@ -423,7 +428,9 @@ about 44 degrees) if there is some just in front of you. On the rock there
 is no gravity; WASD moves up, down and across it (relative to the rock), Ctrl
 faster, the chest held 0.45 m off it and the body turning with it. Where the
 rock ends or turns walkable you pull yourself up over the top onto the
-ground there (or fall, if there's nothing up there); E lets go. While you
+ground there if you're climbing up and there's room to stand (a little ledge
+in the rock, like those down a waterfall, you climb on past), or fall if
+there's nothing up there; E lets go. While you
 climb the capsule lies along the rock, and it stands upright again only once
 the body is clear of the rock, so it can't be pushed through the ground (and
 if anything ever does push the body under the ground it's put back on top).

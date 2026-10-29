@@ -1164,14 +1164,25 @@ for rv in rivers:
     # the channel deepens in with it
     x = np.clip(arc / 250.0, 0, 1)
     rv["depth"] = rv["depth"] * np.maximum(x * x * (3 - 2 * x), 0.05)
+    # coming up to each fall's lip the water runs shallow over the rock (the
+    # channel's bed rising to the brink), so it goes over the lip at the top
+    # of the face, not 3 m down it
+    for f_ in rv["falls"]:
+        hw0 = float(rv["hw"][f_[0]])
+        d_ = arc[f_[0]] - arc
+        y = np.clip(d_ / (1.5 * hw0 + 6.0), 0.0, 1.0)
+        taper = np.where(d_ >= 0.0, y * y * (3.0 - 2.0 * y), 1.0)
+        rv["depth"] = np.where(d_ >= 0.0, 0.5 + (rv["depth"] - 0.5) * np.maximum(taper, 0.0), rv["depth"])
     # a pool at the foot of each fall, wider and deeper (most in the
-    # lowlands), where the water gathers before it picks up its current again
+    # lowlands), where the water gathers before it picks up its current
+    # again: as wide and deep as it gets right from the foot (so the water
+    # coming down every part of the face lands in it), easing back further on
     for fi in fall_at:
         hw0 = float(rv["hw"][fi])
         grow = 1.0 if rv["level"][fi] < 120.0 else 0.55
         d_ = arc - arc[fi]
-        bump = np.where(d_ >= 0.0, np.exp(-((d_ - 1.2 * hw0) / (1.5 * hw0)) ** 2), 0.0)
-        rv["hw"] = rv["hw"] * (1.0 + grow * bump)
+        bump = np.where(d_ >= 0.0, np.exp(-(np.maximum(d_ - 1.2 * hw0, 0.0) / (1.5 * hw0)) ** 2), 0.0)
+        rv["hw"] = rv["hw"] * (1.0 + grow * np.where(d_ > 0.0, bump, 0.0))
         rv["depth"] = rv["depth"] + 1.5 * bump
 log("waterfalls:", falls)
 
@@ -1473,7 +1484,8 @@ for i_ in islands:
     wid = i_["width"] * np.clip(1.15 - 0.45 * np.clip(a_, -1.0, 1.0), 0.3, 1.3)   # blunt head, tapering tail
     q_ = np.sqrt(a_ * a_ + (b_ / wid) ** 2)   # 0 at its middle
     s_ = np.clip((q_ - 0.6) / 0.9, 0.0, 1.0)
-    mound = i_["top"] + 0.4 * np.clip((0.6 - q_) / 0.6, 0, 1) - 7.0 * s_ * s_ * (3.0 - 2.0 * s_)
+    mound = i_["top"] + 0.4 * np.clip((0.6 - q_) / 0.6, 0, 1) - 7.0 * s_ * s_ * (3.0 - 2.0 * s_) \
+        - 30.0 * np.maximum(q_ - 1.5, 0.0)   # (and on down, out of the way: well downstream the river is lower)
     win_ = hf[j0:j1, i0:i1]
     hf[j0:j1, i0:i1] = np.maximum(win_, mound)
 del SW, T

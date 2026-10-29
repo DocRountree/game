@@ -23,6 +23,9 @@ const TOP_CLEAR := 0.35             ## The lip's top and the foot are smooth (m)
 const FOOT_CLEAR := 0.6
 const STREAM_STEP := 0.25           ## The streams are kept every this much down the face (m).
 const MAX_STREAMS := 8
+const PRE := 2.5                    ## The face's rock begins this far above its lip (m upstream).
+const LIP_STEP := 1.2               ## The rock at the lip varies every this much across (m).
+const LIP_ROCK := Vector2(0.15, 0.5)  ## How far it stands above the water there (m).
 
 var height := 0.0       ## The drop (m).
 var half_width := 0.0   ## Of the water at the face (m).
@@ -38,6 +41,9 @@ var streams := 0
 var s_rows := 0                        ## Samples down the face, STREAM_STEP apart.
 var s_centre := PackedFloat32Array()   ## Per sample and stream (s_rows * streams): its middle (u, m).
 var s_half := PackedFloat32Array()     ## And its half width (m; 0 where it isn't).
+var u_lo := 0.0                        ## The streams' furthest reach either way across the face (m).
+var u_hi := 0.0
+var lip_h := PackedFloat32Array()      ## The rock at the lip between the streams: its height above the water, every LIP_STEP across (m).
 
 
 static func make(drop: float, hw: float, seed_: int) -> FallFace:
@@ -61,6 +67,9 @@ static func make(drop: float, hw: float, seed_: int) -> FallFace:
 			f.jitter[i] = 0.0 if r == 0 else rng.randf_range(-0.3, 0.3) * f.row_h
 			f.ledge[i] = rng.randf_range(LEDGE.x, LEDGE.y)
 	f._make_streams(rng)
+	f.lip_h.resize(ceili((f.u_hi - f.u_lo + 4.0 * f.col_w) / LIP_STEP) + 2)
+	for i in f.lip_h.size():
+		f.lip_h[i] = rng.randf_range(LIP_ROCK.x, LIP_ROCK.y)
 	return f
 
 
@@ -114,6 +123,9 @@ func _make_streams(rng: RandomNumberGenerator) -> void:
 				v = Vector2(lerpf(prev.y, b.y, t), lerpf(prev.z if d >= prev.x else 0.0, b.z, t))
 			s_centre[j * streams + si] = v.x
 			s_half[j * streams + si] = v.y
+			if v.y > 0.0:
+				u_lo = minf(u_lo, v.x - v.y)
+				u_hi = maxf(u_hi, v.x + v.y)
 
 
 ## How far inside the nearest stream (u, d) is (m; negative outside them all).
@@ -140,6 +152,32 @@ func landings() -> PackedVector3Array:
 			if h > 0.2:
 				out.append(Vector3(s_centre[j * streams + si], r * row_h, h))
 	return out
+
+
+## Where the streams land at the foot: Vector2(u, half width) each.
+func feet() -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var j := s_rows - 1
+	for si in streams:
+		var h := s_half[j * streams + si]
+		if h > 0.05:
+			out.append(Vector2(s_centre[j * streams + si], h))
+	return out
+
+
+## The rock at the lip at (u, d): Vector2(how far it stands above the water
+## there in m, how much it's there 0..1). Between the streams it rises out of
+## the bed over the last PRE m before the lip (d negative) and rounds over
+## it, in rough humps the streams run between, the water parting round them.
+func lip_rock(u: float, d: float) -> Vector2:
+	var gap := -inside(u, 0.0)
+	var f := clampf((u - u_lo + 2.0 * col_w) / LIP_STEP, 0.0, lip_h.size() - 1.001)
+	var i := int(f)
+	var a := smoothstep(0.0, 1.0, f - i)
+	var h := lerpf(lip_h[i], lip_h[i + 1], a)
+	var across := smoothstep(0.1, 1.6, gap)   # (the stream's own banks, sloping)
+	var along := smoothstep(-PRE, -0.6, d) * (1.0 - smoothstep(0.1, 0.9, d))
+	return Vector2(h, across * along)
 
 
 func cell_centre(r: int, c: int) -> float:
@@ -173,18 +211,20 @@ func cell_at(u: float, d: float) -> Vector3:
 	return Vector3(r, c, clampf((d - t0) / maxf(t1 - t0, 0.01), 0.0, 1.0))
 
 
-## How smooth the face is at (u, d): 0 over the lip, at the foot and out on
-## the walls beside it (where it fades into them), 1 in the face proper.
-func _relief(u: float, d: float) -> float:
+## How much the face's ledges stand out at (u, d): 0 over the lip, at the
+## foot and out beside the streams (where the rock sinks back into the
+## walls), 1 in the face proper, where the water comes down it.
+func relief(u: float, d: float) -> float:
+	var out := maxf(u_lo - u, u - u_hi)
 	return smoothstep(0.0, TOP_CLEAR, d) * (1.0 - smoothstep(height - FOOT_CLEAR, height, d)) \
-			* (1.0 - smoothstep(0.9, 1.5, absf(u) / maxf(half_width, 0.5)))
+			* (1.0 - smoothstep(0.6, 2.4, out))
 
 
 ## How far out from the cliff the rock stands at (u, d) (m): each ledge
 ## stands out at the top of its cell and the rock falls back under it.
 func rock_out(u: float, d: float) -> float:
 	var c := cell_at(u, d)
-	return ledge[int(c.x) * cols + int(c.y)] * (1.0 - c.z) * _relief(u, d)
+	return ledge[int(c.x) * cols + int(c.y)] * (1.0 - c.z) * relief(u, d)
 
 
 ## How far out the water is at (u, d): over a wet cell it leaves the ledge
@@ -193,15 +233,10 @@ func rock_out(u: float, d: float) -> float:
 func water_out(u: float, d: float) -> float:
 	var c := cell_at(u, d)
 	var i := int(c.x) * cols + int(c.y)
-	var rock := ledge[i] * (1.0 - c.z) * _relief(u, d)
+	var rock := ledge[i] * (1.0 - c.z) * relief(u, d)
 	if inside(u, d) < -0.2:
 		return rock + 0.03
-	return maxf(ledge[i] * (1.0 - 0.25 * c.z * c.z) * _relief(u, d), rock) + 0.1
-
-
-## How wet the rock is at (u, d), 0..1 (under a stream, and splashed beside one).
-func wet(u: float, d: float) -> float:
-	return smoothstep(-0.8, 0.0, inside(u, d))
+	return maxf(ledge[i] * (1.0 - 0.25 * c.z * c.z) * relief(u, d), rock) + 0.1
 
 
 ## The faces' cells as one texture for the shader: face f's rows start at

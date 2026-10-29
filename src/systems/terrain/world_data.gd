@@ -236,6 +236,14 @@ func surface_at(x: float, z: float) -> float:
 	return h00 + (h01 - h00) * fz + (h11 - h01) * fx
 
 
+## The ground's normal at a world point, as the terrain shades its nearest
+## ground (from the heights either side, a sample apart).
+func normal_at(x: float, z: float) -> Vector3:
+	var hx := height_at(x + spacing, z) - height_at(x - spacing, z)
+	var hz := height_at(x, z + spacing) - height_at(x, z - spacing)
+	return Vector3(-hx, 2.0 * spacing, -hz).normalized()
+
+
 ## The ground masks at a point: rock, sand, forest density, ambient occlusion (0..1).
 func ground_at(x: float, z: float) -> Color:
 	var w := ground.get_width()

@@ -33,8 +33,9 @@ render_mode blend_mix, depth_draw_never, cull_disabled;
 // leaves it, glassy for a moment, then white and streaming in strands, and
 // churns white where it lands on the ledge below; the rock between the
 // streams is left bare (it is drawn by the ribbons too). Below a fall the water
-// churns at its foot and the foam drifts away downstream, thinning out. Above a lip the water runs
-// rough and streaked with white. Round an island the current parts along its shore, with a little
+// churns where each stream landed and the foam spreads and drifts away
+// downstream, thinning out. Above a lip the water runs rough and flecked with
+// white, and frets round the rock that stands up between the streams. Round an island the current parts along its shore, with a little
 // foam at its head. Wakes and ripples from the player and the boat come from
 // the ocean's ripple simulation (which drifts with the current in a river),
 // churning white where they're steep. Highlights are capped and fall away
@@ -90,7 +91,8 @@ varying float fall_h;   // that fall's height
 varying float below;    // m below the last fall's foot
 varying float to_fall;  // m above the next fall's lip
 varying float spec_cap; // (fragment to light: how bright the sun's highlight may get here)
-varying flat int face;  // the fall it's on (-1 off them)
+varying flat int face;  // the fall it's on, just above or a little below (-1 away from them)
+varying float fd;       // m down that fall's face (negative above its lip; its height and more below its foot)
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -110,6 +112,7 @@ void vertex() {
 	below = CUSTOM0.z;
 	to_fall = CUSTOM0.w;
 	face = int(round(CUSTOM1.x));
+	fd = CUSTOM1.y;
 }
 
 // --- Adrift's water ---------------------------------------------------------
@@ -463,16 +466,30 @@ void fragment() {
 	float foam = falling * clamp(0.5 + 0.45 * smoothstep(0.0, 0.45, rf) + 0.35 * ledge, 0.0, 0.97)
 			* (0.6 + 0.4 * fs.x) * (1.0 - 0.7 * lip);
 	float churn_n = drift_noise(vec2(rp.x * 0.35, below * 0.45), 1.6 * 0.45, 2.0);
-	float churn = exp(-below / (0.35 * hw + 2.5)) * fh * smoothstep(-0.15, 0.35, churn_n);
+	// (below a fall, only where its streams landed, spreading out as it
+	// drifts away from them)
+	float landed = 1.0;
+	if (face >= 0 && sheet < 0.0 && fd > 0.0)
+		landed = smoothstep(-0.6 - 0.35 * below, 0.4, fall_inside(face, rp.x, fall_h - 0.01));
+	float churn = exp(-below / (0.35 * hw + 2.5)) * fh * smoothstep(-0.15, 0.35, churn_n) * landed;
 	float drift_v = max(speed, 0.9);
 	float trail_n = drift_noise(vec2(rp.x * 0.25, below * 0.2), drift_v * 0.2, 4.0)
 			+ 0.5 * drift_noise(vec2(rp.x * 0.7, below * 0.6) + 7.3, drift_v * 0.6, 3.0);   // (patches, a little drawn out downstream)
-	float trail = exp(-below / (2.5 * hw + 12.0)) * fh * smoothstep(0.2, 0.8, trail_n) * 0.6;
+	float trail = exp(-below / (2.5 * hw + 12.0)) * fh * smoothstep(0.2, 0.8, trail_n) * 0.6
+			* mix(landed, 1.0, smoothstep(0.0, 2.0 * hw + 20.0, below));
 	foam += (churn + trail) * (1.0 - falling);
 	// (right at its foot, white wherever it lands, steep or level)
-	foam = max(foam, (1.0 - smoothstep(0.3, 2.5, below)) * step(sheet, -0.5) * fh * (0.7 + 0.25 * churn_n));
-	float streak = drift_noise(vec2(rp.x * 0.8, rp.y * 0.12), max(speed, 1.0) * 0.12, 3.0);
-	foam += rapids * smoothstep(0.2, 0.6, streak) * 0.45;
+	foam = max(foam, (1.0 - smoothstep(0.3, 2.5, below)) * step(sheet, -0.5) * fh * (0.7 + 0.25 * churn_n) * landed);
+	float streak = drift_noise(vec2(rp.x * 0.6, rp.y * 0.3), max(speed, 1.0) * 0.3, 3.0);
+	foam += rapids * smoothstep(0.3, 0.7, streak) * 0.3;
+	// just above a lip, the water parting round the rock between the
+	// streams, and gathering into them
+	if (face >= 0 && sheet < 0.0 && fd < 0.0) {
+		float ins = fall_inside(face, rp.x, 0.0);
+		float near_lip = smoothstep(-2.5, -0.3, fd);
+		foam += near_lip * (1.0 - smoothstep(0.0, 0.5 + 0.3 * churn_n, abs(ins))) * 0.55
+				* smoothstep(-0.2, 0.4, drift_noise(vec2(rp.x * 1.5, fd * 1.5), max(speed, 1.0) * 1.5, 1.5));
+	}
 	// round an island: a thin, broken lace of foam along its waterline (where
 	// the water over the ground is only a few centimetres deep), a little
 	// more at its head where the current meets it, drifting with the current

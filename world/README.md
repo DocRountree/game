@@ -56,16 +56,18 @@ How it's made:
    run of gentle reaches and rapids. Each tributary gets a waterfall where the ground drops
    steeply (the most over 144 m, at least 12 m; a second only for 40 m or more), and a side
    valley hanging more than 6 m above its river's floodplain drops the rest in one where it
-   meets it. Each fall is one steep drop: the water held to its lip, then down the face
-   (rounded over the lip and into its foot, as steep as the 2.5 m grid draws cleanly: its
-   run 0.3 of its height, at least 3 m) into a plunge pool at its foot, wider and deeper
-   (most in the lowlands). The face is sampled finely (a point every 0.25 m of the drop) so
+   meets it. Each fall is one steep drop: the water held to its lip (running shallow over
+   the last stretch before it, the bed rising to the brink), then down the face (rounded
+   over the lip and into its foot, as steep as the 2.5 m grid draws cleanly: its run 0.3
+   of its height, at least 3 m) into a plunge pool at its foot, wider and deeper (most in
+   the lowlands) right from the foot, so water coming down any part of the face lands in it. The face is sampled finely (a point every 0.25 m of the drop) so
    the carve cuts it cleanly; the points say how far down a face each is ("riser"), and
    each fall's first and last point are listed ("falls"). The game breaks the water down
    the face into separate streams over light terracing (see docs/ARCHITECTURE.md). Where the trunk runs wide and gentle in
    the lowlands (away from the mouth and its confluences) it parts round a few islands:
    teardrops of sand and grass, blunt upstream and tapering downstream, smooth mounds whose
-   feet slope on down into the bed (no step, so their shores are smooth), the channel opening
+   feet slope on down into the bed (no step, so their shores are smooth; well past an
+   island they drop away, never left standing across the lower river), the channel opening
    out round each (listed in world.json as "islands"). The bed, banks and floodplain are carved into the
    2.5 m heights to match, so the water always lies in its bed: each river's ground is one
    continuous field (nearby reaches blended), the floodplain wide in the lowlands and none

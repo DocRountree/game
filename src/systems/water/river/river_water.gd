@@ -63,7 +63,7 @@ func setup(world: WorldData) -> void:
 	s_arr.resize(32)
 	material.set_shader_parameter("fall_sparams", s_arr)
 	material.set_shader_parameter("fall_extra", extra)
-	add_child(RiverSpray.build(world, fo.ledges))
+	add_child(RiverSpray.build(fo.ledges, fo.feet))
 	# the islands, for the water flowing round them
 	var isl: Array[Vector4] = []
 	var sizes: Array[Vector3] = []

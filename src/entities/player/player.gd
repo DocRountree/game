@@ -289,11 +289,24 @@ func _climb(delta: float) -> void:
 	if _mantle_t >= 0.0:
 		_mantle(delta)
 		return
+	if not hit.is_empty() and hit.normal.y >= CLIMBABLE_Y and not _can_stand(hit.position):
+		# only a little ledge in the rock (no room to stand on it): hold on to
+		# the steep rock just above or below it and climb on past it
+		for dy: float in [0.6, -0.6, 1.1, -1.1]:
+			var o := global_position + Vector3.UP * dy
+			var h2 := _ray(o + climb_normal * 0.5, o - climb_normal * 2.0)
+			if h2 and h2.normal.y < CLIMBABLE_Y:
+				hit = h2
+				break
 	if hit.is_empty() or hit.normal.y >= CLIMBABLE_Y:
 		# the rock ends or turns walkable: pull up onto it (where it turned
-		# walkable, or over the top), otherwise there's nothing to hold
+		# walkable, or over the top) if you're climbing up, otherwise
+		# there's nothing to hold
 		var top := Vector3.INF
 		if not hit.is_empty():
+			if Input.get_vector(&"move_left", &"move_right", &"move_back", &"move_forward").y <= 0.0:
+				velocity = Vector3.ZERO   # (just hold on here)
+				return
 			top = hit.position
 		else:
 			for reach: float in [0.8, 1.6]:
@@ -354,6 +367,21 @@ func let_go() -> void:
 	global_position += climb_normal * maxf(0.0, 1.05 * climb_normal.y - 0.05)
 	_collision.transform = _collision_rest
 	velocity = climb_normal * 1.0   # push off
+
+
+# Whether there's room to stand at p: walkable ground there and a little
+# further in from the rock's edge, and space above it for the body.
+func _can_stand(p: Vector3) -> bool:
+	var inward := Vector3(-climb_normal.x, 0.0, -climb_normal.z)
+	inward = inward.normalized() if inward.length() > 0.01 else Vector3.ZERO
+	var g := _ray(p + inward * 0.5 + Vector3.UP * 1.0, p + inward * 0.5 + Vector3.DOWN * 0.6)
+	if g.is_empty() or g.normal.y < CLIMBABLE_Y:
+		return false
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = (_collision.shape as CapsuleShape3D)
+	q.transform = Transform3D(Basis(), p + inward * 0.3 + Vector3.UP * (HEIGHT * 0.5 + 0.1))
+	q.exclude = [get_rid()]
+	return get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
 
 
 func _ray(a: Vector3, b: Vector3) -> Dictionary:
