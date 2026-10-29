@@ -8,20 +8,17 @@ render_mode blend_mix, depth_draw_never, cull_disabled;
 // the downstream direction. CUSTOM0: how far down a fall's sheet (m, -1 off
 // it), the fall's height (m), and the distance below the last fall (m).
 //
-// The water is after P_Malin's "Adrift" (shadertoy.com/view/ldjfDD), without
-// its foam:
-//   - the surface normal comes from a flowing fractal of value noise with
-//     analytic derivatives: each octave is carried downstream by the current,
-//     the next the other way at three quarters of the speed, and each warped
-//     a little up its own gradient, which makes the water's characteristic
-//     boils and slicks; two phases of it, half a period apart, are
-//     crossfaded so the flow never visibly resets; each octave is turned a
-//     little from the last, so no grid shows;
-//   - the current is fastest mid-channel and slows toward the banks, and the
-//     surface is flatter where the water runs fast;
-//   - light through the water dies away red and green last (brown-green
-//     water), with sunlight scattered back out of it, and the surface's gloss
-//     falls away with distance so far water doesn't sparkle.
+// The water's optics are the sea's (water_core.gdshaderinc: refraction,
+// Beer-Lambert absorption, the body's own colour, Fresnel), coloured by
+// setting: clear mountain water high up, silty lowland water by the sea, a
+// deep plunge pool below a fall. Its small waves are the sea's FFT slopes,
+// carried downstream by the current (two phases half a period apart,
+// crossfaded so the flow never visibly resets), rougher where it runs fast,
+// tumbles over rapids or swirls round an island; without them (no
+// RenderingDevice) a flowing fractal of value noise after P_Malin's "Adrift"
+// (shadertoy.com/view/ldjfDD) stands in. The current is fastest mid-channel
+// and slows toward the banks, and parts round an island. The surface's gloss
+// falls away with distance so far water doesn't sparkle.
 // The bed shows through, fading with the depth of water over it, but never
 // more than `bed_visibility` of it: the water keeps a body of its own however
 // shallow it is, so it never seems to vanish at its edges. Where a river runs
@@ -32,14 +29,12 @@ render_mode blend_mix, depth_draw_never, cull_disabled;
 // separate streams (FallFace, RiverRibbons): over each ledge a stream's water
 // leaves it, glassy for a moment, then white and streaming in strands, and
 // churns white where it lands on the ledge below; the rock between the
-// streams is left bare (it is drawn by the ribbons too). Below a fall the water
-// churns where each stream landed and the foam spreads and drifts away
-// downstream, thinning out. Above a lip the water runs rough and flecked with
-// white, and frets round the rock that stands up between the streams. Round an island the current parts along its shore, with a little
-// foam at its head. Wakes and ripples from the player and the boat come from
-// the ocean's ripple simulation (which drifts with the current in a river),
-// churning white where they're steep. Highlights are capped and fall away
-// with distance (light()), so no reach turns into a glinting blob.
+// streams is left bare (it is drawn by the ribbons too). The level water
+// carries no foam (the splash and mist at a fall's foot are RiverSpray's).
+// Wakes and ripples from the player and the boat come from the ocean's ripple
+// simulation (which drifts with the current in a river). Highlights are
+// capped and fall away with distance (light()), so no reach turns into a
+// glinting blob.
 
 uniform float time;
 uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
@@ -47,8 +42,6 @@ uniform vec3 sun_color = vec3(1.0);
 uniform vec3 view_pos;
 uniform float planet_radius = 6400000.0;
 
-uniform vec3 deep_color = vec3(0.02, 0.05, 0.035);
-uniform vec3 scatter_color = vec3(0.05, 0.12, 0.075);
 uniform float bed_visibility = 0.82;  // at most this much of the bed shows through
 uniform vec3 bed_tint = vec3(0.86, 0.96, 0.9);
 uniform float refraction = 0.03;
@@ -76,8 +69,29 @@ uniform vec2 fall_extra[32];    // per face: where its rows' first cells start (
 uniform sampler2D fall_streams : filter_nearest, repeat_disable;
 uniform vec4 fall_sparams[32];  // per face: its first row, rows, row step, streams
 uniform vec3 ripple_rect = vec3(0.0, 0.0, -1.0);                // origin x, origin z, size (m); none until set
-uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
-uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
+// Small waves: the sea's FFT slopes (OceanFFT, the same three cascades),
+// turned to run along the river and carried downstream by its current;
+// mipmapped, so far water averages rather than sparkling.
+uniform sampler2D fft_0 : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D fft_1 : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D fft_2 : filter_linear_mipmap_anisotropic, repeat_enable;
+uniform vec3 fft_sizes = vec3(97.0, 13.7, 2.31);
+uniform bool has_fft = false;    // (without them, the flowing noise below)
+uniform float chop = 1.6;        // how rough the small waves are
+// The water's look by setting (WaterLook): clear mountain water (high up),
+// silty lowland water (down by the sea), a deep plunge pool; each its
+// absorption (per m, Beer-Lambert), body and scattered colour.
+uniform vec3 absorb_clear = vec3(0.32, 0.075, 0.07);
+uniform vec3 deep_clear = vec3(0.006, 0.04, 0.045);
+uniform vec3 scatter_clear = vec3(0.02, 0.11, 0.1);
+uniform vec3 absorb_silty = vec3(0.3, 0.32, 0.45);
+uniform vec3 deep_silty = vec3(0.025, 0.045, 0.03);
+uniform vec3 scatter_silty = vec3(0.07, 0.115, 0.065);
+uniform vec3 absorb_pool = vec3(0.4, 0.1, 0.08);
+uniform vec3 deep_pool = vec3(0.004, 0.03, 0.045);
+uniform vec3 scatter_pool = vec3(0.0, 0.08, 0.1);
+uniform vec2 clear_heights = vec2(40.0, 160.0);   // silty below the first (m above the sea), clear above the second
+#include "res://src/systems/water/water_core.gdshaderinc"
 
 varying vec2 rp;        // across (m), downstream (m)
 varying float speed;
@@ -188,9 +202,24 @@ vec3 flowing_normal(vec2 p, vec2 flow, float rough) {
 	return normalize(mix(n0, n1, abs(t0 - 0.5) * 2.0));
 }
 
-// Light through the water: red and green get furthest (Adrift's extinction).
-vec3 water_extinction(float dist) {
-	return exp2(-dist * 0.14 * vec3(0.5, 0.6, 0.9));
+// The small waves at p (m), carried along the flow: the FFT slopes (two
+// phases half a period apart, crossfaded, as above), as a normal. Rougher
+// where the water runs fast or tumbles (rough).
+vec3 fft_flow_normal(vec2 p, vec2 flow, float rough) {
+	// (in the world's frame, not turned to the flow: turned by each pixel's
+	// own direction, a pattern this far from the origin would swing about
+	// and its mip levels go wild)
+	float sp = length(flow);
+	float t = time / flow_period;
+	float t0 = fract(t);
+	float t1 = fract(t + 0.5);
+	vec2 qa = p - flow * flow_period * (t0 - 0.5);
+	vec2 qb = p + vec2(17.3, 5.1) - flow * flow_period * (t1 - 0.5);
+	// (the longest cascade at a third of its size, for the river's broader swirls)
+	vec2 sa = texture(fft_0, qa * 3.0 / fft_sizes.x).rg + texture(fft_1, qa / fft_sizes.y).rg + texture(fft_2, qa / fft_sizes.z).rg;
+	vec2 sb = texture(fft_0, qb * 3.0 / fft_sizes.x).rg + texture(fft_1, qb / fft_sizes.y).rg + texture(fft_2, qb / fft_sizes.z).rg;
+	vec2 s = mix(sa, sb, abs(t0 - 0.5) * 2.0) * chop * (0.45 + 0.12 * min(sp, 6.0)) * rough;
+	return normalize(vec3(-s.x, 1.0, -s.y));
 }
 
 // --- falls ------------------------------------------------------------------------
@@ -336,12 +365,6 @@ vec4 island_at(vec2 p, out vec2 outward) {
 	return best;
 }
 
-float view_depth(vec2 uv, mat4 inv_proj) {
-	float raw = texture(depth_tex, uv).r;
-	vec4 p = inv_proj * vec4(uv * 2.0 - 1.0, raw, 1.0);
-	return -p.z / p.w;
-}
-
 void fragment() {
 	// the surface's frame: downstream, and across (horizontal, to the left);
 	// level water faces up, a riser faces downstream
@@ -365,7 +388,8 @@ void fragment() {
 	vec4 isl = island_at(wpos.xz, outward);
 	float near_isl = exp(-max(isl.x, 0.0) / max(0.8 * isl.w, 2.0));
 	flow -= outward * min(dot(flow, outward), 0.0) * near_isl;
-	vec3 n_flat = flowing_normal(wpos.xz, flow, 1.0 + 1.5 * pool + 1.2 * rapids + 0.5 * near_isl);
+	float rough = 1.0 + 1.5 * pool + 1.2 * rapids + 0.5 * near_isl;
+	vec3 n_flat = has_fft ? fft_flow_normal(wpos.xz, flow, rough) : flowing_normal(wpos.xz, flow, rough);
 	// wakes and ripples (the player swimming, the boat): their slope, from the
 	// simulation's heights, fading out toward its edges
 	float rip = 0.0;
@@ -427,23 +451,25 @@ void fragment() {
 	// MSAA there isn't), from the channel's own depth (its bed a parabola
 	// across) and the viewing angle.
 	vec3 view_world = normalize((INV_VIEW_MATRIX * vec4(VIEW, 0.0)).xyz);
-	float surface_depth = -VERTEX.z;
 	float thickness;
-	vec2 offset;
-	if (texture(depth_tex, SCREEN_UV).r > 0.0) {
-		thickness = max(view_depth(SCREEN_UV, INV_PROJECTION_MATRIX) - surface_depth, 0.0);
-		offset = n_world.xz * refraction * clamp(thickness * 0.5, 0.0, 1.0);
-		float behind = view_depth(SCREEN_UV + offset, INV_PROJECTION_MATRIX);
-		if (behind < surface_depth)
-			offset = vec2(0.0);
-		else
-			thickness = behind - surface_depth;
+	vec3 background;
+	if (water_has_depth(SCREEN_UV)) {
+		background = water_background(SCREEN_UV, n_world.xz, refraction, -VERTEX.z, INV_PROJECTION_MATRIX, thickness);
 	} else {
 		thickness = depth * max(1.0 - across * across, 0.0) / max(abs(view_world.y), 0.1);
-		offset = n_world.xz * refraction * clamp(thickness * 0.5, 0.0, 1.0);
+		background = texture(screen_tex, SCREEN_UV + n_world.xz * refraction * clamp(thickness * 0.5, 0.0, 1.0)).rgb;
 	}
-	vec3 background = min(texture(screen_tex, SCREEN_UV + offset).rgb, vec3(4.0));   // (not the sun's disc, seen through a sheet)
-	vec3 transmit = water_extinction(thickness) * bed_visibility * (1.0 - smoothstep(0.0, 0.4, falling));   // (water pouring down a riser is its own body, not glass)
+	background = min(background, vec3(4.0));   // (not the sun's disc, seen through a sheet)
+	// the water's look here: clear high up, silty low down, deep in a plunge pool
+	float clear = smoothstep(clear_heights.x, clear_heights.y, wpos.y);
+	vec3 absorb = mix(absorb_silty, absorb_clear, clear);
+	vec3 deep_color = mix(deep_silty, deep_clear, clear);
+	vec3 scatter_color = mix(scatter_silty, scatter_clear, clear);
+	float pool_w = clamp(pool * 1.5, 0.0, 1.0);
+	absorb = mix(absorb, absorb_pool, pool_w);
+	deep_color = mix(deep_color, deep_pool, pool_w);
+	scatter_color = mix(scatter_color, scatter_pool, pool_w);
+	vec3 transmit = exp(-absorb * thickness) * bed_visibility * (1.0 - smoothstep(0.0, 0.4, falling));   // (water pouring down a riser is its own body, not glass)
 	if (dot(n_geom, to_eye) < 0.0)
 		transmit = vec3(0.0);   // (seen from below or behind: its own body, not what lies beyond it)
 	float sun_dot_v = dot(sun_direction, -view_world);
@@ -458,50 +484,13 @@ void fragment() {
 	body = mix(body, sheet_body, falling) * (0.12 + 0.88 * sun_color);
 	vec3 refracted = background * transmit * mix(bed_tint, vec3(1.0), sea) + body * (1.0 - transmit);
 
-	// white water: down a riser (more as it drops, banded at its ledges);
-	// churning at each riser's foot and drifting away downstream from it,
-	// thinning out (the patterns move out from the foot with the water);
-	// streaked through the rapids above a lip; a little round an island's
-	// head and shore; and where a wake or a splash is steep
+	// white water down a riser (more as it drops, banded at its ledges); no
+	// foam on the level water
 	float foam = falling * clamp(0.5 + 0.45 * smoothstep(0.0, 0.45, rf) + 0.35 * ledge, 0.0, 0.97)
 			* (0.6 + 0.4 * fs.x) * (1.0 - 0.7 * lip);
-	float churn_n = drift_noise(vec2(rp.x * 0.35, below * 0.45), 1.6 * 0.45, 2.0);
-	// (below a fall, only where its streams landed, spreading out as it
-	// drifts away from them)
-	float landed = 1.0;
-	if (face >= 0 && sheet < 0.0 && fd > 0.0)
-		landed = smoothstep(-0.6 - 0.35 * below, 0.4, fall_inside(face, rp.x, fall_h - 0.01));
-	float churn = exp(-below / (0.35 * hw + 2.5)) * fh * smoothstep(-0.15, 0.35, churn_n) * landed;
-	float drift_v = max(speed, 0.9);
-	float trail_n = drift_noise(vec2(rp.x * 0.25, below * 0.2), drift_v * 0.2, 4.0)
-			+ 0.5 * drift_noise(vec2(rp.x * 0.7, below * 0.6) + 7.3, drift_v * 0.6, 3.0);   // (patches, a little drawn out downstream)
-	float trail = exp(-below / (2.5 * hw + 12.0)) * fh * smoothstep(0.2, 0.8, trail_n) * 0.6
-			* mix(landed, 1.0, smoothstep(0.0, 2.0 * hw + 20.0, below));
-	foam += (churn + trail) * (1.0 - falling);
-	// (right at its foot, white wherever it lands, steep or level)
-	foam = max(foam, (1.0 - smoothstep(0.3, 2.5, below)) * step(sheet, -0.5) * fh * (0.7 + 0.25 * churn_n) * landed);
-	float streak = drift_noise(vec2(rp.x * 0.6, rp.y * 0.3), max(speed, 1.0) * 0.3, 3.0);
-	foam += rapids * smoothstep(0.3, 0.7, streak) * 0.3;
-	// just above a lip, the water parting round the rock between the
-	// streams, and gathering into them
-	if (face >= 0 && sheet < 0.0 && fd < 0.0) {
-		float ins = fall_inside(face, rp.x, 0.0);
-		float near_lip = smoothstep(-2.5, -0.3, fd);
-		foam += near_lip * (1.0 - smoothstep(0.0, 0.5 + 0.3 * churn_n, abs(ins))) * 0.55
-				* smoothstep(-0.2, 0.4, drift_noise(vec2(rp.x * 1.5, fd * 1.5), max(speed, 1.0) * 1.5, 1.5));
-	}
-	// round an island: a thin, broken lace of foam along its waterline (where
-	// the water over the ground is only a few centimetres deep), a little
-	// more at its head where the current meets it, drifting with the current
-	float lace = drift_noise(vec2(rp.x * 1.3, rp.y * 1.3), max(speed, 0.6) * 1.3, 3.0)
-			+ 0.5 * drift_noise(vec2(rp.x * 3.1, rp.y * 3.1) + 5.1, max(speed, 0.6) * 3.1, 2.0);
-	float shallow = 1.0 - smoothstep(0.03, 0.35 + 0.25 * clamp(-isl.y, 0.0, 1.0), thickness * max(abs(view_world.y), 0.05));
-	foam += shallow * (1.0 - smoothstep(0.0, 6.0, isl.x)) * smoothstep(0.15, 0.6, lace)
-			* (0.35 + 0.25 * clamp(-isl.y, 0.0, 1.0)) * (1.0 - falling);
-	foam += smoothstep(0.2, 0.55, rip) * 0.6 * (gnoise(wpos.xz * 1.7).x * 0.5 + 0.6);
 	foam = clamp(foam * foam_strength, 0.0, 1.0);
 
-	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
+	float fresnel = water_fresnel(NORMAL, VIEW);
 	// gloss falls away where a pixel spans more water: the ripples too fine to
 	// show still roughen it, so far water has a soft sheen, never a mirror
 	// that turns the sun into one white-hot blob

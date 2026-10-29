@@ -12,10 +12,10 @@ mkdir -p "$OUT"
 : > "$OUT/report.jsonl"
 cd "$ROOT"
 for v in $VIEWS; do
-	for mask in "" 1; do
+	for mask in "" $([ "${MASKS:-1}" = 0 ] || echo 1); do
 		suffix=${mask:+_mask}
 		VIEW=$v MASK=$mask OUT="$OUT/$v$suffix.png" FRAMES=${FRAMES:-120} \
-			xvfb-run -a -s "-screen 0 960x540x24" "$GODOT" --path . --resolution 960x540 -s tools/bench/run.gd 2>/dev/null \
+			xvfb-run -a -s "-screen 0 960x540x24" "$GODOT" --path . --resolution 960x540 --fixed-fps 60 -s tools/bench/run.gd 2>/dev/null \
 			| grep "^BENCH " | sed 's/^BENCH //' >> "$OUT/report.jsonl" || true
 	done
 done

@@ -33,8 +33,7 @@ uniform vec3 deep_color = vec3(0.004, 0.03, 0.06);
 uniform vec3 scatter_color = vec3(0.0, 0.13, 0.14);
 uniform vec3 absorption = vec3(0.45, 0.09, 0.06);   // per meter: red goes first
 uniform float refraction = 0.03;
-uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
-uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
+#include "res://src/systems/water/water_core.gdshaderinc"
 
 group_uniforms shore;
 // The terrain's height map (Terrain: 16-bit heights in two R8 textures, as
@@ -97,12 +96,6 @@ float shoal(int i, float depth) {
 vec2 rip_uv(vec2 p) { return (p - ripple_rect.xy) / ripple_rect.z; }
 float rip_fade(vec2 uv) { vec2 e = min(uv, 1.0 - uv); return clamp(min(e.x, e.y) * 25.0, 0.0, 1.0); }
 
-float view_depth(vec2 uv, mat4 inv_proj) {
-	float raw = texture(depth_tex, uv).r;
-	vec4 p = inv_proj * vec4(uv * 2.0 - 1.0, raw, 1.0);
-	return -p.z / p.w;
-}
-
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	x0 = world.xz;
@@ -155,16 +148,8 @@ void fragment() {
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
 	// light coming up through the water: refracted background, absorbed with depth
-	float surface_depth = -VERTEX.z;
-	float thickness = max(view_depth(SCREEN_UV, INV_PROJECTION_MATRIX) - surface_depth, 0.0);
-	vec2 offset = slope * refraction * clamp(thickness * 0.5, 0.0, 1.0);
-	float behind = view_depth(SCREEN_UV + offset, INV_PROJECTION_MATRIX);
-	if (behind < surface_depth) {
-		offset = vec2(0.0);   // don't refract things in front of the water into it
-	} else {
-		thickness = behind - surface_depth;
-	}
-	vec3 background = texture(screen_tex, SCREEN_UV + offset).rgb;
+	float thickness;
+	vec3 background = water_background(SCREEN_UV, slope, refraction, -VERTEX.z, INV_PROJECTION_MATRIX, thickness);
 	vec3 transmit = exp(-absorption * thickness);
 
 	vec3 world_pos = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -178,7 +163,7 @@ void fragment() {
 	body *= 0.12 + 0.88 * sun_color;   // the water body is lit by the (possibly sunset-coloured) sun
 	vec3 refracted = background * transmit + body * (1.0 - transmit);
 
-	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
+	float fresnel = water_fresnel(NORMAL, VIEW);
 	ALBEDO = vec3(0.0);
 	ROUGHNESS = 0.03;
 	SPECULAR = 0.5;

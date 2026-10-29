@@ -71,6 +71,12 @@ func _process(delta: float) -> void:
 	if _ocean and _ocean.ripples and _ocean.ripples.enabled:
 		material.set_shader_parameter("ripple_tex", _ocean.ripples.texture)
 		material.set_shader_parameter("ripple_rect", Vector3(_ocean.ripples.origin.x, _ocean.ripples.origin.y, _ocean.ripples.size()))
+	# the small waves: the sea's FFT slopes (carried along the current in the shader)
+	if _ocean and _ocean.small_waves and _ocean.small_waves.enabled:
+		for c in OceanFFT.CASCADES:
+			material.set_shader_parameter("fft_%d" % c, _ocean.small_waves.textures[c])
+		material.set_shader_parameter("fft_sizes", _ocean.small_waves.sizes)
+		material.set_shader_parameter("has_fft", true)
 	if _sun:
 		material.set_shader_parameter("sun_direction", _sun.global_basis.z)
 		material.set_shader_parameter("sun_color", Vector3(_sun.light_color.r, _sun.light_color.g, _sun.light_color.b) * _sun.light_energy)

@@ -163,16 +163,21 @@ seabed's as the river comes down to the sea.
   across, reaching just past the banks, where the ground cuts its edge. The
   water is substantial: its body colour is always there (only a little of
   the bed shows through), so it never thins away in the shallows or with
-  the viewing angle. The surface is after P_Malin's "Adrift" (without its
-  foam): a fractal of value noise with analytic derivatives, each octave
-  carried by the current and the next the other way at 3/4 speed, each
-  warped up its own gradient, which gives the boils and slicks of real river
-  water. It is laid out in world space and carried along the current by two
-  crossfaded phases, so it follows every bend without stretching; it runs
-  fastest mid-channel and flattens where the water is fast, and it and the
-  gloss fade out where they would be finer than a pixel; each octave is
-  turned from the last, so no grid shows. Light through the water dies away
-  red and green last. The bed (sand and gravel) shows through, fading with
+  the viewing angle. Its optics are the sea's: both shaders share
+  `water_core.gdshaderinc` (refraction from the screen and depth textures,
+  never pulling in what's in front of the water; Beer-Lambert absorption over
+  the water crossed; Fresnel), each with its own colours. A river's colours
+  depend on its setting: clear, blue-green mountain water high up, silty
+  green-brown lowland water down by the sea, deep blue-green in a plunge
+  pool (absorption, body and scattered colour blended per pixel by height
+  and how close the foot of a fall is). Its small waves are the sea's FFT
+  slopes (three cascades, the longest at a third of its size for broader
+  swirls), laid out in world space and carried downstream by the current with
+  two crossfaded phases, so they follow every bend; rougher where it runs
+  fast, over rapids, in a plunge pool and round an island, mipmapped so far
+  water averages out. Without a RenderingDevice (no FFT) a flowing value-noise
+  fractal after P_Malin's "Adrift" stands in. The level water carries no
+  foam. The bed (sand and gravel) shows through, fading with
   the water over it, but never more than about 80% of it (clear water:
   whatever lies on the bed shows well), so the water never vanishes at its
   edges. Below each fall the current is slack and picks up again over a few
@@ -205,11 +210,8 @@ seabed's as the river comes down to the sea.
   rock between bare. Just below a fall the level water is lifted over any
   rock at its foot (the 2.5 m grid can't make it sharp), and the junctions
   between fine and coarse cross-sections lie on smooth water, edge to edge.
-  Below a fall it churns white where each stream landed and the foam spreads
-  and drifts away downstream, thinning out (its patterns carried out from the foot by two
-  crossfaded phases, so they never shear). Above a lip the water runs rough
-  and flecked with white, level right to the brink, and frets round the rock
-  between the streams. `RiverSpray` adds the splash and mist: one
+  Above a lip the water runs level right to the brink, parting round the
+  rock between the streams. `RiverSpray` adds the splash and mist: one
   multimesh of camera-facing quads animated entirely on the GPU
   (`river_spray.gdshader`): clumps of spray thrown up and falling back under
   gravity wherever one of a fall's streams lands at its foot (higher below a
@@ -217,14 +219,11 @@ seabed's as the river comes down to the sea.
   ones wherever a stream lands on a ledge, and soft puffs of mist rising and
   drifting downstream, lit as a translucent white, soft where they meet the
   ground and gone below the water. Round an island the current parts along
-  its shore and closes behind it, with a thin, broken lace of foam along its
-  real waterline (where the water over the ground is only centimetres deep),
-  a little more at its head. Wakes and ripples come from the ocean's ripple simulation (the player swimming, the
+  its shore and closes behind it. Wakes and ripples come from the ocean's ripple simulation (the player swimming, the
   boat), which the river shader reads as well; in a river the simulation
   drifts with its current (each wavelength shifted downstream exactly, in
-  the frequency domain), so wakes trail away downstream; steep ones churn
-  white. The sun's highlight is the shader's own (a capped GGX `light()`),
-  capped lower far off and on white water, and the sky the water reflects
+  the frequency domain), so wakes trail away downstream. The sun's highlight is the shader's own (a capped GGX `light()`),
+  capped lower far off and on falling water, and the sky the water reflects
   has the halo round the sun capped (the sky shader's cubemap pass), so no
   reach turns into a glinting blob, near or far. The water's very edge fades
   in over its first 30 cm, so the shore is soft; water that would hang out
