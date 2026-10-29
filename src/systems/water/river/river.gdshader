@@ -28,12 +28,12 @@ render_mode blend_mix, depth_draw_never, cull_disabled;
 // down to the sea its water turns into the sea's (the same colours and
 // absorption) and it fades out into it (the ocean fades in, WorldData.river_mask()).
 //
-// Falls are cascades: steep risers with ledge pools between them, the water
-// lying on the rock (RiverRibbons). Down a riser it is white and streaming:
-// glassy for a moment over the lip, then broken into strands down the rock
-// (wet rock showing between them), whiter where it tumbles over the little
-// ledges in the face. Below each riser the water churns at its foot and the
-// foam drifts away downstream, thinning out. Above a lip the water runs
+// Falls are single steep drops down stepped rock, the water coming down in
+// separate streams (FallFace, RiverRibbons): over each ledge a stream's water
+// leaves it, glassy for a moment, then white and streaming in strands, and
+// churns white where it lands on the ledge below; the rock between the
+// streams is left bare (it is drawn by the ribbons too). Below a fall the water
+// churns at its foot and the foam drifts away downstream, thinning out. Above a lip the water runs
 // rough and streaked with white. Round an island the current parts along its shore, with a little
 // foam at its head. Wakes and ripples from the player and the boat come from
 // the ocean's ripple simulation (which drifts with the current in a river),
@@ -65,6 +65,15 @@ uniform int island_count = 0;
 uniform vec4 islands[8];             // middle x, z; downstream x, z
 uniform vec3 island_sizes[8];        // half length, half width (at its middle), top
 uniform sampler2D ripple_tex : filter_linear, repeat_disable;  // r height (the ocean's ripple simulation)
+// the falls' faces (FallFace.texture()): per row of a face, texel 0 its cells'
+// offset, texel 1 + c cell c's water, top jitter and ledge
+uniform sampler2D fall_cells : filter_nearest, repeat_disable;
+uniform vec4 fall_params[32];   // per face: its first row, rows, row height, cell width
+uniform vec2 fall_extra[32];    // per face: where its rows' first cells start (u), its cells a row
+// and its streams (FallFace.stream_texture()): texel (s, row) stream s's
+// middle and half width, a row every STREAM_STEP down the face
+uniform sampler2D fall_streams : filter_nearest, repeat_disable;
+uniform vec4 fall_sparams[32];  // per face: its first row, rows, row step, streams
 uniform vec3 ripple_rect = vec3(0.0, 0.0, -1.0);                // origin x, origin z, size (m); none until set
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
@@ -81,6 +90,7 @@ varying float fall_h;   // that fall's height
 varying float below;    // m below the last fall's foot
 varying float to_fall;  // m above the next fall's lip
 varying float spec_cap; // (fragment to light: how bright the sun's highlight may get here)
+varying flat int face;  // the fall it's on (-1 off them)
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -99,6 +109,7 @@ void vertex() {
 	fall_h = CUSTOM0.y;
 	below = CUSTOM0.z;
 	to_fall = CUSTOM0.w;
+	face = int(round(CUSTOM1.x));
 }
 
 // --- Adrift's water ---------------------------------------------------------
@@ -233,6 +244,65 @@ vec3 fall_sheet(float across, float tau, float v) {
 	return vec3(clamp(acc.x * 0.9 + 0.5, 0.0, 1.0), acc.yz * 0.15);
 }
 
+// A fall's face (FallFace, the same layout): the column of row r at u, and
+// the top of cell (r, c).
+int fall_col(int f, int r, float u) {
+	float off = texelFetch(fall_cells, ivec2(0, int(fall_params[f].x) + r), 0).r;
+	return clamp(int(floor((u - fall_extra[f].x - off) / fall_params[f].w)), 0, int(fall_extra[f].y) - 1);
+}
+
+float fall_top(int f, int r, int c) {
+	return float(r) * fall_params[f].z + texelFetch(fall_cells, ivec2(1 + c, int(fall_params[f].x) + r), 0).g;
+}
+
+// The cell of face f at (u, d): (unused, how far down it 0..1, how far
+// across it 0..1, its height m); side: unused here.
+vec4 fall_cell(int f, float u, float d, out vec2 side) {
+	vec4 P = fall_params[f];
+	int rows = int(P.y);
+	int r = clamp(int(floor(d / P.z)), 0, rows - 1);
+	int c = fall_col(f, r, u);
+	if (r > 0 && d < fall_top(f, r, c)) {
+		r -= 1;
+		c = fall_col(f, r, u);
+	} else if (r < rows - 1) {
+		int c2 = fall_col(f, r + 1, u);
+		if (d >= fall_top(f, r + 1, c2)) {
+			r += 1;
+			c = c2;
+		}
+	}
+	float t0 = fall_top(f, r, c);
+	float t1 = r == rows - 1 ? fall_h : fall_top(f, r + 1, fall_col(f, r + 1, u));
+	int row = int(P.x) + r;
+	int cols = int(fall_extra[f].y);
+	float off = texelFetch(fall_cells, ivec2(0, row), 0).r;
+	float fc = (u - fall_extra[f].x - off) / P.w;
+	side = vec2(c > 0 ? texelFetch(fall_cells, ivec2(c, row), 0).r : 0.0,
+			c < cols - 1 ? texelFetch(fall_cells, ivec2(2 + c, row), 0).r : 0.0);
+	return vec4(texelFetch(fall_cells, ivec2(1 + c, row), 0).r, clamp((d - t0) / max(t1 - t0, 0.01), 0.0, 1.0),
+			fc - floor(fc), t1 - t0);
+}
+
+// How far inside the nearest of face f's streams (u, d) is (m; negative
+// outside them all), as FallFace.inside() has it.
+float fall_inside(int f, float u, float d) {
+	vec4 S = fall_sparams[f];
+	float fy = clamp(d / S.z, 0.0, S.y - 1.001);
+	int j = int(floor(fy));
+	float a = fy - float(j);
+	int row = int(S.x) + j;
+	float best = -1e3;
+	for (int i = 0; i < 8; i++) {
+		if (i >= int(S.w))
+			break;
+		vec2 p = mix(texelFetch(fall_streams, ivec2(i, row), 0).rg, texelFetch(fall_streams, ivec2(i, row + 1), 0).rg, a);
+		if (p.y > 0.05)
+			best = max(best, p.y - abs(u - p.x));
+	}
+	return best;
+}
+
 // The nearest island to p: (distance from its shore in m, negative on it;
 // along it, -1 at its head to 1 at its tail; across it, m; its half width
 // there), and its outward direction there.
@@ -306,24 +376,33 @@ void fragment() {
 		}
 	}
 
-	// down a riser: the water left the lip tau seconds ago and falls at v;
-	// its streaks are fixed in it, so they stream down, stretching as it speeds up
+	// down a fall's face (FallFace): the water comes down in separate
+	// streams, rock between them. Over each ledge (the cell of the rock it's
+	// on) a stream's water leaves the ledge tau seconds before and falls at v,
+	// its streaks fixed in it, so they stream down, stretching as it speeds
+	// up; glassy for a moment at the ledge (the line where it breaks white
+	// wavering across it), white and streaming below, churning white where it
+	// lands on the ledge below; its sides ragged.
 	float d = max(sheet, 0.0);
+	bool on_face = face >= 0 && sheet >= 0.0;
+	vec2 nb = vec2(1.0);
+	vec4 cl = vec4(1.0, d / max(fall_h, 0.3), 0.5, max(fall_h, 0.3));
+	if (on_face)
+		cl = fall_cell(face, rp.x, d, nb);
+	float dl = cl.y * cl.w;   // (m below this cell's ledge)
 	float v0 = max(speed, 1.5);
-	float v = sqrt(v0 * v0 + 19.6 * d);
+	float v = sqrt(v0 * v0 + 19.6 * dl);
 	float tau = (v - v0) / 9.8;
 	vec3 fs = fall_sheet(rp.x, tau, v);
-	float rf = clamp(d / max(fall_h, 0.3), 0.0, 1.0);   // (how far down the riser)
-	// glassy just over the lip, breaking white further down here and less far there
-	float wav = gnoise(vec2(rp.x * 0.7, 2.1)).x * 0.5 + 0.5;
-	float lip = (1.0 - smoothstep(0.0, min(1.0, 0.3 * fall_h) + 0.05, d - wav * min(0.6, 0.25 * fall_h))) * step(0.0, sheet);
-	// it splits into strands straight down the rock (narrow gaps, the rock
-	// showing dimly through thin water there, opening and closing as the
-	// water streams down), and tumbles white over the little ledges in the face
-	float split = smoothstep(0.4, 1.5, d) * falling * smoothstep(1.5, 3.0, fall_h);
-	float sn = gnoise(vec2(rp.x * 0.9, 31.7)).x + 0.5 * gnoise(vec2(rp.x * 2.3, 7.1)).x;
-	float strands = mix(0.35, 1.0, smoothstep(-0.55, -0.3, sn + 0.25 * fs.x));
-	float ledge = smoothstep(0.7, 1.0, fract(d / 1.7 + 0.25 * gnoise(vec2(rp.x * 0.2, 3.3)).x)) * smoothstep(2.5, 4.0, fall_h);
+	float rf = cl.y;
+	float wav = gnoise(vec2(rp.x * 0.7, 2.1 + 3.7 * floor(d))).x * 0.5 + 0.5;
+	float lip = (1.0 - smoothstep(0.0, 0.2 + 0.35 * wav, dl)) * step(0.0, sheet);
+	float rag = 0.1 + 0.3 * (gnoise(vec2(rp.x * 0.6, (tau - time) * 2.0)).x * 0.5 + 0.5);
+	float cell_a = on_face ? smoothstep(-0.05, rag, fall_inside(face, rp.x, d)) : 1.0;
+	// strands straight down each little fall, thin water between them
+	float sn = gnoise(vec2(rp.x * 1.1, 31.7)).x + 0.5 * gnoise(vec2(rp.x * 2.7, 7.1 + tau)).x;
+	float strands = mix(0.55, 1.0, smoothstep(-0.55, -0.25, sn + 0.25 * fs.x));
+	float ledge = smoothstep(0.75, 1.0, rf);   // (landing on the ledge below)
 	vec2 sl = fs.yz * sheet_streaks * mix(2.0, 1.0, lip) / (1.0 + px * px * 4.0);   // (streaked, the light catching it unevenly; no sparkle far off)
 	vec3 n_fall = normalize(normalize(cross(ax, dn)) - (ax * sl.x + dn * sl.y));
 	vec3 n_world = normalize(mix(n_flat, n_fall, falling));
@@ -377,7 +456,7 @@ void fragment() {
 	// thinning out (the patterns move out from the foot with the water);
 	// streaked through the rapids above a lip; a little round an island's
 	// head and shore; and where a wake or a splash is steep
-	float foam = falling * clamp(0.45 + 0.5 * smoothstep(0.0, 0.5, rf) + 0.25 * ledge, 0.0, 0.95)
+	float foam = falling * clamp(0.5 + 0.45 * smoothstep(0.0, 0.45, rf) + 0.35 * ledge, 0.0, 0.97)
 			* (0.6 + 0.4 * fs.x) * (1.0 - 0.7 * lip);
 	float churn_n = drift_noise(vec2(rp.x * 0.35, below * 0.45), 1.6 * 0.45, 2.0);
 	float churn = exp(-below / (0.35 * hw + 2.5)) * fh * smoothstep(-0.15, 0.35, churn_n);
@@ -419,7 +498,7 @@ void fragment() {
 			* smoothstep(0.15, 1.2, wpos.y);   // (by then it's sea water, as the sea is: a long, gentle crossfade)
 	// the strands down a riser, the wet rock between them showing; and the
 	// very edge of the water fading in over its first 30 cm, so the shore is soft
-	ALPHA *= mix(1.0, max(strands, foam * 0.6), split);
+	ALPHA *= cell_a * mix(1.0, strands, falling);
 	ALPHA *= mix(smoothstep(0.0, 0.3, thickness * max(abs(view_world.y), 0.05)), 1.0, on_fall);
 }
 

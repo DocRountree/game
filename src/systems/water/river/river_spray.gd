@@ -1,17 +1,19 @@
 class_name RiverSpray
 extends RefCounted
-## Splash and mist at the foot of each of a cascade's risers: one multimesh of
+## Splash and mist where the waterfalls' water lands: one multimesh of
 ## camera-facing quads for all of them, animated entirely on the GPU
-## (river_spray.gdshader), so it costs nothing on the CPU. Along each foot,
-## spread across the water's width, clumps of spray burst up and fall back
-## over and over (higher and wider below a taller riser), and a few soft puffs
-## of mist rise and drift away downstream, growing as they thin out.
+## (river_spray.gdshader), so it costs nothing on the CPU. Along each fall's
+## foot, spread across the water's width, clumps of spray burst up and fall
+## back over and over (higher and wider below a taller fall), and a few soft
+## puffs of mist rise and drift away downstream, growing as they thin out; and
+## on its face a little spray wherever a little fall lands on a ledge
+## (RiverRibbons.Falls.ledges).
 
 const SPLASH_SPACING := 0.7   ## Metres between splash clumps across a foot.
 const MIST_SPACING := 3.0     ## Metres between mist puffs across a foot.
 
 
-static func build(world: WorldData) -> MultiMeshInstance3D:
+static func build(world: WorldData, ledges: Array = []) -> MultiMeshInstance3D:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
 	var xforms: Array[Transform3D] = []
@@ -52,6 +54,11 @@ static func build(world: WorldData) -> MultiMeshInstance3D:
 				var basis := Basis(side, Vector3.UP, dir)
 				xforms.append(Transform3D(basis, foot + side * u + dir * rng.randf_range(0.5, 2.0)))
 				custom.append(Color(rng.randf(), h, 1.0, rng.randf_range(0.8, 1.2)))
+	for l: Array in ledges:
+		var dir := Vector3(l[1].x, 0.0, l[1].y)
+		var basis := Basis(Vector3(-dir.z, 0.0, dir.x), Vector3.UP, dir)
+		xforms.append(Transform3D(basis, l[0]))
+		custom.append(Color(rng.randf(), l[2], 0.0, rng.randf_range(0.35, 0.55)))
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_custom_data = true

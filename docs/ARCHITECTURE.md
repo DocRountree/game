@@ -175,39 +175,41 @@ seabed's as the river comes down to the sea.
   red and green last. The bed (sand and gravel) shows through, fading with
   the water over it, but never more than about 80% of it (clear water:
   whatever lies on the bed shows well), so the water never vanishes at its
-  edges. Below each riser the current is slack and picks up again over a few
+  edges. Below each fall the current is slack and picks up again over a few
   widths (`WorldData._current`, which also doesn't count the drops
   themselves). The water's thickness comes from the depth texture,
   or, where there is none (with MSAA on there isn't), from the channel's own
   depth profile and the viewing angle.
-  Falls: steep water comes down in steps the generator cuts into the rock
-  (cascades of a few tall risers, and step-pool streams; see
-  `world/README.md`), sampled finely. On a pool the water lies level; down
-  a riser it lies on the rock as a film: each vertex 0.45 m above the
-  ground exactly as the terrain draws it (`WorldData.surface_at`), then
-  neighbours lifted wherever the rock between them (across, down, and along
-  each triangle's diagonal) would come through, and every vertex held
-  between its riser's lip and the pool it falls into, and toward the banks
-  no higher than the water's level there (the banks stand higher, so it
-  can't spill over them). Round each riser the cross-sections are about a
-  metre apart each way; just below one the level water is lifted over any
-  rock at its foot (the 2.5 m grid can't make the foot of a tall riser
-  sharp), and the junctions between fine and coarse cross-sections lie on
-  level water, edge to edge. Down a riser the water is glassy for a moment
-  over the lip (the line where it breaks white wavers across it), then
-  white and streaming, streaked lighter and darker, its streaks fixed in the
-  falling water so they stretch as it speeds up, in strands with narrow gaps
-  where the wet rock shows dimly through, whiter where it tumbles over
-  little ledges in the face. Below each riser it churns white at the foot
-  and the foam drifts away downstream, thinning out (its patterns carried
-  out from the foot by two crossfaded phases, so they never shear). Above a
-  lip the water runs rough and streaked with white. `RiverSpray` adds the
-  splash and mist at every riser's foot: one multimesh of camera-facing
-  quads animated entirely on the GPU (`river_spray.gdshader`): clumps of
-  spray thrown up and falling back under gravity, higher below a taller
-  riser, and soft puffs of mist rising and drifting downstream, lit as a
-  translucent white, soft where they meet the ground and gone below the
-  water. Round an island the current parts along its shore and closes behind
+  Falls: each is one steep drop the generator cuts into the rock (see
+  `world/README.md`), sampled finely down its face. Its face is stepped in
+  rough, light terracing (`FallFace`: rows of ledges, each row offset from
+  the last like rough brickwork, each ledge's top a little higher or lower
+  than its neighbours'), and the water comes down it in a few separate
+  streams with bare rock between: each leaves the lip at its own place and
+  width and falls nearly sheer from ledge to ledge, stepping aside a little,
+  swelling or narrowing where it drops off one, now and then splitting in
+  two or (a thin one) giving out. `RiverRibbons` builds the face's rock (a
+  relief standing out from the ground exactly as the terrain draws it,
+  `WorldData.surface_at`, reaching out over the walls beside it and fading
+  into them; `fall_rock.gdshader`, faceted like the land, dark and glossy
+  where wet, a little moss on dry ledges) and lays the water over it with
+  cross-sections about 0.4 m apart each way; the shader reads the same
+  ledges and streams from two small textures, draws each stream (glassy for
+  a moment at each ledge, then white and streaming in strands, churning
+  white where it lands on the ledge below, its sides ragged) and leaves the
+  rock between bare. Just below a fall the level water is lifted over any
+  rock at its foot (the 2.5 m grid can't make it sharp), and the junctions
+  between fine and coarse cross-sections lie on smooth water, edge to edge.
+  Below a fall it churns white at the foot and the foam drifts away
+  downstream, thinning out (its patterns carried out from the foot by two
+  crossfaded phases, so they never shear). Above a lip the water runs rough
+  and streaked with white. `RiverSpray` adds the splash and mist: one
+  multimesh of camera-facing quads animated entirely on the GPU
+  (`river_spray.gdshader`): clumps of spray thrown up and falling back under
+  gravity along each fall's foot (higher below a taller fall) and smaller
+  ones wherever a stream lands on a ledge, and soft puffs of mist rising and
+  drifting downstream, lit as a translucent white, soft where they meet the
+  ground and gone below the  water. Round an island the current parts along its shore and closes behind
   it, with a little foam at its head and along its shore. Wakes and
   ripples come from the ocean's ripple simulation (the player swimming, the
   boat), which the river shader reads as well; in a river the simulation
@@ -231,8 +233,8 @@ seabed's as the river comes down to the sea.
   over the sea; the terrain under it gets no sea-level damp line). On the
   inside of a bend the ribbon reaches no further than most of the way to the
   bend's centre, so a wide reach never overlaps itself. Cross-sections are 2 m apart (round
-  risers, much closer), and the surface's frame follows the flow in 3D: down
-  a riser the water faces downstream and its streaks run down it. Coming into
+  falls, much closer), and the surface's frame follows the flow in 3D: down
+  a fall the water faces downstream and its streaks run down it. Coming into
   its river, a tributary's water reaches further out over its banks. The ribbons are drawn smallest
   stream first and trunk last, so where a tributary's mouth lies under its
   river only the river shows, with its one current (a tributary curves into

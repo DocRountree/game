@@ -66,7 +66,7 @@ func _initialize() -> void:
 			var p := pts[k]
 			if w.height_at(p.x, p.z) < 0.0:
 				continue   # (out in the estuary)
-			if pts[k - 4].y - pts[k + 4].y > 2.0 or r.depth[k] < 0.4:
+			if pts[k - 4].y - pts[k + 4].y > 2.0 or r.depth[k] < 0.4 or r.riser[k - 4] >= 0.0 or r.riser[k + 4] >= 0.0:
 				continue   # (a waterfall, where the water falls past the lip; a head, where it is a trickle)
 			if _on_island(w, p):
 				continue   # (the river parts round an island there)
@@ -90,22 +90,22 @@ func _initialize() -> void:
 			"the river parts round islands standing out of it (%d of %d)" % [dry_isles, w.islands.size()])
 	_check(banks_hold > checked * 0.95, "banks rise above the water on both sides (%d of %d points)" % [banks_hold, checked])
 
-	# waterfalls on the mountain streams: cascades of several risers, and
-	# steep reaches coming down in steps
-	var cascades := 0
+	# waterfalls on the mountain streams: each one tall drop (no steps down
+	# the rest of the stream)
+	var nfalls := 0
 	var tall := 0
-	var risers := 0
+	var faces := 0
 	for r in w.rivers:
 		var pts: PackedVector3Array = r.points
-		for c: Vector2i in r.cascades:
-			cascades += 1
+		for c: Vector2i in r.falls:
+			nfalls += 1
 			tall += 1 if pts[c.x].y - pts[c.y].y >= 5.0 else 0
 		var ris: PackedFloat32Array = r.riser
 		for k in range(1, ris.size()):
-			risers += 1 if ris[k] >= 0.0 and ris[k - 1] < 0.0 else 0
-	_check(cascades >= 5 and tall == cascades and risers > cascades * 4,
-			"%d waterfalls down the mountainsides, %d risers in all (cascades and step-pools)" % [cascades, risers])
-	# down a riser the water lies on the rock: the rock never shows through it
+			faces += 1 if ris[k] >= 0.0 and ris[k - 1] < 0.0 else 0
+	_check(nfalls >= 5 and tall == nfalls and faces == nfalls,
+			"%d waterfalls down the mountainsides, each one tall drop" % nfalls)
+	# down a fall's face the water lies over its rock: the ground never shows through it
 	var mesh := RiverRibbons.build(w.rivers, w)
 	var arr := mesh.surface_get_arrays(0)
 	var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
@@ -118,7 +118,7 @@ func _initialize() -> void:
 			on_riser += 1
 			through += 1 if w.surface_at(v[i].x, v[i].z) > v[i].y + 0.05 else 0
 	_check(on_riser > 1000 and through < on_riser / 100,
-			"water lies on the rock down the risers (rock through it at %d of %d points)" % [through, on_riser])
+			"water lies over the rock down the falls (ground through it at %d of %d points)" % [through, on_riser])
 
 	# confluences: each tributary meets its river running the same way
 	var aligned := 0

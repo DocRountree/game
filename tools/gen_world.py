@@ -1091,246 +1091,71 @@ for rv in rivers:
             low[i] = max(low[i], low[i + 1] - 0.01 * ds_[i])
         rv["level"] = np.minimum.accumulate(rv["level"] - low)
         rv["smooth"] = np.maximum(rv["smooth"] - low, rv["level"])
-# Steep water as steps of rock, the water lying level in a pool on each
-# step and pouring down the riser to the next:
-#   - each big fall (above) becomes a cascade: a few steep risers with a ledge
-#     pool on each tread between them, into a plunge pool at its foot;
-#   - every other reach steeper than 7% becomes a step-pool stream (as steep
-#     mountain streams are): risers 1.3-4 m high (taller where it's steeper),
-#     their drops adding up to the reach's, each where the smooth profile
-#     passes halfway down it, so the water stays close to it.
-# Each riser is sampled finely (every 0.8 m, from a little before it to a
-# little after), so the carve cuts it cleanly and the water can lie on the
-# rock. riser: how far down a riser each point is (0 at its lip, 1 at its
-# foot; -1 off them); cascade: 1 on and near risers, easing to 0 over 12 m
-# (the carve keeps the banks sharp and high there).
-STEP_FINE = 0.8      # (m between the points over a riser)
-PROFILE = 0.4        # (m: the profile is built on this grid first)
-rng_c = np.random.default_rng(SEED + 77)
+# Each fall made one steep drop: the water level held to its lip and then
+# down the face, rounded over the lip and into its foot, as steep as the
+# 2.5 m grid draws cleanly (its run 0.3 of its height, at least 3 m), into the
+# plunge pool. It is sampled finely down the face (a point every 0.25 m of
+# the drop), so the carve cuts it cleanly and the game can break the water
+# over it into a mosaic of little falls over ledges (RiverRibbons). riser:
+# how far down the face each point is (0 at its lip, 1 at its foot; -1 off
+# it); cascade: 1 on and near a fall, easing to 0 over 12 m either side (the
+# carve keeps the banks sharp and high there).
+FALL_ROW = 0.25      # (m of drop between the points down a fall)
+_ss = np.linspace(0.0, 1.0, 2001)
+_ss_v = _ss * _ss * (3.0 - 2.0 * _ss)   # (smoothstep, to invert)
 
 
-def staircase(rv):
+def with_falls(rv):
     p, L = rv["pts"], rv["level"]
     n = len(p)
     seg = np.linalg.norm(np.diff(p, axis=0), axis=1)
     arc = np.concatenate([[0], np.cumsum(seg)])
-    sf = np.arange(0.0, arc[-1], PROFILE)
-    sf = np.append(sf, arc[-1])
-    Lc = np.interp(sf, arc, L)
-    lvl = Lc.copy()
-    rise = np.full(sf.size, -1.0)                   # fraction down a riser
-    dep_o = np.interp(sf, arc, rv["depth"])
-    dep = dep_o.copy()
-    wid = np.ones(sf.size)
-    busy = np.zeros(sf.size, bool)                  # (taken by a cascade)
-    regions = []                                    # (from, to): sampled finely
-    feet = []                                       # where each cascade ends (its plunge pool)
-    spans_ = []                                     # (and how long it is)
-    offsets = []                                    # each run of risers: (start, end, how far it may be set off to the side, in half widths)
-    n_casc = 0
-    # the big falls: cascades
+    keep = np.ones(n, bool)
+    extra_s, extra_l, extra_r = [], [], []
+    spans = []   # (s0, s1, drop)
     for k in range(n - 1):
         if L[k] - L[k + 1] <= 5.0:
             continue
         H = float(L[k] - L[k + 1])
         s0 = arc[k]
-        nt = int(np.clip(round(H / 7.0), 2, 6))
-        hs = rng_c.uniform(0.6, 1.4, nt)
-        hs = hs / hs.sum() * H
-        runs = np.maximum(0.45 * hs, 2.8) * rng_c.uniform(0.85, 1.5, nt)   # (some steeper, some chutes)
-        treads = rng_c.uniform(3.5, 6.5, nt - 1) + 0.15 * hs[:-1]
-        total = runs.sum() + treads.sum()
-        room = arc[-1] - s0 - 12.0
-        if total > room:   # (a hanging fall close to its river: squeezed in)
-            f_ = max(room, 4.0) / (total + 1e-9)
-            runs, treads, total = runs * f_, treads * f_, max(room, 4.0)
-        r0 = np.zeros(nt)
-        for i in range(1, nt):
-            r0[i] = r0[i - 1] + runs[i - 1] + treads[i - 1]
-        tops = L[k] - np.concatenate([[0.0], np.cumsum(hs)])
-        narrow = rng_c.uniform(0.5, 0.9, nt)        # (each riser its own width)
-        m_ = (sf >= s0) & (sf <= s0 + total)
-        for i_ in np.nonzero(m_)[0]:
-            s_ = sf[i_] - s0
-            i = int(np.searchsorted(r0, s_, side="right")) - 1
-            t_ = (s_ - r0[i]) / runs[i]
-            if t_ <= 1.0:   # down riser i: rounded over its lip and into its foot
-                lvl[i_] = tops[i] - hs[i] * t_ * t_ * (3.0 - 2.0 * t_)
-                dep[i_] = 0.4
-                rise[i_] = t_
-                wid[i_] = narrow[i]
-            else:           # a ledge pool behind the next lip, deepest under the fall
-                x_ = (s_ - r0[i] - runs[i]) / treads[i] if i < nt - 1 else 1.0
-                lvl[i_] = tops[i + 1]
-                dep[i_] = 0.45 + (min(0.6 + 0.12 * hs[i], 2.2) - 0.45) * (1.0 - x_)
-                wid[i_] = narrow[i] + (1.05 - narrow[i]) * np.sin(np.pi * min(x_, 1.0))
-        busy |= (sf >= s0 - 0.5) & (sf <= s0 + total + 25.0)
-        regions.append((s0 - 1.6, s0 + total + 1.6))
-        grp = []
-        for i in range(nt):
-            grp.append((s0 + r0[i], s0 + r0[i] + runs[i], (1.0 - narrow[i]) * 0.7))
-        offsets.append(grp)
-        feet.append(s0 + total)
-        spans_.append(total)
-        # (below it the water is at the foot's level, as the fall left it)
-        lvl[sf > s0 + total] = np.minimum(lvl[sf > s0 + total], tops[-1])
-        n_casc += 1
-    # the steep reaches: step-pools (the slope measured with the big falls
-    # taken out; a reach runs right up to a cascade's lip)
-    drops_ = np.where(L[:-1] - L[1:] > 5.0, L[:-1] - L[1:], 0.0)
-    Lnf = Lc + np.interp(sf, arc, np.concatenate([[0.0], np.cumsum(drops_)]))
-    win = int(15.0 / PROFILE)
-    ii = np.arange(sf.size)
-    slope = (Lnf[np.maximum(ii - win, 0)] - Lnf[np.minimum(ii + win, sf.size - 1)]) / (2 * win * PROFILE)
-    free_ = ~busy & (sf > 30.0) & (sf < arc[-1] - (45.0 if rv["joins"] >= 0 else 30.0))
-    steep = ndimage.binary_closing(slope > 0.07, structure=np.ones(int(30.0 / PROFILE))) & free_
-    lab, nlab = ndimage.label(steep)
-    n_steps = 0
-    for li in range(1, nlab + 1):
-        idx = np.nonzero(lab == li)[0]
-        a_, b_ = idx[0], idx[-1]
-        sa, sb = sf[a_], sf[b_]
-        drop = Lc[a_] - Lc[b_]
-        if drop < 1.5 or sb - sa < 8.0:
-            continue
-        h_mean = float(np.clip(1.0 + 8.0 * drop / (sb - sa), 1.3, 4.0))
-        run_mean = max(0.45 * h_mean, 2.0) * 1.15
-        m = max(1, min(int(round(drop / h_mean)), int((sb - sa) / (run_mean * 1.4 + 4.0))))
-        sp = (sb - sa) / m
-        cs = sa + (np.arange(m) + 0.5 + rng_c.uniform(-0.3, 0.3, m)) * sp   # (unevenly spaced, so they don't line up like rungs)
-        # each pool's level: the profile's at its middle (the first and last
-        # the reach's own ends, so it joins the river seamlessly)
-        mids = np.concatenate([[sa], 0.5 * (cs[1:] + cs[:-1]), [sb]])
-        P = np.interp(mids, sf, Lc)
-        P[0], P[-1] = Lc[a_], Lc[b_]
-        ends = [sa]
-        grp = []
-        for j in range(m):
-            h = P[j] - P[j + 1]
-            run = min(max(0.45 * h, 2.0) * rng_c.uniform(0.9, 1.4), 0.55 * sp)
-            st, en = cs[j] - 0.5 * run, cs[j] + 0.5 * run
-            # the pool above it: level, deepest under the riser before, shoaling to this lip
-            pm = (sf >= ends[-1]) & (sf < st)
-            x_ = sf[pm] - ends[-1]
-            lvl[pm] = P[j]
-            under = (0.5 + 0.12 * (P[j - 1] - P[j])) * np.exp(-x_ / 4.0) if j > 0 else 0.0
-            dd = np.maximum(dep_o[pm] * 0.8, 0.5) + under
-            dep[pm] = 0.4 + (dd - 0.4) * np.clip((st - sf[pm]) / 3.0, 0.0, 1.0)
-            wid[pm] = 1.0 + 0.12 * np.sin(np.pi * np.clip(x_ / max(st - ends[-1], 1.0), 0, 1))
-            rm = (sf >= st) & (sf <= en)
-            t_ = (sf[rm] - st) / run
-            lvl[rm] = P[j] - h * t_ * t_ * (3.0 - 2.0 * t_)
-            rise[rm] = t_
-            dep[rm] = 0.4
-            w_ = rng_c.uniform(0.45, 0.95)
-            wid[rm] = w_
-            grp.append((st, en, (1.0 - w_) * 0.7))
-            regions.append((st - 1.6, en + 1.6))
-            ends.append(en)
-            n_steps += 1
-        offsets.append(grp)
-        # the last pool, down to the reach's end
-        pm = (sf >= ends[-1]) & (sf <= sb)
-        x_ = sf[pm] - ends[-1]
-        lvl[pm] = P[-1]
-        dep[pm] = np.maximum(dep_o[pm] * 0.8, 0.5) + (0.5 + 0.12 * (P[-2] - P[-1])) * np.exp(-x_ / 4.0)
-    lvl = np.minimum.accumulate(lvl)
-    # the points: the original ones, but finely over each riser (and cascade)
-    regions.sort()
-    merged = []
-    for r_ in regions:
-        if merged and r_[0] <= merged[-1][1] + 2.0:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], r_[1]))
-        else:
-            merged.append(r_)
-    s_out = []
-    j = 0
-    for s_ in arc:
-        while j < len(merged) and merged[j][1] < s_:
-            j += 1
-        if j < len(merged) and merged[j][0] - 1.0 <= s_ <= merged[j][1] + 1.0:
-            continue
-        s_out.append(s_)
-    for r_ in merged:
-        a_, b_ = max(r_[0], 0.0), min(r_[1], arc[-1])
-        s_out.extend(np.arange(a_, b_ + 1e-6, STEP_FINE))
-    s_out = np.unique(np.round(np.array(s_out), 3))
-    # (the riser fractions taken from the profile exactly; a point between
-    # the profile's samples on a riser's lip or foot is put on it)
-    fi = np.clip(np.round(s_out / PROFILE).astype(int), 0, sf.size - 1)
-    pts_new = np.stack([np.interp(s_out, arc, p[:, 0]), np.interp(s_out, arc, p[:, 1])], axis=1)
-    # each riser set off to the side (narrower than the channel, the water
-    # pours down one side or the other of it, so the steps zig-zag down
-    # between the rocks rather than lining up like a ladder): the channel
-    # runs dead straight over each riser and 2.5 m either side of it (so its
-    # lip lies square across the water), easing over to the next riser's
-    # offset across the pool between, and out to none 8 m beyond a run of them
-    # (all the risers, cascades' and steps' alike, in runs wherever they come
-    # within 21 m of one another)
-    every = sorted(r_ for grp in offsets for r_ in grp)
-    runs_ = []
-    for r_ in every:
-        if runs_ and r_[0] - runs_[-1][-1][1] < 21.0:
-            runs_[-1].append(r_)
-        else:
-            runs_.append([r_])
-    ks, ko = [], []
-    for grp in runs_:
-        hw_g = float(np.interp(grp[0][0], arc, rv["hw"]))
-        o_prev = 0.0
-        ks.append(grp[0][0] - 10.5); ko.append(0.0)
-        for j, (st_, en_, lim_) in enumerate(grp):
-            # (held straight over the riser and up to 2.5 m either side,
-            # less where the pools are short; the change from the last
-            # riser's offset no steeper than the pool between allows)
-            gap_a = st_ - grp[j - 1][1] if j > 0 else 21.0
-            gap_b = grp[j + 1][0] - en_ if j + 1 < len(grp) else 21.0
-            ma, mb = min(2.5, 0.3 * gap_a), min(2.5, 0.3 * gap_b)
-            ramp = gap_a - 2.0 * ma if j > 0 else 8.0
-            step_ = 0.3 * max(ramp, 0.5) / max(hw_g, 1.0)
-            o_ = float(np.clip(o_prev + rng_c.uniform(-1.0, 1.0) * step_, -abs(lim_), abs(lim_)))
-            ks.extend([st_ - ma, en_ + mb]); ko.extend([o_, o_])
-            o_prev = o_
-        ks.append(grp[-1][1] + 10.5); ko.append(0.0)
-    off = np.zeros(s_out.size)
-    if ks:
-        ks_, ko_ = np.array(ks), np.array(ko)
-        o_ = np.argsort(ks_, kind="stable")
-        ks_, ko_ = ks_[o_], ko_[o_]
-        j_ = np.clip(np.searchsorted(ks_, s_out, side="right") - 1, 0, ks_.size - 2)
-        t_ = np.clip((s_out - ks_[j_]) / np.maximum(ks_[j_ + 1] - ks_[j_], 1e-6), 0.0, 1.0)
-        t_ = t_ * t_ * (3.0 - 2.0 * t_)
-        inside = (s_out >= ks_[0]) & (s_out <= ks_[-1])
-        off = np.where(inside, ko_[j_] + (ko_[j_ + 1] - ko_[j_]) * t_, 0.0)
-    off = off * np.interp(s_out, arc, rv["hw"])
-    tan_ = np.stack([np.interp(s_out, arc, np.gradient(p[:, 0], arc)), np.interp(s_out, arc, np.gradient(p[:, 1], arc))], axis=1)
-    tan_ /= np.maximum(np.linalg.norm(tan_, axis=1, keepdims=True), 1e-9)
-    pts_new += np.stack([-tan_[:, 1], tan_[:, 0]], axis=1) * off[:, None]
+        run = min(float(np.clip(0.3 * H, 3.0, 12.0)), arc[-1] - s0 - 8.0)
+        # down the face, a point every FALL_ROW of drop (and its lip and foot)
+        dv = np.append(np.arange(0.0, H, FALL_ROW), H)
+        t_ = np.interp(dv / H, _ss_v, _ss)
+        extra_s.extend(s0 + t_ * run)
+        extra_l.extend(L[k] - dv)
+        extra_r.extend(t_)
+        keep &= ~((arc > s0 - 0.5) & (arc < s0 + run + 2.0))
+        spans.append((s0, s0 + run, H))
+    s_all = np.concatenate([arc[keep], np.array(extra_s)])
+    lv_all = np.concatenate([L[keep], np.array(extra_l)])
+    ri_all = np.concatenate([np.full(keep.sum(), -1.0), np.array(extra_r)])
+    o_ = np.argsort(s_all, kind="stable")
+    s_all, lv_all, ri_all = s_all[o_], lv_all[o_], ri_all[o_]
     out = {
-        "pts": pts_new,
-        "level": np.minimum.accumulate(np.interp(s_out, sf, lvl)),
-        "riser": rise[fi],
-        "depth": np.interp(s_out, sf, dep),
-        "hw": np.interp(s_out, arc, rv["hw"]) * np.interp(s_out, sf, wid),
-        "area": np.interp(s_out, arc, rv["area"]),
-        "smooth": np.interp(s_out, arc, rv["smooth"]),
+        "pts": np.stack([np.interp(s_all, arc, p[:, 0]), np.interp(s_all, arc, p[:, 1])], axis=1),
+        "level": np.minimum.accumulate(lv_all),
+        "riser": ri_all,
+        # (a thin sheet down the face; the channel a touch narrower there)
+        "depth": np.where(ri_all >= 0.0, 0.4, np.interp(s_all, arc, rv["depth"])),
+        "hw": np.interp(s_all, arc, rv["hw"]) * np.where(ri_all >= 0.0, 0.95, 1.0),
+        "area": np.interp(s_all, arc, rv["area"]),
+        "smooth": np.interp(s_all, arc, rv["smooth"]),
     }
-    casc = np.zeros(s_out.size)
-    for r_ in merged:
-        out_ = np.maximum(np.maximum(r_[0] - s_out, s_out - r_[1]), 0.0)
+    casc = np.zeros(s_all.size)
+    for a_, b_, _h in spans:
+        out_ = np.maximum(np.maximum(a_ - 1.6 - s_all, s_all - b_ - 1.6), 0.0)
         casc = np.maximum(casc, np.clip(1.0 - out_ / 12.0, 0.0, 1.0))
     out["cascade"] = casc
-    out["feet"] = [int(np.argmin(np.abs(s_out - f_))) for f_ in feet]
-    out["cascades"] = [[int(np.argmin(np.abs(s_out - (f_ - t_)))), int(np.argmin(np.abs(s_out - f_)))] for f_, t_ in zip(feet, spans_)]
-    return out, n_casc, n_steps
+    out["falls"] = [[int(np.argmin(np.abs(s_all - a_))), int(np.argmin(np.abs(s_all - b_)))] for a_, b_, _h in spans]
+    out["feet"] = [f_[1] for f_ in out["falls"]]
+    return out
 
 
-steps = 0
 for rv in rivers:
-    o_, nc_, ns_ = staircase(rv)
-    falls += nc_
-    steps += ns_
-    for key_ in ("pts", "level", "riser", "depth", "hw", "area", "smooth", "cascade", "cascades"):
+    o_ = with_falls(rv)
+    falls += len(o_["falls"])
+    for key_ in ("pts", "level", "riser", "depth", "hw", "area", "smooth", "cascade", "falls"):
         rv[key_] = o_[key_]
     fall_at = o_["feet"]
     seg = np.linalg.norm(np.diff(rv["pts"], axis=0), axis=1)
@@ -1348,8 +1173,7 @@ for rv in rivers:
         bump = np.where(d_ >= 0.0, np.exp(-((d_ - 1.2 * hw0) / (1.5 * hw0)) ** 2), 0.0)
         rv["hw"] = rv["hw"] * (1.0 + grow * bump)
         rv["depth"] = rv["depth"] + 1.5 * bump
-    rv["falls"] = fall_at
-log("waterfalls: %d cascades, %d steps" % (falls, steps))
+log("waterfalls:", falls)
 
 # islands in the trunk where it runs wide and gentle through the lowlands
 # (away from the mouth and from confluences): the channel opens out round
@@ -1746,7 +1570,7 @@ out = {
         "half_width": [round(float(v), 2) for v in rv["hw"]],
         "depth": [round(float(v), 2) for v in rv["depth"]],
         "riser": [round(float(v), 2) for v in rv["riser"]],
-        "cascades": rv["cascades"],
+        "falls": rv["falls"],
         "joins": rv["joins"],
     } for rv in rivers],
     "islands": [{k_: round(v_, 2) for k_, v_ in i_.items() if k_ in ("x", "z", "dx", "dz", "length", "width", "top")} for i_ in islands],

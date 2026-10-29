@@ -22,12 +22,10 @@ var spawn := Vector2.ZERO           ## Where the player starts (world x, z).
 var boat := Vector2.ZERO            ## Where the boat is moored.
 ## Rivers: Dictionaries with "points" (PackedVector3Array: x, water level, z),
 ## "half_width", "depth", "speed", "riser" (PackedFloat32Array per point),
-## "cascades" (Array[Vector2i]) and "joins" (the index of the river it runs
-## into, -1 for the sea). Downstream order. Steep water comes down in steps,
-## sampled finely: big waterfalls as cascades of a few tall risers (each
-## cascade's first and last point in "cascades"), steep reaches as step-pool
-## streams; "riser" is how far down a riser a point is (0 at its lip, 1 at its
-## foot; -1 off the risers).
+## "falls" (Array[Vector2i]) and "joins" (the index of the river it runs into,
+## -1 for the sea). Downstream order. Each waterfall is one steep drop, sampled
+## finely down its face (its first and last point in "falls"); "riser" is how
+## far down a fall's face a point is (0 at its lip, 1 at its foot; -1 off them).
 var rivers: Array[Dictionary] = []
 var landmasses: Array = []
 ## Islands in the rivers: Dictionaries with "x", "z" (middle), "dx", "dz"
@@ -87,10 +85,10 @@ func _load() -> bool:
 		if riser.size() != pts.size():
 			riser.resize(pts.size())
 			riser.fill(-1.0)
-		var cascades: Array[Vector2i] = []
-		for c: Array in r.get("cascades", []):
-			cascades.append(Vector2i(int(c[0]), int(c[1])))
-		rivers.append({"points": pts, "half_width": hw, "depth": depth, "riser": riser, "cascades": cascades,
+		var falls: Array[Vector2i] = []
+		for c: Array in r.get("falls", []):
+			falls.append(Vector2i(int(c[0]), int(c[1])))
+		rivers.append({"points": pts, "half_width": hw, "depth": depth, "riser": riser, "falls": falls,
 				"speed": _current(pts, hw, riser), "joins": int(r.joins)})
 	return true
 
