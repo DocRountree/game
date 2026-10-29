@@ -18,7 +18,8 @@ sample i sits at -5120 + 2.5 i metres.
 How it's made:
 
 1. **Layout** (10 m grid): a main island about 11 km across in the north-west, with a
-   mountain range off-centre down its spine (peaks around 600 m) and a main valley along its
+   mountain range off-centre down its spine (peaks around 800 m: heights above 40 m are
+   raised by up to a third before erosion) and a main valley along its
    wide side; an archipelago of about 150 low, smooth islands of very varied size (mostly
    50-500 m across) in a broad band east of it; a peripheral island far off to the
    north-east; a southern group on a wide bank south of the gap; a chain of volcanic cones
@@ -47,15 +48,22 @@ How it's made:
    about 130 m at the mouth, where the trunk opens out into the sea over its last 500 m),
    and depths too (1.6 m at the heads to 7 m, shoaling to about 3 m at the mouth). The
    trunk ends in an estuary: over its last 1.5 km it comes down to the sea gently (2.2 m
-   per km, 0.25 m at the coast), its valley floor with it, and its bed is carved right
-   out to the coast. The
+   per km, 0.05 m at the coast; the lowering that needs is eased out up its course at 1 cm
+   a metre, and above that it keeps its natural fall), its valley floor with it and its
+   banks low by the sea; its channel is carried on 400 m out to sea through the low beach
+   and bar there, so nothing stands between it and the sea. The
    water level is the downhill profile closest to the ground, smoothed into one continuous
-   run of gentle reaches and rapids. Each tributary gets at most one waterfall, at its
-   steepest spot where the ground drops at least 8 m over 60 m: the pool below is carried
-   back under the slope to a lip and the water drops sheer into a plunge pool. The bed, banks and floodplain are carved into the
+   run of gentle reaches and rapids. Each tributary gets a waterfall where the ground drops
+   steeply (the most over 144 m, at least 12 m; a second only for 40 m or more): the water
+   follows the ground down to a lip halfway down the drop and falls sheer into a plunge
+   pool, so the falls are tall where the mountains are steep and the gorge below one is
+   only half the drop. A side valley hanging more than 6 m above its river's floodplain
+   drops the rest in a waterfall where it meets it. The bed, banks and floodplain are carved into the
    2.5 m heights to match, so the water always lies in its bed: each river's ground is one
-   continuous field (nearby reaches blended), the floodplain wide in the lowlands and narrow
-   beside mountain streams, and where valleys overlap the river with the stronger claim
+   continuous field (nearby reaches blended), the floodplain wide in the lowlands and none
+   beside mountain streams (their banks meet the valley's own sides, which are left as they
+   are), the sides laid back in a V wherever a river runs below the ground (below a fall),
+   and beyond the banks the ground only ever lowered, never built up, and where valleys overlap the river with the stronger claim
    takes over smoothly; every channel is then cut through the others' banks, so a
    tributary keeps its width right into its river.
 5. **Masks and trees**: rock on steep and high ground, sand on beaches, the seafloor and

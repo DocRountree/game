@@ -239,6 +239,12 @@ void fragment() {
 	vec2 sl = fs.yz * sheet_streaks * glassy / (1.0 + px * px * 4.0);   // (no sparkle far off)
 	vec3 n_fall = normalize(normalize(cross(ax, dn)) - (ax * sl.x + dn * sl.y));
 	vec3 n_world = normalize(mix(n_flat, n_fall, falling));
+	// seen from behind (the back of a fall's sheet) or from below, it faces
+	// the eye, rather than turning black
+	vec3 n_geom = normalize(mix(vec3(0.0, 1.0, 0.0), cross(ax, dn), falling));
+	vec3 to_eye = (INV_VIEW_MATRIX * vec4(VIEW, 0.0)).xyz;
+	if (dot(n_geom, to_eye) < 0.0)
+		n_world = reflect(n_world, n_geom);   // (mirrored through the surface)
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_world, 0.0)).xyz);
 
 	// light coming up through the water: the bed, refracted, dying away with
@@ -278,18 +284,23 @@ void fragment() {
 	vec3 refracted = background * transmit * mix(bed_tint, vec3(1.0), sea) + body * (1.0 - transmit);
 
 	float fresnel = 0.02 + 0.98 * pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 5.0);
-	// gloss falls away where a pixel spans more water (Adrift's gloss factor)
-	float gloss = 0.99 * exp2(-px * 0.03);
+	// gloss falls away where a pixel spans more water: the ripples too fine to
+	// show still roughen it, so far water has a soft sheen, never a mirror
+	// that turns the sun into one white-hot blob
+	float gloss = 1.0 - clamp(0.05 + px * 0.08, 0.05, 0.45);
 	ALBEDO = vec3(0.0);
 	// a fall's sheet is broken water: never a mirror (it would flash the sun
 	// from far off), rougher the further it is
-	ROUGHNESS = mix(clamp(1.0 - gloss, 0.02, 0.6), clamp(0.25 + px * 0.12, 0.25, 0.6), falling);
-	SPECULAR = mix(0.5, 0.3, falling);
+	// (from the curve of its lip down, which would otherwise catch the sun
+	// over a wide range of angles like a lens)
+	float on_fall = max(falling, smoothstep(-0.9, 0.0, sheet));
+	ROUGHNESS = mix(clamp(1.0 - gloss, 0.02, 0.6), clamp(0.55 + px * 0.1, 0.55, 0.85), on_fall);
+	SPECULAR = mix(0.5, 0.15, on_fall);
 	EMISSION = refracted * (1.0 - fresnel);
 	// whole across the channel (the banks cut its edge); a soft fringe only
 	// at the ribbon's very edge (ragged down a fall's sides), thinning in at a
 	// river's head, and fading out where it comes down to the sea
 	float edge = mix(1.25, 0.95 + 0.12 * fs.x, falling);
 	ALPHA = (1.0 - smoothstep(edge, edge + 0.25, across)) * smoothstep(0.0, 0.25, fill)
-			* smoothstep(0.2, 0.8, wpos.y);   // (by then it's sea water, as the sea is)
+			* smoothstep(0.15, 1.2, wpos.y);   // (by then it's sea water, as the sea is: a long, gentle crossfade)
 }

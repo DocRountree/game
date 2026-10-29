@@ -23,6 +23,7 @@ extends Node
 @export var aurora: Aurora
 @export var moonlight: DirectionalLight3D
 @export var sun_energy := 1.4
+@export_range(0.0, 1.0) var sunlight_desaturation := 0.5   ## How much of the low sun's colour is taken out of its light.
 @export var moon_energy := 0.12                     ## Full moon light.
 
 @export_group("Scattering")
@@ -48,8 +49,8 @@ extends Node
 @export var strat_width := 0.07
 @export_range(0.0, 0.99) var strat_g := 0.6
 ## Stylised rose-violet band above the sunset point during twilight.
-@export var twilight_glow := 1.5
-@export var twilight_tint := Color(0.85, 0.42, 0.9)
+@export var twilight_glow := 1.9
+@export var twilight_tint := Color(0.72, 0.45, 0.98)
 ## How much the air changes from day to day (0 = every sunset identical).
 ## Each day draws its own haze, high aerosol and ozone, so sunsets range from
 ## clear golden ones to hazy orange or vivid pink-purple twilights.
@@ -181,12 +182,19 @@ func _update_sun() -> void:
 	if sun == null or not sun.is_inside_tree():
 		return
 	sun.global_basis = Basis.looking_at(-dir, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
-	# sunlight through the air: normalised so the overhead sun is white, sunsets stay warm
+	# sunlight through the air: normalised so the overhead sun is white, sunsets
+	# stay warm; a little less saturated than the air makes it, and as bright as
+	# the light overall (not its reddest part), so a low sun gilds the land
+	# rather than washing it red
 	var t := _transmittance(dir) / _zenith_transmittance
 	var peak := maxf(t.x, maxf(t.y, t.z))
+	var lum := t.dot(Vector3(0.2126, 0.7152, 0.0722))
 	var up := smoothstep(-0.03, 0.04, dir.y)    # the planet blocks the sun below the horizon
-	sun.light_color = Color(t.x / peak, t.y / peak, t.z / peak) if peak > 0.0 else Color.BLACK
-	sun.light_energy = sun_energy * clampf(peak, 0.0, 1.0) * up
+	var c := t / peak if peak > 0.0 else Vector3.ZERO
+	c = c.lerp(Vector3.ONE * c.dot(Vector3(0.2126, 0.7152, 0.0722)), sunlight_desaturation)
+	c /= maxf(c.x, maxf(c.y, maxf(c.z, 1e-6)))
+	sun.light_color = Color(c.x, c.y, c.z) if peak > 0.0 else Color.BLACK
+	sun.light_energy = sun_energy * clampf(lerpf(peak, lum, 0.5), 0.0, 1.0) * up
 	sun.shadow_enabled = up > 0.0
 	var night := night_amount()
 	if starfield:   # stars come out from civil twilight (sun 0-10 degrees below the horizon)

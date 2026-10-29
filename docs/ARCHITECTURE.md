@@ -130,7 +130,7 @@ rivers, stand-in trees and the start. Everything that makes terrain look
 real (erosion at 10 m, 5 m and 2.5 m, rivers carved together with their
 water level) happens there, where there's time for it, so the game only
 loads and draws (about a second for the 8192 x 8192 heights). The world is
-small and the mountains are game-scale (peaks 600-900 m); detail at every scale, haze, ambient occlusion and the trees are
+small and the mountains are game-scale (peaks around 800 m); detail at every scale, haze, ambient occlusion and the trees are
 what make it read as big.
 
 - **`WorldData`** loads it once: the two height byte planes (high and low)
@@ -177,7 +177,10 @@ what make it read as big.
   banded where the sheet runs thicker and thinner; below it the plunge pool
   is stirred up, with ripples running out from the foot. The sheet is broken
   water, never a mirror (rougher the further off it is), so it doesn't flash
-  the sun from afar. Where a river comes down to the sea (the trunk's
+  the sun from afar; and level water grows rougher with distance as its
+  ripples become too fine to show, so the sun on far water is a soft sheen,
+  not a white-hot blob. Seen from behind (the back of a fall) or from below,
+  the surface turns to face the eye rather than going black. Where a river comes down to the sea (the trunk's
   estuary, its last 1.5 km at nearly sea level) its water turns into the
   sea's (the same colours and absorption), then it fades out into it as the
   ocean fades in (`WorldData.river_mask()`: the sea isn't drawn under river
@@ -230,7 +233,10 @@ Changes from his version:
   lookup channel). After the sun sets below, it still catches reddened light,
   and that light comes to you through blue sky. On its own it mostly warms the
   sky, so a **stylised twilight glow** (`twilight_glow`, `twilight_tint`) adds
-  the rose-violet band above the sunset point while the sun is 1-6 degrees down.
+  the rose-violet band above the sunset point while the sun is 1-6 degrees down
+  (fading in from just before it sets). The sunlight itself is taken halfway
+  way toward white and is as bright as the light overall (not its reddest
+  part), so a low sun gilds the land rather than washing it red.
 - **Every sunset differs:** each day draws its haze, haze phase, high aerosol,
   ozone, scattering strength, and twilight glow strength and hue from `WorldConfig.seed_for("sky:<day>")`
   (`sunset_variety` scales it, 0 = identical). The lookup is re-baked once a day

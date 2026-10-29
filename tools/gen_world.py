@@ -336,6 +336,11 @@ for _ in range(600):
     south.append(c)
 log("layout:", len(landmasses), "landmasses,", islets, "islets,", len(cones), "cones")
 
+# the mountains a third taller (the lowlands, below 40 m, as they were)
+x_ = np.clip((H - 40.0) / 310.0, 0, 1)
+H = np.where(H > 0.0, H * (1.0 + 0.35 * x_ * x_ * (3.0 - 2.0 * x_)), H)
+del x_
+
 # --- seafloor ----------------------------------------------------------------
 land = H > 0.0
 D = ndimage.distance_transform_edt(~land) * CELL
@@ -983,23 +988,30 @@ for rv in rivers:
 
 
 def with_waterfall(g, base, rid):
-    """At most one waterfall on a stream, at its steepest spot (where the
-    ground drops the most over 60 m, at least 8 m): the pool below it is
-    carried back under the slope to a lip, and the water drops sheer over it.
-    Elsewhere the water follows the smooth downhill profile (rapids, not a
-    staircase)."""
+    """A waterfall where the ground drops steeply: at the stream's steepest
+    stretch (the most drop over 144 m, at least 12 m), the water follows the
+    ground down to a lip halfway down it and falls sheer from there into the
+    pool at its foot (so the gorge cut below a fall is only half as deep as
+    the drop). A second, only where the ground drops a great deal (40 m) well
+    away from the first. Elsewhere the water follows the smooth downhill
+    profile (rapids, not a staircase)."""
     lvl = base.copy()
     n = len(g)
-    if rid == 0 or n < 40:
+    w = 24
+    if rid == 0 or n < 2 * w + 20:
         return lvl, 0
     drop = np.full(n, -1.0)
-    drop[10:n - 20] = g[10:n - 20] - g[20:n - 10]
-    q = int(np.argmax(drop))
-    if drop[q] < 8.0:
-        return lvl, 0
-    k = q + 10
-    lvl[q + 1:k + 1] = min(base[k], base[q]) - 0.0
-    return np.minimum.accumulate(lvl), 1
+    drop[10:n - w - 10] = g[10:n - w - 10] - g[10 + w:n - 10]
+    falls_ = 0
+    for need in (12.0, 40.0):
+        q = int(np.argmax(drop))
+        if drop[q] < need:
+            break
+        m, k = q + w // 2, q + w
+        lvl[m + 1:k + 1] = np.minimum(lvl[m + 1:k + 1], base[k])
+        drop[max(q - 60, 0):min(k + 60, n)] = -1.0
+        falls_ += 1
+    return np.minimum.accumulate(lvl), falls_
 
 
 # widths, depths and the water surface: the downhill profile closest to the
@@ -1033,8 +1045,8 @@ for rv in rivers:
         # it ends at its river's level; and it comes down to those gently:
         # however much it has to be lowered is spread back up its course,
         # easing off by 1 cm a metre (a 5 m drop over 500 m), rather than
-        # falling in a step (a waterfall) where it reaches the floodplain or
-        # the confluence. Its natural fall is kept everywhere else.
+        # falling in a step where it reaches the floodplain or the confluence.
+        # Its natural fall is kept everywhere else.
         mp_ = main["pts"]
         d2_ = ((rv["pts"][:, None, :] - mp_[None, :, :]) ** 2).sum(-1)
         nk = np.argmin(d2_, axis=1)
@@ -1044,10 +1056,15 @@ for rv in rivers:
         across_plain = dist_ < hw_mn + 3.0 * rv["hw"] + 50.0
         target = np.where(across_plain, np.minimum(rv["level"], plain), rv["level"])
         target[-1] = main["level"][k]
-        low = np.maximum(rv["level"] - target, 0.0)
+        # (only the first 6 m of it: a side valley hanging higher than that
+        # above its river's floodplain drops the rest in a waterfall where it
+        # meets it, rather than scouring a trench far back up its course)
+        need = np.maximum(rv["level"] - target, 0.0)
+        low = np.minimum(need, 6.0)
         ds_ = np.linalg.norm(np.diff(rv["pts"], axis=0), axis=1)
         for i in range(len(low) - 2, -1, -1):
             low[i] = max(low[i], low[i + 1] - 0.01 * ds_[i])
+        low = np.maximum(low, need)
         rv["level"] = rv["level"] - low
         rv["smooth"] = np.maximum(rv["smooth"] - low, main["smooth"][k])
         rv["level"][-1] = main["level"][k]
@@ -1056,12 +1073,19 @@ for rv in rivers:
         rv["level"][-1] = min(rv["level"][-1], 0.0)
         rv["level"] = np.minimum.accumulate(rv["level"])
         # an estuary: the trunk comes down to the sea gently over its last
-        # kilometre and a half (2.2 m per km, 0.25 m at the coast), its valley
+        # kilometre and a half (2.2 m per km, 0.05 m at the coast), its valley
         # floor with it, rather than running down a beach
+        # (only its last 1.5 km: whatever lowering that needs is eased out up
+        # its course at 1 cm a metre; above that it keeps its natural fall)
         arc_ = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(rv["pts"], axis=0), axis=1))])
-        tide = 0.25 + 0.0022 * (arc_[-1] - arc_)
-        rv["level"] = np.minimum(rv["level"], tide)
-        rv["smooth"] = np.minimum(rv["smooth"], tide + 0.3)
+        d_end = arc_[-1] - arc_
+        tide = 0.05 + 0.0022 * d_end
+        low = np.where(d_end < 1500.0, np.maximum(rv["level"] - tide, 0.0), 0.0)
+        ds_ = np.diff(arc_)
+        for i in range(len(low) - 2, -1, -1):
+            low[i] = max(low[i], low[i + 1] - 0.01 * ds_[i])
+        rv["level"] = np.minimum.accumulate(rv["level"] - low)
+        rv["smooth"] = np.maximum(rv["smooth"] - low, rv["level"])
 # each fall made sheer: a point just past the lip already at the pool below
 for rv in rivers:
     p, L, Ls = rv["pts"], rv["level"], rv["smooth"]
@@ -1088,6 +1112,9 @@ for rv in rivers:
     x = np.clip(arc / 250.0, 0, 1)
     rv["depth"] = rv["depth"] * np.maximum(x * x * (3 - 2 * x), 0.05)
 log("waterfalls:", falls)
+for ri_, rv in enumerate(rivers):   # how far below the ground each river runs (before carving)
+    cut_ = bilinear(hf, rv["pts"][:, 0], rv["pts"][:, 1]) - rv["level"]
+    log("  river %d: below ground median %.1f m, 90%% %.1f m, max %.1f m" % (ri_, np.median(cut_), np.percentile(cut_, 90), cut_.max()))
 
 
 @njit(cache=True)
@@ -1100,7 +1127,7 @@ def _seg_window(ax, az, bx, bz, reach, world, cell, x0, z0, hx, hz):
 
 
 @njit(cache=True)
-def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
+def carve_river(px_, pz_, L, Ls, HW, DP, VR, VI, world, n, x0, z0, G, T, W, R):
     """One river's ground over a window (T, W, R start at x0, z0): the bed (a
     parabola below the water), banks rising just above it and a floodplain
     easing out into the land. The level, width and depth come from the
@@ -1111,8 +1138,10 @@ def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
     floodplain eases over to the smooth valley profile (Ls), so a waterfall's
     cliff spans the stream, not the whole valley. The river's ground reaches
     VR half widths out: wide floodplains in the lowlands, a narrow strip
-    beside a mountain stream. W is how much of the ground is the river's, R
-    the distance in half widths."""
+    beside a mountain stream. Where it runs incised below the ground (VI: 0..1)
+    its sides are laid back in a V (about 37 degrees) instead. Beyond its
+    banks the ground (G) is only ever lowered, never built up. W is how much
+    of the ground is the river's, R the distance in half widths."""
     cell = world / n
     hz, hx = T.shape
     D = np.full((hz, hx), 1e9, np.float32)
@@ -1136,6 +1165,7 @@ def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
     SH = np.zeros((hz, hx), np.float32)
     SD = np.zeros((hz, hx), np.float32)
     SV = np.zeros((hz, hx), np.float32)
+    SI = np.zeros((hz, hx), np.float32)
     for k in range(px_.size - 1):
         ax = px_[k]; az = pz_[k]; bx = px_[k + 1]; bz = pz_[k + 1]
         i0, i1, j0, j1 = _seg_window(ax, az, bx, bz, 9.0 * max(HW[k], HW[k + 1]), world, cell, x0, z0, hx, hz)
@@ -1159,6 +1189,7 @@ def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
                 SH[j, i] += w * (HW[k] + (HW[k + 1] - HW[k]) * u)
                 SD[j, i] += w * (DP[k] + (DP[k + 1] - DP[k]) * u)
                 SV[j, i] += w * (VR[k] + (VR[k + 1] - VR[k]) * u)
+                SI[j, i] += w * (VI[k] + (VI[k + 1] - VI[k]) * u)
     for j in range(hz):
         for i in range(hx):
             sw = SWr[j, i]
@@ -1170,6 +1201,7 @@ def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
             if r > vr:
                 continue
             lvl = SL[j, i] / sw
+            water = lvl
             if r > 1.6:
                 y = min((r - 1.6) / 1.9, 1.0)
                 lvl += (SLs[j, i] / sw - lvl) * y * y * (3.0 - 2.0 * y)
@@ -1180,7 +1212,13 @@ def carve_river(px_, pz_, L, Ls, HW, DP, VR, world, n, x0, z0, T, W, R):
                 # the bank rises steeply out of the water, then the
                 # floodplain climbs gently away
                 x = min((r - 1.0) / 0.3, 1.0)
-                tgt = lvl + min(0.4 + 0.15 * dep, dep * 0.8) * x * (2.0 - x) + max(r - 1.3, 0.0) * hw * 0.012
+                bank = min(0.4 + 0.15 * dep, dep * 0.8) * x * (2.0 - x) * min(max(water / 2.5, 0.15), 1.0)   # (low by the sea: no ridge along an estuary)
+                tgt = lvl + bank + max(r - 1.3, 0.0) * hw * 0.012
+                vi = SI[j, i] / sw
+                if vi > 0.0:
+                    tgt += (water + bank + 0.75 * max(r - 1.3, 0.0) * hw - tgt) * vi
+                if r > 1.7:
+                    tgt = min(tgt, G[j, i])
             x = min(max((r - 1.3) / (vr - 1.3), 0.0), 1.0)
             T[j, i] = tgt
             W[j, i] = 1.0 - x * x * (3.0 - 2.0 * x)
@@ -1235,11 +1273,19 @@ for ri, rv in enumerate(rivers):
     Tw = np.zeros((z1 - z0, x1 - x0), np.float32)
     Ww = np.zeros_like(Tw)
     Rw = np.full_like(Tw, 1e9)
-    # the floodplain reaches far where the valley floor is flat, little on steep ground
+    # the floodplain reaches far where the valley floor is flat; on steep ground
+# none (the river's banks rise straight into the valley's own sides, which
+# are left as they are, not shaved back into a flat-floored trench)
     sl = np.abs(np.gradient(ndimage.uniform_filter1d(rv["smooth"], 15))) / np.maximum(
         np.linalg.norm(np.gradient(p, axis=0), axis=1), 0.5)
-    vr = 3.0 + 6.0 * np.clip(1.0 - (sl - 0.02) / 0.06, 0, 1)
-    carve_river(p[:, 0].copy(), p[:, 1].copy(), rv["level"], rv["smooth"], rv["hw"], rv["depth"], vr, WORLD, N, x0, z0, Tw, Ww, Rw)
+    vr = 1.8 + 7.2 * np.clip(1.0 - (sl - 0.02) / 0.06, 0, 1)   # (in a steep valley the banks meet its own sides)
+    # where it runs well below the ground (below a fall, down from a hanging
+    # valley) the sides are laid back to a slope rather than cut sheer
+    incised = np.maximum(bilinear(hf, p[:, 0], p[:, 1]) - rv["level"], 0.0)
+    vr = np.maximum(vr, np.clip(1.6 + 1.6 * incised / np.maximum(rv["hw"], 1.0), 1.8, 8.5))
+    vi = np.clip((incised - rv["depth"]) / (rv["depth"] + 2.0), 0.0, 1.0)
+    carve_river(p[:, 0].copy(), p[:, 1].copy(), rv["level"], rv["smooth"], rv["hw"], rv["depth"], vr, vi, WORLD, N, x0, z0,
+                hf[z0:z1, x0:x1].astype(np.float32), Tw, Ww, Rw)
     blend_in(Tw, Ww, Rw, x0, z0, rv["joins"] >= 0, SW, ST, Wt, RM, CUT, BED)
 T = np.where(SW > 0, ST / np.maximum(SW, 1e-30), 0.0).astype(np.float32)
 T = np.minimum(T, CUT)   # every channel cut through the banks of the others
@@ -1248,6 +1294,29 @@ del ST, RM, CUT
 # blended in (the land beside the river pulled toward its floodplain, both
 # ways), except out at sea
 hf = np.where((SW > 0) & ((hf > -1.0) | (T < hf) | channel), hf + (T - hf) * Wt, hf)
+# the trunk's channel carried on out to sea (400 m, along its last 180 m)
+# until the seafloor is deeper, so no rim of beach is left across its mouth:
+# only the low beach and bar there are lowered, softly, never higher ground
+for rv in rivers:
+    if rv["joins"] >= 0:
+        continue
+    pe = rv["pts"][-1]
+    de = pe - rv["pts"][-30]
+    de /= max(np.linalg.norm(de), 1e-9)
+    hw_e, dep_e = float(rv["hw"][-1]), float(rv["depth"][-1])
+    cell_f = WORLD / N
+    lo_ = np.minimum(pe, pe + de * 400.0) - 1.3 * hw_e
+    hi_ = np.maximum(pe, pe + de * 400.0) + 1.3 * hw_e
+    i0, i1 = [int(np.clip((v + WORLD / 2) / cell_f, 0, N)) for v in (lo_[0], hi_[0])]
+    j0, j1 = [int(np.clip((v + WORLD / 2) / cell_f, 0, N)) for v in (lo_[1], hi_[1])]
+    gx, gz = np.meshgrid(np.arange(i0, i1) * cell_f - WORLD / 2, np.arange(j0, j1) * cell_f - WORLD / 2)
+    along_ = (gx - pe[0]) * de[0] + (gz - pe[1]) * de[1]
+    r_ = np.abs(-(gx - pe[0]) * de[1] + (gz - pe[1]) * de[0]) / hw_e
+    win_ = hf[j0:j1, i0:i1]
+    wgt_ = np.clip((1.0 - r_) / 0.4, 0, 1) * np.clip((400.0 - along_) / 150.0, 0, 1) \
+        * np.clip((along_ + hw_e) / hw_e, 0, 1) * np.clip((1.5 - win_) / 0.9, 0, 1)
+    bed_ = -dep_e * np.clip(1.0 - r_ * r_, 0.0, 1.0) - 0.4
+    hf[j0:j1, i0:i1] = np.minimum(win_, win_ + (bed_ - win_) * wgt_ * wgt_ * (3.0 - 2.0 * wgt_))
 del SW, T
 log("rivers: %d, %d points" % (len(rivers), sum(len(r["pts"]) for r in rivers)))
 

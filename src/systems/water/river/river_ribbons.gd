@@ -140,12 +140,22 @@ static func _ribbon(r: Dictionary, main: Dictionary, verts: PackedVector3Array, 
 	# tight bends don't fold the ribbon's inner edge over itself; and on the
 	# inside of a bend the ribbon reaches no further than most of the way to
 	# the bend's centre (where a wide mouth bends, it would overlap itself)
+	# (the window measured along the ground: down a fall the cross-sections
+	# stand on top of one another)
+	var ground_run := PackedFloat32Array([0.0])
+	for k in range(1, count):
+		ground_run.append(ground_run[k - 1] + Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length())
 	var tans := PackedVector2Array()
+	var wa := 0
+	var wb := 0
 	for k in count:
-		var win := maxi(int(hw[k] * 1.2 / STEP), 1)
-		var a := pts[maxi(k - win, 0)]
-		var b := pts[mini(k + win, count - 1)]
-		tans.append(Vector2(b.x - a.x, b.z - a.z).normalized())
+		var span := maxf(hw[k] * 1.2, STEP)
+		while wa < k and ground_run[k] - ground_run[wa + 1] >= span:
+			wa += 1
+		while wb < count - 1 and ground_run[wb] - ground_run[k] < span:
+			wb += 1
+		var t := Vector2(pts[wb].x - pts[wa].x, pts[wb].z - pts[wa].z)
+		tans.append(t.normalized() if t.length() > 0.01 else (tans[k - 1] if k > 0 else Vector2(0.0, 1.0)))
 	var bend := PackedFloat32Array()   # signed curvature (1/m), + turning left
 	for k in count:
 		var ka := maxi(k - 1, 0)
