@@ -13,7 +13,7 @@ interactive GPU ripple simulation that turns hulls and swimmers into wakes that
 lift and shove whatever they reach.
 
 The land is a generated 20 x 20 km test world (`world/`, made by
-`tools/gen_world.py` from a seed): a main island about 11 km across with a
+`tools/worldgen` from a seed): a main island about 11 km across with a
 mountain range and a river system (a few waterfalls on the mountain streams, a
 trunk about 130 m wide at the mouth), a peripheral island, an archipelago of about
 150 low islands on a shallow bank, a chain of volcanic cones and a southern

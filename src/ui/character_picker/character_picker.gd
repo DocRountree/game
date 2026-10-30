@@ -27,6 +27,8 @@ var facial_hair: OptionButton
 var facial_hair_slider: HSlider
 var hat: OptionButton
 var accessory_checks := {}   # id -> CheckBox
+var _hat_ids: Array[String] = []     # (the hat option's items: "none", then each HAT AccessoryDef)
+var _style_ids: Array[String] = []   # ("", then each STYLE AccessoryDef)
 
 var _camera: Camera3D
 var _prev_camera: Camera3D
@@ -64,8 +66,8 @@ func open(p: Player) -> void:
 	_before = traits.duplicate(true)
 	is_open = true
 	visible = true
-	player.frozen = true
-	player.frozen_facing = player.model.rotation.y
+	player.input_locked = true
+	player.locked_facing = player.model.rotation.y
 	_prev_visible = player.model.visible
 	player.model.visible = true
 	_prev_mouse = Input.mouse_mode
@@ -78,6 +80,7 @@ func open(p: Player) -> void:
 	_place_camera()
 	_camera.current = true
 	_sync_controls()
+	_panel_event(true)
 
 
 func close(save := true) -> void:
@@ -89,17 +92,24 @@ func close(save := true) -> void:
 		_apply(true)
 	if save:
 		ResourceSaver.save(traits, save_path)
-	player.frozen = false
+	player.input_locked = false
 	player.model.visible = _prev_visible
 	Input.mouse_mode = _prev_mouse
 	if _prev_camera:
 		_prev_camera.current = true
 	_camera.queue_free()
 	_camera = null
+	_panel_event(false)
+
+
+func _panel_event(open_: bool) -> void:
+	var events := get_node_or_null(^"/root/Events")
+	if events:
+		events.panel_open_changed.emit(open_)
 
 
 func _place_camera() -> void:
-	var f := player.frozen_facing
+	var f := player.locked_facing
 	# the camera stays put in front of where they faced on opening; turning
 	# them turns the body, not the view
 	if not _camera.has_meta(&"front"):
@@ -126,7 +136,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not is_open:
 		return
 	if event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT):
-		player.frozen_facing += event.relative.x * 0.01
+		player.locked_facing += event.relative.x * 0.01
 		get_viewport().set_input_as_handled()
 
 
@@ -213,13 +223,16 @@ func _build_ui() -> void:
 	box.add_child(_swatches("hair", CharacterTraits.BRIGHT_COLORS, func(c: Color) -> void:
 		traits.hair_color = c
 		_color_changed()))
-	hair_style = _options(box, "Style", ["Loose", "Ponytail", "Bun"], func(i: int) -> void:
-		traits.accessories.erase("ponytail")
-		traits.accessories.erase("bun")
-		if i == 1:
-			traits.accessories.append("ponytail")
-		elif i == 2:
-			traits.accessories.append("bun")
+	var style_names := ["Loose"]
+	_style_ids = [""]
+	for d: AccessoryDef in CharacterTraits.defs(AccessoryDef.Kind.STYLE):
+		style_names.append(d.display_name)
+		_style_ids.append(String(d.id))
+	hair_style = _options(box, "Style", style_names, func(i: int) -> void:
+		for id in _style_ids:
+			traits.accessories.erase(id)
+		if _style_ids[i] != "":
+			traits.accessories.append(_style_ids[i])
 		_shape_changed())
 
 	_heading(box, "Facial hair")
@@ -231,20 +244,23 @@ func _build_ui() -> void:
 		_shape_changed())
 
 	_heading(box, "Hat")
-	var hat_names: Array[String] = []
-	for h in CharacterTraits.HATS:
-		hat_names.append(h.replace("_", " ").capitalize())
+	var hat_names: Array[String] = ["None"]
+	_hat_ids = ["none"]
+	for d: AccessoryDef in CharacterTraits.defs(AccessoryDef.Kind.HAT):
+		hat_names.append(d.display_name)
+		_hat_ids.append(String(d.id))
 	hat = _options(box, "Hat", hat_names, func(i: int) -> void:
-		traits.hat = CharacterTraits.HATS[i]
+		traits.hat = _hat_ids[i]
 		_shape_changed())
 	box.add_child(_swatches("hat", CharacterTraits.ACCESSORY_COLORS, func(c: Color) -> void:
 		traits.hat_color = c
 		_color_changed()))
 
 	_heading(box, "Accessories")
-	for id: String in ["glasses", "earrings", "necklace", "scarf", "headband"]:
+	for d: AccessoryDef in CharacterTraits.defs(AccessoryDef.Kind.ACCESSORY):
+		var id := String(d.id)
 		var check := CheckBox.new()
-		check.text = id.capitalize()
+		check.text = d.display_name
 		check.toggled.connect(func(on: bool) -> void:
 			if _syncing:
 				return
@@ -361,10 +377,10 @@ func _sync_controls() -> void:
 	build_slider.value = traits.build
 	hair_length_slider.value = traits.hair_length
 	hair_curl_slider.value = traits.hair_curl
-	hair_style.select(1 if traits.has_accessory("ponytail") else (2 if traits.has_accessory("bun") else 0))
+	hair_style.select(maxi(_style_ids.find(traits.hair_style()), 0))
 	facial_hair.select(traits.facial_hair)
 	facial_hair_slider.value = traits.facial_hair_length
-	hat.select(maxi(CharacterTraits.HATS.find(traits.hat), 0))
+	hat.select(maxi(_hat_ids.find(traits.hat), 0))
 	for id: String in accessory_checks:
 		(accessory_checks[id] as CheckBox).button_pressed = traits.has_accessory(id)
 	_mark("skin", traits.skin_color)

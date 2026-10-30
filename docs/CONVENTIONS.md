@@ -62,6 +62,24 @@ only with profiler evidence, and keep the GDScript API identical so callers don'
 
 ## Tests
 
-`tests/` holds headless tests runnable with `tools/run_tests.sh`. A test is a
-`SceneTree` script that exits with code 0 on success. Add a check whenever a bug
-is fixed in a system that has one.
+`tests/` holds headless tests runnable with `tools/run_tests.sh` (every
+`tests/*_test.gd`). A test extends `res://tests/lib/test_run.gd` (`_check`,
+`_frames`, `_finish`, `_load_world`), does its work from `_initialize()` and
+exits with code 0 on success. Keep a test to one area (`player_test`,
+`river_test` ...) so each new system brings its own file, and test a system on
+its own where it can be (`river_test` builds a river over made-up ground, with
+no world loaded). Add a check whenever a bug is fixed in a system that has one.
+
+## Content and the world
+
+- New content is a definition `Resource` (a `class_name` script in
+  `src/data/<kind>/`) and `.tres` files: `ContentRegistry` finds them, so
+  nothing lists them by hand.
+- Content placed across the world is a `ChunkSpawner` added to the level's
+  `ChunkStreamer`; seed its randomness from the chunk.
+- Ground questions go through `Terrain`'s static queries, never to
+  `WorldData` (a file loader); water questions through `Water`.
+- World shaders `#include "res://src/systems/rendering/world_globals.gdshaderinc"`
+  for the clock, the camera, the sun and the planet's curve.
+- The world's file format is `world/schema.json`: change it there first (and
+  bump its version), then the generator (`tools/worldgen`) and `WorldData`.

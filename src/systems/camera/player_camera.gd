@@ -6,7 +6,20 @@ extends Camera3D
 ## person: sits at the eyes node and looks where the same yaw and pitch point. The view stays where you leave it; on a
 ## vehicle it turns with the vehicle, so a look over the side stays a look
 ## over the side.
+##
+## It keeps its own rules, from what happens to `player` (Events): F5 toggles
+## first and third person (in first person the player's own body is hidden,
+## so you don't look out through your head); taking a boat's helm follows the
+## boat from further back, turning with it; climbing is seen from behind
+## (third person), and the view goes back to what it was once you're off the
+## rock.
 
+const FOLLOW_DISTANCE := 4.5
+const FOLLOW_OFFSET := Vector3(0, 0.5, 0)
+const BOAT_DISTANCE := 9.0
+const BOAT_OFFSET := Vector3(0, 2.4, 0)
+
+@export var player: Player          ## Who the camera follows (its eyes: Model/Head).
 @export var target: Node3D
 @export var distance := 4.5
 @export var target_offset := Vector3(0, 0.5, 0)
@@ -18,6 +31,11 @@ extends Camera3D
 	set(value):
 		first_person = value
 		pitch = clampf(pitch, _pitch_limits().x, _pitch_limits().y)
+		if player and is_inside_tree():
+			player.model.visible = not value   # (don't look out through your own head)
+			var events := get_node_or_null(^"/root/Events")
+			if events:
+				events.view_mode_changed.emit(value)
 @export var eyes: Node3D              ## Where the camera sits in first person.
 @export var base_fov := 65.0          ## Field of view at zoom 1.
 ## Magnification (spyglass, telescope): divides the field of view. The
@@ -32,9 +50,43 @@ var pitch := 0.25                     ## Third person: camera elevation. First p
 
 var _distance := 4.5
 var _last_heading := NAN
+var _view_before_climb := true
+var _on_rock := false
+
+
+func _ready() -> void:
+	if player:
+		target = player
+		eyes = player.get_node_or_null(^"Model/Head")
+	var events := get_node_or_null(^"/root/Events")
+	if events:
+		events.boat_boarded.connect(_on_boat_boarded)
+		events.player_mode_changed.connect(_on_player_mode_changed)
+
+
+func _on_boat_boarded(boat: Boat, boarded: bool) -> void:
+	target = boat if boarded else player
+	turn_with_target = boarded
+	distance = BOAT_DISTANCE if boarded else FOLLOW_DISTANCE
+	target_offset = BOAT_OFFSET if boarded else FOLLOW_OFFSET
+
+
+func _on_player_mode_changed(mode: StringName) -> void:
+	var on_rock := mode == &"CLIMB" or mode == &"MANTLE"
+	if on_rock == _on_rock:
+		return
+	_on_rock = on_rock
+	if on_rock:
+		_view_before_climb = first_person
+		first_person = false
+	else:
+		first_person = _view_before_climb
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed(&"toggle_view") and not _on_rock:
+		first_person = not first_person
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens := mouse_sensitivity / zoom   # finer aim when magnified
 		yaw -= event.relative.x * sens

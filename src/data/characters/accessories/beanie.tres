@@ -1,0 +1,39 @@
+[gd_resource type="Resource" script_class="AccessoryDef" format=3]
+
+[ext_resource type="Script" path="res://src/data/characters/accessory_part.gd" id="1_yttlp"]
+[ext_resource type="Script" path="res://src/data/characters/accessory_def.gd" id="2_urk45"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_owxef"]
+radius = 0.1342
+height = 0.1342
+radial_segments = 16
+rings = 6
+is_hemisphere = true
+
+[sub_resource type="Resource" id="Resource_uffxm"]
+script = ExtResource("1_yttlp")
+mesh = SubResource("SphereMesh_owxef")
+transform = Transform3D(0.95, 0, 0, 0, 1.05, 0, 0, 0, 1, 0, 0.045, 0)
+fit_hair = true
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_oopc0"]
+top_radius = 0.1372
+bottom_radius = 0.1372
+height = 0.035
+radial_segments = 16
+rings = 1
+
+[sub_resource type="Resource" id="Resource_lrf2u"]
+script = ExtResource("1_yttlp")
+mesh = SubResource("CylinderMesh_oopc0")
+transform = Transform3D(0.95, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.055, 0)
+fit_hair = true
+
+[resource]
+script = ExtResource("2_urk45")
+id = &"beanie"
+display_name = "Beanie"
+kind = 0
+slot = 9
+default_color = Color(0.7, 0.15, 0.12, 1)
+parts = Array[ExtResource("1_yttlp")]([SubResource("Resource_uffxm"), SubResource("Resource_lrf2u")])

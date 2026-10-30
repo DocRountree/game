@@ -4,7 +4,6 @@
 [ext_resource type="PackedScene" path="res://src/systems/water/ocean/ocean.tscn" id="2_ocean"]
 [ext_resource type="PackedScene" path="res://src/entities/boat/boat.tscn" id="3_boat"]
 [ext_resource type="PackedScene" path="res://src/entities/player/player.tscn" id="4_player"]
-[ext_resource type="PackedScene" path="res://src/entities/props/crate.tscn" id="5_crate"]
 [ext_resource type="PackedScene" path="res://src/ui/hud/hud.tscn" id="6_hud"]
 [ext_resource type="Script" path="res://src/systems/camera/player_camera.gd" id="7_camera"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/atmosphere_sky.gdshader" id="8_sky"]
@@ -24,6 +23,10 @@
 [ext_resource type="Script" path="res://src/systems/atmosphere/aurora.gd" id="27_aurora"]
 [ext_resource type="Shader" path="res://src/systems/atmosphere/aurora.gdshader" id="28_aurora_shader"]
 [ext_resource type="Script" path="res://src/systems/terrain/terrain.gd" id="40_terrain"]
+[ext_resource type="Script" path="res://src/world/world_loader.gd" id="43_loader"]
+[ext_resource type="Script" path="res://src/systems/rendering/shader_globals.gd" id="44_globals"]
+[ext_resource type="Script" path="res://src/systems/debug/debug_tools.gd" id="41_debug"]
+[ext_resource type="Script" path="res://src/systems/camera/underwater_view.gd" id="42_underwater"]
 
 [sub_resource type="ShaderMaterial" id="Sky_material"]
 shader = ExtResource("8_sky")
@@ -79,7 +82,6 @@ shader = ExtResource("24_planet_shader")
 [node name="OpenOcean" type="Node3D"]
 script = ExtResource("1_world")
 world_config = ExtResource("22_world")
-crate_scene = ExtResource("5_crate")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment")
@@ -134,9 +136,16 @@ script = ExtResource("13_moon")
 light_color = Color(0.75, 0.83, 1, 1)
 light_energy = 0.0
 
-[node name="Terrain" type="Node3D" parent="." node_paths=PackedStringArray("focus")]
+[node name="ShaderGlobals" type="Node" parent="." node_paths=PackedStringArray("sun")]
+script = ExtResource("44_globals")
+sun = NodePath("../Sun")
+
+[node name="World" type="Node3D" parent="."]
+script = ExtResource("43_loader")
+
+[node name="Terrain" type="Node3D" parent="World" node_paths=PackedStringArray("focus")]
 script = ExtResource("40_terrain")
-focus = NodePath("../Player")
+focus = NodePath("../../Player")
 
 [node name="Ocean" parent="." node_paths=PackedStringArray("focus", "sun") instance=ExtResource("2_ocean")]
 focus = NodePath("../Player")
@@ -151,13 +160,26 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.6, 0, 0)
 script = ExtResource("21_explore")
 target = NodePath("../Player")
 
-[node name="Crates" type="Node3D" parent="."]
-
-[node name="Camera" type="Camera3D" parent="."]
+[node name="Camera" type="Camera3D" parent="." node_paths=PackedStringArray("player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.6, 1.5, 4.5)
 fov = 65.0
 near = 0.05
 far = 60000.0
 script = ExtResource("7_camera")
+player = NodePath("../Player")
 
-[node name="HUD" parent="." instance=ExtResource("6_hud")]
+[node name="HUD" parent="." node_paths=PackedStringArray("player", "atmosphere") instance=ExtResource("6_hud")]
+player = NodePath("../Player")
+atmosphere = NodePath("../Atmosphere")
+
+[node name="UnderwaterView" type="Node" parent="." node_paths=PackedStringArray("camera", "environment", "sun")]
+script = ExtResource("42_underwater")
+camera = NodePath("../Camera")
+environment = NodePath("../WorldEnvironment")
+sun = NodePath("../Sun")
+
+[node name="DebugTools" type="Node" parent="." node_paths=PackedStringArray("player", "aurora", "meteors")]
+script = ExtResource("41_debug")
+player = NodePath("../Player")
+aurora = NodePath("../Aurora")
+meteors = NodePath("../Meteors")

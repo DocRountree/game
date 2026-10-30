@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="AccessoryDef" format=3]
+
+[ext_resource type="Script" path="res://src/data/characters/accessory_part.gd" id="1_2xvae"]
+[ext_resource type="Script" path="res://src/data/characters/accessory_def.gd" id="2_waqat"]
+
+[sub_resource type="TorusMesh" id="TorusMesh_u8t2l"]
+inner_radius = 0.04
+outer_radius = 0.05
+rings = 16
+ring_segments = 6
+
+[sub_resource type="Resource" id="Resource_7olsh"]
+script = ExtResource("1_2xvae")
+mesh = SubResource("TorusMesh_u8t2l")
+transform = Transform3D(1, 0, 0, 0, 0.58778524, -0.809017, 0, 0.809017, 0.58778524, 0, 0.05, 0.125)
+
+[resource]
+script = ExtResource("2_waqat")
+id = &"bun"
+display_name = "Bun"
+kind = 2
+slot = 15
+default_color = Color(0.15, 0.15, 0.15, 1)
+min_hair = 0.15
+parts = Array[ExtResource("1_2xvae")]([SubResource("Resource_7olsh")])

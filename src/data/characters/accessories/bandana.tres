@@ -1,0 +1,37 @@
+[gd_resource type="Resource" script_class="AccessoryDef" format=3]
+
+[ext_resource type="Script" path="res://src/data/characters/accessory_part.gd" id="1_jtsck"]
+[ext_resource type="Script" path="res://src/data/characters/accessory_def.gd" id="2_66f8b"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_4blqv"]
+radius = 0.1282
+height = 0.1282
+radial_segments = 16
+rings = 6
+is_hemisphere = true
+
+[sub_resource type="Resource" id="Resource_v733i"]
+script = ExtResource("1_jtsck")
+mesh = SubResource("SphereMesh_4blqv")
+transform = Transform3D(0.95, 0, 0, 0, 0.8, 0, 0, 0, 1, 0, 0.04, 0)
+fit_hair = true
+
+[sub_resource type="SphereMesh" id="SphereMesh_kkala"]
+radius = 0.032
+height = 0.064
+radial_segments = 16
+rings = 8
+
+[sub_resource type="Resource" id="Resource_khajq"]
+script = ExtResource("1_jtsck")
+mesh = SubResource("SphereMesh_kkala")
+transform = Transform3D(1, 0, 0, 0, 0.8, 0, 0, 0, 0.8, 0, 0.03, 0.13)
+
+[resource]
+script = ExtResource("2_66f8b")
+id = &"bandana"
+display_name = "Bandana"
+kind = 0
+slot = 9
+default_color = Color(0.7, 0.15, 0.12, 1)
+parts = Array[ExtResource("1_jtsck")]([SubResource("Resource_v733i"), SubResource("Resource_khajq")])

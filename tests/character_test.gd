@@ -1,11 +1,9 @@
-extends SceneTree
+extends "res://tests/lib/test_run.gd"
 ## Headless tests of the character's look (CharacterTraits, HairBuilder,
 ## CharacterDress, CharacterRig's meshes): every combination of settings
 ## builds, the hair stays out of the body, the settings do what they say, the
 ## palettes are in order, and it all stays cheap.
 ## Run: godot --headless --path . -s res://tests/character_test.gd
-
-var _failures := 0
 
 
 func _initialize() -> void:
@@ -21,6 +19,13 @@ func _initialize() -> void:
 	_check(P.SKIN_TONES.size() == 12 and lum_ok and P.BRIGHT_COLORS.size() == 7 and hue_ok,
 			"palettes: 12 skin tones light to deep, 7 simple colours red to violet")
 
+	# accessories are content: each a .tres definition the registry finds
+	var hats := P.defs(AccessoryDef.Kind.HAT)
+	var accs := P.defs(AccessoryDef.Kind.ACCESSORY)
+	var styles := P.defs(AccessoryDef.Kind.STYLE)
+	_check(hats.size() >= 4 and accs.size() >= 5 and styles.size() >= 2 and ContentRegistry.by_id(&"AccessoryDef", &"glasses") != null,
+			"accessories come from their definitions (src/data/characters/accessories): %d hats, %d accessories, %d hair styles" % [hats.size(), accs.size(), styles.size()])
+
 	# C3 + C4: every combination builds, and no hair goes into the head,
 	# neck, torso, shoulders, pack or bedroll (more than 1 cm), nor up through a hat
 	var combos := 0
@@ -32,7 +37,7 @@ func _initialize() -> void:
 	for len_f: float in [0.0, 0.05, 0.3, 0.6, 1.0]:
 		for curl: float in [0.0, 0.5, 1.0]:
 			for fh in 5:
-				for hat: String in P.HATS:
+				for hat: String in ["none"] + P.defs(AccessoryDef.Kind.HAT).map(func(d: AccessoryDef) -> String: return String(d.id)):
 					for style: String in ["", "ponytail", "bun"]:
 						var t := P.new()
 						t.hair_length = len_f
@@ -107,7 +112,7 @@ func _initialize() -> void:
 	var stub := Player.new()   # (just a model to build on)
 	stub.add_child(model)
 	stub.set("model", model)
-	rig.player = stub
+	rig.body = stub
 	rig.build()
 	worst.apply_to(model)
 	var draws := 0
@@ -150,14 +155,3 @@ func _extent(t: CharacterTraits) -> Vector2:
 			w += Vector2(v.x, v.z).length()
 			n += 1
 	return Vector2(-lo, w / maxi(n, 1))
-
-
-func _finish() -> void:
-	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
-	quit(1 if _failures else 0)
-
-
-func _check(ok: bool, what: String) -> void:
-	print(("  ok    " if ok else "  FAIL  ") + what)
-	if not ok:
-		_failures += 1

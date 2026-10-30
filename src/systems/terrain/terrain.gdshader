@@ -26,10 +26,10 @@ uniform float h_min = -300.0;
 uniform float h_scale = 0.0213623;
 uniform int top_lod = 8;
 uniform float grid_dim = 16.0;
-// The main camera, also during the shadow pass (CAMERA_POSITION_WORLD is the
-// light's camera there): patches must morph the same way in both.
-uniform vec3 view_pos;
-uniform float planet_radius = 6400000.0;
+// (world_view_pos: the main camera, also during the shadow pass, when
+// CAMERA_POSITION_WORLD is the light's camera: patches must morph the same
+// way in both)
+#include "res://src/systems/rendering/world_globals.gdshaderinc"
 
 uniform vec3 grass_color : source_color = vec3(0.30, 0.37, 0.16);
 uniform vec3 dry_grass_color : source_color = vec3(0.52, 0.49, 0.28);
@@ -79,7 +79,7 @@ void vertex() {
 	vec2 gp = VERTEX.xz;
 	vec2 wp = origin.xz + gp * cd.w;
 	lod = int(cd.x + 0.5);
-	float d = distance(wp, view_pos.xz);
+	float d = distance(wp, world_view_pos.xz);
 	morph = lod < top_lod ? clamp((d - cd.y) / (cd.z - cd.y), 0.0, 1.0) : 0.0;
 	gp -= fract(gp * grid_dim * 0.5) * 2.0 / grid_dim * morph;
 	wp = origin.xz + gp * cd.w;
@@ -87,7 +87,7 @@ void vertex() {
 	if (morph > 0.0)
 		h = mix(h, height_m(wp, lod + 1), morph);
 	// the planet curves away: far land sinks toward the true horizon
-	float drop = dot(wp - view_pos.xz, wp - view_pos.xz) / (2.0 * planet_radius);
+	float drop = planet_drop(wp);
 	VERTEX = vec3(gp.x * cd.w, h - origin.y - drop, gp.y * cd.w);
 	NORMAL = normal_m(wp, lod);
 	world_pos = vec3(wp.x, h, wp.y);

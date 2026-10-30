@@ -1,21 +1,18 @@
 extends Node3D
-## The sandbox world: the generated islands (Terrain), the ocean and sky;
-## wires player, boat, camera and HUD together and scatters floating crates
-## around the boat. You start on a beach near the river mouth with the boat
-## moored offshore. Registers itself with Game as the running world.
+## The sandbox world: the generated islands (Terrain), the ocean and sky,
+## the player and their boat. It only puts them together: the camera, the
+## HUD, the debug tools and the underwater view keep their own rules. You
+## start on a beach near the river mouth with the boat moored offshore;
+## drowning or R puts you back beside the boat. Registers itself with Game
+## as the running world.
 
 @export var world_config: WorldConfig
-@export var crate_scene: PackedScene
-@export var crate_count := 30
-@export var crate_spread := 90.0
 
 @onready var player: Player = $Player
 @onready var boat: Boat = $Boat
 @onready var camera: PlayerCamera = $Camera
 @onready var hud: Hud = $HUD
-@onready var atmosphere: Atmosphere = $Atmosphere
-@onready var clock: GameClock = $Clock
-var picker := CharacterPicker.new()   ## C: style the character.
+@onready var debug: DebugTools = $DebugTools
 
 
 func _enter_tree() -> void:
@@ -28,118 +25,33 @@ func _exit_tree() -> void:
 
 
 func _ready() -> void:
-	picker.name = "CharacterPicker"
-	add_child(picker)
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Settings.apply_to_viewport(get_viewport())
-	add_child(DebugOverlay.new())   # F3
 	$Sun.directional_shadow_max_distance = QualitySettings.current().shadow_distance
 	var world := WorldData.get_world()
-	var moor := Vector3(world.boat.x, 0.3, world.boat.y) if world else Vector3.ZERO
-	boat.global_position = moor
-	if world:   # pointing out to sea
-		var out := Vector2(world.boat.x - world.spawn.x, world.boat.y - world.spawn.y)
-		boat.rotation.y = atan2(-out.x, -out.y)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 3
-	for i in crate_count:
-		var crate: Node3D = crate_scene.instantiate()
-		crate.position = moor
-		for _try in 20:   # (out on the water, not on the beach)
-			crate.position = moor + Vector3(rng.randf_range(-crate_spread, crate_spread), 0.0,
-					rng.randf_range(-crate_spread, crate_spread))
-			if Terrain.height_at(crate.position.x, crate.position.z) < -1.5:
-				break
-		crate.rotation.y = rng.randf() * PI
-		$Crates.add_child(crate)
 	camera.yaw = PI   # face south, toward the noon sun
 	if world:
+		boat.global_position = Vector3(world.boat.x, 0.3, world.boat.y)
+		var out := Vector2(world.boat.x - world.spawn.x, world.boat.y - world.spawn.y)
+		boat.rotation.y = atan2(-out.x, -out.y)   # pointing out to sea
 		var at := Vector3(world.spawn.x, 0.0, world.spawn.y)
-		($Terrain as Terrain).prepare_at(at)
+		($World as WorldLoader).prepare_at(at)
 		player.respawn(Vector3(at.x, Terrain.height_at(at.x, at.z) + 1.4, at.z))
-		var to_boat := moor - player.global_position
+		var to_boat := boat.global_position - player.global_position
 		camera.yaw = atan2(-to_boat.x, -to_boat.z)   # facing the boat
-	camera.eyes = player.get_node("Model/Head")
-	_set_first_person(true)   # start looking out of your own eyes
-	player.drowned.connect(_on_player_drowned)
+	camera.first_person = true   # start looking out of your own eyes
+	player.stats.drowned.connect(_on_player_drowned)
 	hud.flash("Your boat is moored offshore: right-click near it to climb aboard", 5.0)
 
 
-var _air_fog := {}
-
-
-# Under the surface the view closes in to a blue-green murk.
-func _underwater_view() -> void:
-	var env: Environment = $WorldEnvironment.environment
-	if _air_fog.is_empty():
-		_air_fog = {"d": env.fog_density, "c": env.fog_light_color, "a": env.fog_aerial_perspective, "s": env.fog_sky_affect}
-	var eye := camera.global_position
-	var under := eye.y < Water.surface_height(eye.x, eye.z)
-	var day := clampf(($Sun as DirectionalLight3D).light_energy, 0.05, 1.0)
-	env.fog_density = 0.06 if under else _air_fog.d
-	env.fog_light_color = Color(0.02, 0.16, 0.2) * day if under else _air_fog.c
-	env.fog_aerial_perspective = 0.0 if under else _air_fog.a
-	env.fog_sky_affect = 1.0 if under else _air_fog.s
-
-
-var _climbing := false
-var _picking := false
-var _view_before_climb := true
-
-
-func _process(_delta: float) -> void:
-	_underwater_view()
-	# climbing is seen from behind (third person), and the view goes back to
-	# what it was once you're off the rock
-	if player.climbing != _climbing:
-		_climbing = player.climbing
-		if _climbing:
-			_view_before_climb = camera.first_person
-			_set_first_person(false)
-		else:
-			_set_first_person(_view_before_climb)
-	var driving := player.boat != null
-	camera.target = boat if driving else player
-	camera.turn_with_target = driving
-	camera.distance = 9.0 if driving else 4.5
-	camera.target_offset = Vector3(0, 2.4, 0) if driving else Vector3(0, 0.5, 0)
-	if picker.is_open != _picking:   # (the HUD makes way for the picker's panel)
-		_picking = picker.is_open
-		hud.visible = not _picking
-	hud.refresh(player, boat, clock.time_text() + "\nmoon   " + atmosphere.moon_phase_text())
-
-
 func _unhandled_input(event: InputEvent) -> void:
-	if picker.is_open:   # (the picker's own keys: C or Esc close it)
-		if event.is_action_pressed(&"character_picker") or event.is_action_pressed(&"toggle_mouse"):
-			picker.close()
-			get_viewport().set_input_as_handled()
-		return
-	if event.is_action_pressed(&"character_picker") and not player.boat:
-		picker.open(player)
-	elif event.is_action_pressed(&"quit"):
+	if event.is_action_pressed(&"quit"):
 		get_tree().quit()
-	elif event.is_action_pressed(&"toggle_view"):
-		_set_first_person(not camera.first_person)
 	elif event.is_action_pressed(&"toggle_mouse"):
 		var captured := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if captured else Input.MOUSE_MODE_CAPTURED
-	elif event.is_action_pressed(&"debug_aurora"):
-		var aurora: Aurora = $Aurora
-		aurora.set_forced(not aurora.forced)
-		hud.flash("Debug: aurora every night" if aurora.forced else "Debug: auroras by chance (1 in 50)", 2.5)
-	elif event.is_action_pressed(&"debug_meteors"):
-		var meteors: Meteors = $Meteors
-		meteors.set_forced_shower(not meteors.forced_shower)
-		hud.flash("Debug: meteor shower every night" if meteors.forced_shower else "Debug: meteor showers by chance (1 in 50)", 2.5)
 	elif event.is_action_pressed(&"respawn"):
 		_respawn_player()
-
-
-func _set_first_person(on: bool) -> void:
-	camera.first_person = on
-	player.model.visible = not on   # don't look out through your own head
-	Events.view_mode_changed.emit(on)
 
 
 func _on_player_drowned() -> void:

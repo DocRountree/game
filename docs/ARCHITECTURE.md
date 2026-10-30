@@ -7,12 +7,17 @@
   rendering (shader). Anything that floats reads the same surface it is drawn on.
   Time lives in `GameClock`, sky positions in `Astronomy`, world facts in `WorldConfig`.
 - **Ask a query API, not a node.** Gameplay asks `Water.surface_height(x, z)`,
-  `GameClock.current()`, `WorldConfig.current()` instead of holding references to
-  a particular ocean or level. New kinds of water, terrain or worlds slot in
-  behind the same questions.
+  `Terrain.height_at(x, z)`, `GameClock.current()`, `WorldConfig.current()`
+  instead of holding references to a particular ocean, terrain or level. New
+  kinds of water, terrain or worlds slot in behind the same questions (a
+  `WaterBody`, a `TerrainSource`).
 - **Data in Resources, behaviour in systems.** Items, species, biomes, boats and
-  character looks are `Resource` definitions in `src/data/`. A new boat or fish
-  is a new `.tres`, not new code.
+  character looks and accessories are `Resource` definitions in `src/data/`,
+  found by `ContentRegistry`. A new boat, fish or hat is a new `.tres`, not new
+  code.
+- **Each thing keeps its own rules.** The camera reacts to what happens to the
+  player (Events), the player's movement modes decide their own hand-overs,
+  the HUD reads what it shows; the level only puts things together.
 - **Cheap tricks, honestly labelled.** Most systems are known game-water hacks
   (Gerstner swell, spring buoyancy, a heightfield wave equation). Comments say
   what each one fakes and where its limits are.
@@ -36,9 +41,32 @@
   `seed_for("system")` gives each procedural system its own reproducible seed.
 - **`WorldGrid`** (`src/core/`): square cells over XZ. The exploration map uses
   it now; terrain streaming, procedural generation and culling will share it.
+- **The level** (`src/world/open_ocean/`) only puts things together: the
+  `WorldLoader` (below), ocean, sky, player, boat, camera, HUD,
+  `UnderwaterView` (the murk with the camera under the surface),
+  `ShaderGlobals` and `DebugTools`; it places the player and the boat, and
+  respawns the player beside the boat (R, or on drowning).
+- **`WorldLoader`** (`src/world/world_loader.gd`) builds the generated world
+  in a fixed order: loads `WorldData`, puts its ground in use for every ground
+  question (`Terrain.use(HeightmapSource)`) before any child is ready, lets
+  its `Terrain` child build the land, then adds the rivers (`RiverWater`) and a
+  **`ChunkStreamer`** (`src/world/streaming/`), which streams every
+  registered `ChunkSpawner`'s content in 512 m chunks round the camera
+  (nearest first, a few a frame, freed well out of view): the trees
+  (`TreeSpawner`) now, plants, rocks, animals, items and structures later.
+- **`ShaderGlobals`** (`src/systems/rendering/`) sets the global shader
+  uniforms every world shader shares (`world_globals.gdshaderinc`, declared
+  in `project.godot`): `world_time`, `world_view_pos` (the main camera, also
+  in shadow passes), `sun_direction`, `sun_color`, `planet_radius`, and
+  `planet_drop()` for the planet's curve. A new shader gets them with one
+  `#include`.
+- **`DebugTools`** (`src/systems/debug/`): the debug world's F3 readout, F6
+  aurora, M meteors and C character picker; a real game world leaves it out.
 - **Events** currently emitted: `day_changed` (clock), `player_water_changed`,
-  `player_submerged_changed`, `player_drowned`, `boat_boarded` (player),
-  `area_explored` (exploration), `view_mode_changed` (level).
+  `player_submerged_changed`, `player_mode_changed`, `boat_boarded` (player),
+  `player_drowned` (player stats), `area_explored` (exploration),
+  `view_mode_changed` (camera), `message` (anything with news for the HUD),
+  `panel_open_changed` (the character picker).
 
 ## Systems
 
@@ -123,7 +151,7 @@ an object would sink into its own displacement trough.
 
 ### Terrain (`src/systems/terrain/`)
 
-**The world is generated offline.** `tools/gen_world.py` makes a 20 x 20 km
+**The world is generated offline.** `tools/worldgen` makes a 20 x 20 km
 test world of islands from a seed and writes it to `world/` (see
 `world/README.md`): 16-bit heights at 2.5 m with their mips, ground masks,
 rivers, stand-in trees and the start. Everything that makes terrain look
@@ -139,10 +167,22 @@ and kept off the sky, so sunsets and stars keep theirs.
 Under a river standing above the sea the bed is its sand, blending into the
 seabed's as the river comes down to the sea.
 
-- **`WorldData`** loads it once: the two height byte planes (high and low)
-  stay as bytes for CPU queries (`height_at`, bilinear; `surface_at`, exactly
-  the triangles the terrain draws) and become two mipmapped R8 textures for
-  the shaders, with no per-pixel work at load.
+- **Ground questions go through `Terrain`'s static queries**: `height_at`
+  (smooth), `surface_at` (exactly the triangles drawn and collided),
+  `normal_at`, `ground_at` (the masks). They ask the `TerrainSource` in use
+  (`Terrain.use()`); with none there is no ground (`Terrain.NO_GROUND`, and
+  water is `floor_depth` deep). `HeightmapSource` answers for the generated
+  world; a second world, a streamed one or a test's made-up ground (see
+  `tests/river_test.gd`) is another source. `WaterBody.floor_depth_at` asks it.
+- **`WorldData`** is only the file loader, in the format `world/schema.json`
+  describes (it checks the version and the fields): the two height byte
+  planes (kept as bytes, and two mipmapped R8 textures for the shaders), the
+  masks, trees, islands, landmasses, the start, and the rivers as
+  `RiverData` (points, widths, depths, the precomputed current, how far down
+  a fall each point is, its `FallData` falls, which river it joins) with
+  their `RiverNetwork` (a tile index of the segments for "which channel is
+  here", the falls by height, the mask of where river water stands above the
+  sea).
 - **Drawing** (`terrain.gd`, `terrain.gdshader`): a CDLOD quadtree of
   16 x 16 patches (`MultiMesh`). A patch of LOD k has vertices 2.5 m * 2^k
   apart, exactly on mip k's samples, and morphs toward k + 1 at the edge of
@@ -155,11 +195,14 @@ seabed's as the river comes down to the sea.
 - **Physics**: a `HeightMapShape3D` at the samples' own 2.5 m spacing (400 m
   across) follows the player and is rebuilt when they have moved 100 m;
   `prepare_at()` builds it before someone is put somewhere.
-- **Trees** (`TreeScatter`): dark green pyramids, 7-25 m, from
-  `WorldData.trees`, in 512 m chunks (one multimesh each) that fade out by
-  3.2 km; the darker forest floor carries the forests beyond.
+- **Trees** (`TreeSpawner`, streamed by the `ChunkStreamer`): dark green
+  pyramids, 7-25 m, from `WorldData.trees`, a multimesh per 512 m chunk,
+  fading out by 3.2 km; the darker forest floor carries the forests beyond.
 - **Rivers** (`src/systems/water/river/`): `RiverWater` draws each river as a
-  ribbon mesh along its centreline (`RiverRibbons`, `river.gdshader`): level
+  ribbon mesh along its centreline (`RiverRibbons`, built in stages in
+  `ribbon/`: the centreline and its frames, the falls along it, the
+  cross-sections, the falls' rock and landings, then the vertex attributes;
+  `river.gdshader`): level
   across, reaching just past the banks, where the ground cuts its edge. The
   water is substantial: its body colour is always there (only a little of
   the bed shows through), so it never thins away in the shallows or with
@@ -181,7 +224,7 @@ seabed's as the river comes down to the sea.
   the water over it, but never more than about 80% of it (clear water:
   whatever lies on the bed shows well), so the water never vanishes at its
   edges. Below each fall the current is slack and picks up again over a few
-  widths (`WorldData._current`, which also doesn't count the drops
+  widths (`RiverData.current()`, which also doesn't count the drops
   themselves). The water's thickness comes from the depth texture,
   or, where there is none (with MSAA on there isn't), from the channel's own
   depth profile and the viewing angle.
@@ -410,6 +453,31 @@ The same component optionally registers the body as a ripple source.
 
 ### Camera (`src/systems/camera/player_camera.gd`)
 
+The camera keeps its own rules, from what happens to the player it follows
+(Events): F5 toggles first and third person (in first person the player's
+body is hidden); taking a boat's helm (`boat_boarded`) follows the boat from
+9 m back, turning with it; climbing (`player_mode_changed` to CLIMB or
+MANTLE) is seen from behind in third person, and the view goes back to what
+it was once you're off the rock.
+
+### Player (`src/entities/player/`)
+
+The player's movement is one **mode** at a time (`PlayerMode`, in
+`modes/`): `WalkMode`, `SwimMode`, `ClimbMode`, `MantleMode`, `DriveMode`,
+`FlyMode`, each with `enter`, `exit`, `physics(delta)`, `input` and
+`orient`. The active mode runs the body and decides itself when to hand over
+(`Player.change_mode`): walking into water hands over to swimming and back,
+E on steep rock to climbing, the rock's top to mantling and then walking,
+right-click near a boat to driving, Shift to jumping off. `Player.state` is
+the active mode's id; `pose` is what the body is doing within it (treading,
+sinking, airborne ...), set by the mode as it runs, for the rig and the HUD.
+The modes act on a `PlayerIntent` (move, rise, jump, sprint, sneak) read
+from the controls each frame, or an empty one while `input_locked` (the
+character picker); an animal's or NPC's brain can fill one instead.
+**`PlayerStats`** holds the body's condition and its records: breath (it runs
+out with the head under, over the breath-hold plus held gear's, and the
+player drowns) and running totals.
+
 **Walking** is Minecraft-like: quick to start and stop on the ground,
 little air control so momentum carries a jump, Ctrl runs, Shift sneaks,
 holding Space hops whenever the feet touch down. Gravity is a real 9.8 m/s^2
@@ -513,3 +581,9 @@ culling. `Perf` keeps smoothed frame time and render counts.
 | `BiomeDef` | A habitat (`open_ocean.tres` so far): medium, depth range, map colour, species list, `species_for(depth, hour, water)`. |
 | `BoatSpec` | Handling, speed and cargo: mass, size, thrusts, steering, drags, bow lift, lean, hold slots and weight. `small_motorboat.tres` reproduces the original boat. |
 | `CharacterTraits` | Height, build, skin, hair (length, curl, colour), facial hair, hat, accessories and clothing colours; the picker's palettes. `generate(rng)` for NPCs; `apply_to(model)` scales, recolours and dresses a CharacterRig model. |
+| `AccessoryDef` / `AccessoryPart` | A hat, an accessory or a hair style (`characters/accessories/*.tres`): its palette slot, default colour and parts (meshes placed on the head, some fitted over the hair). The picker offers whatever is there. |
+
+`ContentRegistry` finds every definition under `src/data/` on first use:
+`ContentRegistry.all(&"AccessoryDef")`, `ContentRegistry.by_id(&"ItemDef", &"snorkel")`.
+New kinds of content (plants, animals, structures, NPC archetypes) are new
+definition classes, found the same way.

@@ -1,21 +1,26 @@
 class_name Terrain
 extends Node3D
-## The land and the seafloor of the generated world (WorldData, made offline
-## by tools/gen_world.py), its rivers and its stand-in trees.
+## The ground: every ground question goes through Terrain's static queries
+## (height_at, surface_at, normal_at, ground_at), which ask the TerrainSource
+## in use (Terrain.use()): for the generated world a HeightmapSource over its
+## WorldData (WorldLoader sets it); a test, a streamed world or a second world
+## only needs another source. With none, there is no ground (NO_GROUND).
 ##
+## The node draws and collides the generated world's land and seafloor.
 ## Drawing: a quadtree picks patches of a single 16 x 16 grid mesh, finer near
 ## the camera (CDLOD); terrain.gdshader places them on the height map.
 ## Physics: a heightfield collider at the height map's own 2.5 m spacing
 ## follows the player, so you walk on exactly the drawn ground.
-##
-## Gameplay asks Terrain.height_at(x, z).
 
 const GRID := 16                    ## Quads per patch side.
 ## LOD k: vertices 2.5 m * 2^k apart, up to the LOD whose one patch covers the world.
 const MAX_PATCHES := 4000
 const COLLIDER_SIZE := 161          ## Samples per side of the collider (400 m).
 
+const NO_GROUND := -INF            ## height_at() with no ground in use.
+
 static var _current: Terrain
+static var _source: TerrainSource
 
 @export var focus: Node3D           ## The collider follows this (the player).
 
@@ -25,8 +30,6 @@ var lods := 1
 var _multimesh: MultiMesh
 var _mesh_instance: MultiMeshInstance3D
 var _material: ShaderMaterial
-var _rivers: RiverWater
-var _trees: TreeScatter
 var _body: StaticBody3D
 var _shape: HeightMapShape3D
 var _patch_origin := Vector2(INF, INF)   ## World xz of the collider's sample (0, 0).
@@ -42,11 +45,37 @@ static func lods_for(w: WorldData) -> int:
 	return ceili(log(w.size / (GRID * w.spacing)) / log(2.0)) + 1
 
 
-## Ground height (m) at a world point (deep sea before the world exists).
+## Answer ground questions from `source` from now on (null: no ground).
+static func use(source: TerrainSource) -> void:
+	_source = source
+
+
+static func source() -> TerrainSource:
+	return _source
+
+
+static func has_ground() -> bool:
+	return _source != null
+
+
+## Ground height (m) at a world point, smooth (NO_GROUND without a source).
 static func height_at(x: float, z: float) -> float:
-	if _current == null or _current.world == null:
-		return -300.0
-	return _current.world.height_at(x, z)
+	return _source.height_at(x, z) if _source else NO_GROUND
+
+
+## Ground height (m) exactly as the ground is drawn and collides, for things
+## that must lie on what you see (water down a waterfall's face).
+static func surface_at(x: float, z: float) -> float:
+	return _source.surface_at(x, z) if _source else NO_GROUND
+
+
+static func normal_at(x: float, z: float) -> Vector3:
+	return _source.normal_at(x, z) if _source else Vector3.UP
+
+
+## What the ground is: rock, sand, forest density, ambient occlusion (0..1).
+static func ground_at(x: float, z: float) -> Color:
+	return _source.ground_at(x, z) if _source else Color(0.0, 0.0, 0.0, 1.0)
 
 
 func _enter_tree() -> void:
@@ -71,14 +100,6 @@ func _ready() -> void:
 	_body.add_child(cs)
 	add_child(_body)
 	_build_drawing()
-	_rivers = RiverWater.new()
-	_rivers.name = "Rivers"
-	add_child(_rivers)
-	_rivers.setup(world)
-	_trees = TreeScatter.new()
-	_trees.name = "Trees"
-	add_child(_trees)
-	_trees.setup(world)
 	if focus:
 		prepare_at(focus.global_position)
 
@@ -89,8 +110,6 @@ func _process(_delta: float) -> void:
 	var cam := get_viewport().get_camera_3d()
 	if cam:
 		_select_patches(Vector2(cam.global_position.x, cam.global_position.z))
-		_material.set_shader_parameter("view_pos", cam.global_position)
-		_rivers.set_view(cam.global_position)
 
 
 func _physics_process(_delta: float) -> void:
@@ -116,13 +135,13 @@ func ground_texture() -> Texture2D:
 
 
 func _build_drawing() -> void:
-	var tex := world.height_textures()
+	var tex := HeightmapSource.new(world).height_textures()
 	_material = ShaderMaterial.new()
 	_material.shader = preload("res://src/systems/terrain/terrain.gdshader")
 	_material.set_shader_parameter("height_hi", tex[0])
 	_material.set_shader_parameter("height_lo", tex[1])
 	_material.set_shader_parameter("ground", ImageTexture.create_from_image(world.ground))
-	_material.set_shader_parameter("river_mask", world.river_mask())
+	_material.set_shader_parameter("river_mask", world.river_network.mask_texture(world.texels / 4))
 	_material.set_shader_parameter("world_size", world.size)
 	_material.set_shader_parameter("texels", world.texels)
 	_material.set_shader_parameter("h_min", world.h_min)
@@ -222,11 +241,7 @@ func prepare_at(p: Vector3) -> void:
 	var half := world.size * 0.5
 	var ix := roundi((p.x + half) / s) - (COLLIDER_SIZE - 1) / 2
 	var iz := roundi((p.z + half) / s) - (COLLIDER_SIZE - 1) / 2
-	var heights := PackedFloat32Array()
-	heights.resize(COLLIDER_SIZE * COLLIDER_SIZE)
-	for z in COLLIDER_SIZE:
-		for x in COLLIDER_SIZE:
-			heights[z * COLLIDER_SIZE + x] = world.sample(ix + x, iz + z)
+	var heights := _source.height_grid(ix, iz, COLLIDER_SIZE) if _source else PackedFloat32Array()
 	_shape.map_width = COLLIDER_SIZE
 	_shape.map_depth = COLLIDER_SIZE
 	_shape.map_data = heights

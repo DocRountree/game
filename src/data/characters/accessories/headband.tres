@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="AccessoryDef" format=3]
+
+[ext_resource type="Script" path="res://src/data/characters/accessory_part.gd" id="1_mwiur"]
+[ext_resource type="Script" path="res://src/data/characters/accessory_def.gd" id="2_eix7f"]
+
+[sub_resource type="TorusMesh" id="TorusMesh_a5urw"]
+inner_radius = 0.1132
+outer_radius = 0.1252
+rings = 16
+ring_segments = 6
+
+[sub_resource type="Resource" id="Resource_8bo6y"]
+script = ExtResource("1_mwiur")
+mesh = SubResource("TorusMesh_a5urw")
+transform = Transform3D(0.95, 0, 0, 0, 0.9, 0, 0, 0, 1, 0, 0.04, 0)
+fit_hair = true
+
+[resource]
+script = ExtResource("2_eix7f")
+id = &"headband"
+display_name = "Headband"
+slot = 14
+default_color = Color(0.15, 0.3, 0.6, 1)
+parts = Array[ExtResource("1_mwiur")]([SubResource("Resource_8bo6y")])

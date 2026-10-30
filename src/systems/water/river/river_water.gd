@@ -10,14 +10,16 @@ var material: ShaderMaterial
 var body: RiverBody
 
 
-func setup(world: WorldData) -> void:
+## Build the rivers of `world` (ground questions go to Terrain; the falls'
+## rock is coloured with the ground's masks texture, `ground_masks`).
+func setup(world: WorldData, ground_masks: Texture2D = null) -> void:
 	material = ShaderMaterial.new()
 	material.shader = preload("res://src/systems/water/river/river.gdshader")
 	material.render_priority = 1   # (over the sea where the two overlap, at a mouth)
 	var mi := MeshInstance3D.new()
 	mi.name = "Water"
-	var fo := RiverRibbons.Falls.new()
-	mi.mesh = RiverRibbons.build(world.rivers, world, fo)
+	var fo := FallGeometry.new()
+	mi.mesh = RiverRibbons.build(world.rivers, Terrain.source(), fo)
 	mi.material_override = material
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.top_level = true
@@ -27,9 +29,8 @@ func setup(world: WorldData) -> void:
 	rock.mesh = fo.rock_mesh()
 	var rock_mat := ShaderMaterial.new()
 	rock_mat.shader = preload("res://src/systems/water/river/fall_rock.gdshader")
-	var terrain := get_parent() as Terrain
-	if terrain:   # (coloured as the ground is, so it fades into the walls)
-		rock_mat.set_shader_parameter("ground", terrain.ground_texture())
+	if ground_masks:   # (coloured as the ground is, so it fades into the walls)
+		rock_mat.set_shader_parameter("ground", ground_masks)
 		rock_mat.set_shader_parameter("world_size", world.size)
 	rock.material_override = rock_mat
 	rock.top_level = true
@@ -80,6 +81,3 @@ func setup(world: WorldData) -> void:
 	body.setup(world)
 	add_child(body)
 
-
-func set_view(pos: Vector3) -> void:
-	material.set_shader_parameter("view_pos", pos)

@@ -1,0 +1,29 @@
+{
+	"format": "world",
+	"version": 2,
+	"about": "The world/ folder's format. tools/worldgen writes it (stamping world.json with this version) and src/systems/terrain/world_data.gd reads it; both check against this file, so change it here first and bump the version when the format changes.",
+	"files": {
+		"world.json": "the metadata below",
+		"height_hi.bin": "zlib: high bytes of the 16-bit heights, texels x texels, then each mip down to 1 x 1",
+		"height_lo.bin": "zlib: low bytes, laid out as height_hi.bin",
+		"ground.png": "RGBA masks: rock, sand, forest density, ambient occlusion",
+		"trees.bin": "zlib: 8 bytes per tree: uint16 x, uint16 z (over the world), uint16 ground height (encoded as the heights), uint8 height (dm), uint8 spare"
+	},
+	"fields": {
+		"format": "string: always \"world\"",
+		"version": "int: this schema's version",
+		"seed": "int",
+		"world_size": "float: m, the world's side, centred on the origin",
+		"texels": "int: height samples per side (sample i at -world_size/2 + i * world_size / texels)",
+		"h_min": "float: m, the height of 16-bit value 0",
+		"h_max": "float: m, the height of 16-bit value 65535",
+		"spawn": "[x, z]: where the player starts",
+		"boat": "[x, z]: where the boat is moored",
+		"trees": "int: how many trees trees.bin holds",
+		"landmasses": "list of {kind, center: [x, z], radius}",
+		"islands": "list of river islands {x, z, dx, dz, length, width, top}",
+		"rivers": "list, downstream order, of {points: [[x, water level, z], ...], half_width: [m per point], depth: [m per point], riser: [per point: 0 at a fall's lip .. 1 at its foot, -1 off them], falls: [[first, last], ...], joins: index of the river it runs into or -1 for the sea}"
+	},
+	"required": ["format", "version", "world_size", "texels", "h_min", "h_max", "spawn", "boat", "trees", "landmasses", "islands", "rivers"],
+	"river_fields": ["points", "half_width", "depth", "riser", "falls", "joins"]
+}

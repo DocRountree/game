@@ -23,11 +23,9 @@ func _initialize() -> void:
 
 func _falls(W: WorldData) -> Array:
 	var out := []
-	for ri in W.rivers.size():
-		for c: Vector2i in W.rivers[ri].falls:
-			var pts: PackedVector3Array = W.rivers[ri].points
-			out.append({"ri": ri, "top": pts[c.x], "foot": pts[c.y], "drop": pts[c.x].y - pts[c.y].y, "hw": W.rivers[ri].half_width[c.y]})
-	out.sort_custom(func(a, b): return a.drop > b.drop)
+	for pair: Array in W.river_network.falls_by_height():
+		var f: FallData = pair[1]
+		out.append({"river": pair[0], "top": f.top, "foot": f.foot, "drop": f.drop, "hw": f.half_width})
 	return out
 
 
@@ -64,7 +62,7 @@ func _view(W: WorldData, name: String) -> Array:
 			from.y = Terrain.height_at(from.x, from.z) + 2.6
 			to = f.foot + dir * 25.0
 		"headwater", "rapids", "lowland", "island", "mouth":
-			var r: Dictionary = W.rivers[0] if name in ["lowland", "island", "mouth"] else W.rivers[f.ri]
+			var r: RiverData = W.rivers[0] if name in ["lowland", "island", "mouth"] else f.river
 			var pts: PackedVector3Array = r.points
 			var k := pts.size() - 40
 			match name:

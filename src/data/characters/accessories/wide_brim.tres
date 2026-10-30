@@ -1,0 +1,52 @@
+[gd_resource type="Resource" script_class="AccessoryDef" format=3]
+
+[ext_resource type="Script" path="res://src/data/characters/accessory_part.gd" id="1_yq54w"]
+[ext_resource type="Script" path="res://src/data/characters/accessory_def.gd" id="2_me2tj"]
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_rwa6n"]
+top_radius = 0.2
+bottom_radius = 0.2
+height = 0.014
+radial_segments = 16
+rings = 1
+
+[sub_resource type="Resource" id="Resource_j6rfr"]
+script = ExtResource("1_yq54w")
+mesh = SubResource("CylinderMesh_rwa6n")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1.05, 0, 0.08, 0)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_sxro1"]
+top_radius = 0.1032
+bottom_radius = 0.1282
+height = 0.1
+radial_segments = 16
+rings = 1
+
+[sub_resource type="Resource" id="Resource_oefcr"]
+script = ExtResource("1_yq54w")
+mesh = SubResource("CylinderMesh_sxro1")
+transform = Transform3D(0.95, 0, 0, 0, 1, 0, 0, 0, 1.05, 0, 0.135, 0)
+fit_hair = true
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_3ei78"]
+top_radius = 0.1292
+bottom_radius = 0.1292
+height = 0.022
+radial_segments = 16
+rings = 1
+
+[sub_resource type="Resource" id="Resource_la5h6"]
+script = ExtResource("1_yq54w")
+mesh = SubResource("CylinderMesh_3ei78")
+transform = Transform3D(0.95, 0, 0, 0, 1, 0, 0, 0, 1.05, 0, 0.096, 0)
+slot = 4
+fit_hair = true
+
+[resource]
+script = ExtResource("2_me2tj")
+id = &"wide_brim"
+display_name = "Wide brim"
+kind = 0
+slot = 9
+default_color = Color(0.62, 0.53, 0.36, 1)
+parts = Array[ExtResource("1_yq54w")]([SubResource("Resource_j6rfr"), SubResource("Resource_oefcr"), SubResource("Resource_la5h6")])

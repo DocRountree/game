@@ -1,9 +1,11 @@
 # The generated world
 
-Everything here is written by `tools/gen_world.py` (`python3 tools/gen_world.py [seed]`,
-about a minute; it needs numpy, scipy, pillow and numba). Change the seed for a
-different world. The folder has a `.gdignore`, so Godot doesn't import these
-files: the game reads them directly (`WorldData`).
+Everything here is written by `tools/worldgen` (`python3 -m tools.worldgen [--seed N] [--cache]`
+from the repository's root, about eight minutes; it needs numpy, scipy, pillow and numba),
+except `schema.json`, the format itself: its version and fields, which the generator stamps
+and checks the world against and `WorldData` checks on loading (change it first, and bump
+its version, when the format changes). Change the seed for a different world. The folder has
+a `.gdignore`, so Godot doesn't import these files: the game reads them directly (`WorldData`).
 
 The world is 20480 m square, centred on the origin (x east, z south). Height
 sample i sits at -5120 + 2.5 i metres.

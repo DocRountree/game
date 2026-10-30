@@ -29,17 +29,6 @@ const P_TIE := 15
 const P_MOUTH := 16
 const PALETTE_SIZE := 20
 
-const HATS: Array[String] = ["none", "wide_brim", "cap", "beanie", "bandana"]
-## Accessories, each with its palette slot and default colour.
-const ACCESSORIES := {
-	"glasses": [P_GLASSES, Color(0.1, 0.1, 0.1)],
-	"earrings": [P_EARRINGS, Color(0.9, 0.75, 0.3)],
-	"necklace": [P_NECKLACE, Color(0.85, 0.8, 0.7)],
-	"scarf": [P_SCARF, Color(0.7, 0.15, 0.12)],
-	"headband": [P_HEADBAND, Color(0.15, 0.3, 0.6)],
-	"ponytail": [P_TIE, Color(0.15, 0.15, 0.15)],
-	"bun": [P_TIE, Color(0.15, 0.15, 0.15)],
-}
 
 @export var display_name := ""
 @export_range(1.4, 2.1) var height := 1.75      ## m
@@ -52,9 +41,9 @@ const ACCESSORIES := {
 @export_range(0.0, 1.0) var hair_curl := 0.2     ## 0 straight .. 1 coily.
 @export var facial_hair := FacialHair.NONE
 @export_range(0.0, 1.0) var facial_hair_length := 0.4
-@export var hat := "wide_brim"
+@export var hat := "wide_brim"            ## An AccessoryDef id of kind HAT, or "none".
 @export var hat_color := Color(0.62, 0.53, 0.36)
-@export var accessories: Array[String] = []
+@export var accessories: Array[String] = []   ## AccessoryDef ids (kinds ACCESSORY and STYLE).
 @export var accessory_colors := {}   ## id -> Color (else the accessory's own)
 ## Free-form features for the generator to grow into.
 @export var features := {}
@@ -89,13 +78,31 @@ static func generate(rng: RandomNumberGenerator) -> CharacterTraits:
 	t.hair_curl = rng.randf()
 	t.facial_hair = (rng.randi() % 5) as FacialHair
 	t.facial_hair_length = rng.randf()
-	t.hat = HATS[rng.randi() % HATS.size()]
+	var hats := defs(AccessoryDef.Kind.HAT)
+	t.hat = "none" if rng.randf() < 1.0 / (hats.size() + 1) else String(hats[rng.randi() % hats.size()].id)
 	t.hat_color = ACCESSORY_COLORS[rng.randi() % ACCESSORY_COLORS.size()]
-	var ids := ACCESSORIES.keys()
-	for id: String in ids:
-		if rng.randf() < 0.2 and not (id == "bun" and t.accessories.has("ponytail")):
-			t.accessories.append(id)
+	for d: AccessoryDef in defs(AccessoryDef.Kind.ACCESSORY):
+		if rng.randf() < 0.2:
+			t.accessories.append(String(d.id))
+	var styles := defs(AccessoryDef.Kind.STYLE)
+	if not styles.is_empty() and rng.randf() < 0.3:
+		t.accessories.append(String(styles[rng.randi() % styles.size()].id))
 	return t
+
+
+## The accessory definitions of a kind (ContentRegistry: every AccessoryDef
+## under src/data/), sorted by id.
+static func defs(kind: AccessoryDef.Kind) -> Array:
+	return ContentRegistry.all(&"AccessoryDef").filter(func(d: AccessoryDef) -> bool: return d.kind == kind)
+
+
+## The hair style worn (a STYLE accessory's id: "ponytail", "bun"), or "".
+func hair_style() -> String:
+	for id in accessories:
+		var d := ContentRegistry.by_id(&"AccessoryDef", StringName(id)) as AccessoryDef
+		if d and d.kind == AccessoryDef.Kind.STYLE:
+			return id
+	return ""
 
 
 func has_accessory(id: String) -> bool:
@@ -103,7 +110,8 @@ func has_accessory(id: String) -> bool:
 
 
 func accessory_color(id: String) -> Color:
-	return accessory_colors.get(id, ACCESSORIES[id][1])
+	var d := ContentRegistry.by_id(&"AccessoryDef", StringName(id)) as AccessoryDef
+	return accessory_colors.get(id, d.default_color if d else Color.GRAY)
 
 
 ## The palette (linear colours by slot) the character shader reads.
@@ -121,8 +129,9 @@ func palette() -> Array[Vector3]:
 	cols[P_ROLL] = Color(0.33, 0.38, 0.3)
 	cols[P_STUBBLE] = skin_color.lerp(hair_color, 0.6)
 	cols[P_HAT] = hat_color
-	for id: String in ACCESSORIES:
-		cols[ACCESSORIES[id][0]] = accessory_color(id)
+	for d: AccessoryDef in ContentRegistry.all(&"AccessoryDef"):
+		if d.kind != AccessoryDef.Kind.HAT:
+			cols[d.slot] = accessory_color(String(d.id))
 	cols[P_MOUTH] = skin_color.darkened(0.3).lerp(Color(0.6, 0.25, 0.22), 0.35)
 	var out: Array[Vector3] = []
 	for c in cols:

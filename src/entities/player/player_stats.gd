@@ -1,7 +1,17 @@
 class_name PlayerStats
 extends Node
-## Running totals about the player (the parent), for journals, achievements,
-## skill progression and the save file. Observes only; changes nothing.
+## The player's condition and records (the parent Player's). Breath: it runs
+## out while the head is under (over breath_capacity() seconds: the breath-hold
+## plus whatever held gear adds) and comes back in 3 s above water; at none
+## the player drowns (`drowned`, and Events.player_drowned). And running
+## totals, for journals, achievements, skill progression and the save file.
+
+signal drowned
+
+const BREATH_BACK := 3.0                  ## s to get your breath back above water.
+
+@export var breath_seconds := 20.0        ## Breath-hold without gear.
+var breath := 1.0                         ## 0..1 of a lungful.
 
 @export var distance_swum_m := 0.0
 @export var distance_boated_m := 0.0
@@ -21,10 +31,27 @@ var _was_aboard := false
 
 func _ready() -> void:
 	_player = get_parent() as Player
-	_player.drowned.connect(func() -> void: times_drowned += 1)
+
+
+## Seconds of air: breath-hold plus whatever held or worn gear adds.
+func breath_capacity() -> float:
+	return breath_seconds + _player.gear_stat(&"breath_seconds")
+
+
+func refill_breath() -> void:
+	breath = 1.0
 
 
 func _physics_process(delta: float) -> void:
+	if _player.head_under:
+		breath -= delta / breath_capacity()
+		if breath <= 0.0:
+			breath = 0.0
+			times_drowned += 1
+			drowned.emit()
+			_player.emit_event(&"player_drowned")
+	else:
+		breath = minf(1.0, breath + delta / BREATH_BACK)
 	var pos := _player.global_position
 	var step := 0.0 if _last_pos == Vector3.INF else Vector2(pos.x - _last_pos.x, pos.z - _last_pos.z).length()
 	_last_pos = pos

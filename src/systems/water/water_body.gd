@@ -20,7 +20,7 @@ enum Kind { OCEAN, LAKE, RIVER }
 @export var salinity_ppt := 35.0         ## Seawater ~35, fresh water ~0.
 @export var temperature_c := 18.0        ## At the surface.
 @export_range(0.0, 1.0) var turbidity := 0.05   ## 0 clear .. 1 opaque; for visibility and diving.
-@export var floor_depth := 4000.0        ## Until terrain exists: depth of the bottom (m).
+@export var floor_depth := 4000.0        ## Where there's no ground (Terrain): depth of the bottom (m).
 
 static var _bodies: Array[WaterBody] = []
 
@@ -47,7 +47,7 @@ func contains_point(_x: float, _z: float) -> bool:
 ## ignores wavelengths shorter than itself); ripple_radius >= 0 adds the
 ## interactive ripples averaged on a ring of that radius.
 func surface_height(_x: float, _z: float, _footprint := 0.0, _ripple_radius := -1.0) -> float:
-	return global_position.y
+	return global_position.y if is_inside_tree() else position.y
 
 
 ## Interactive ripple height at (x, z), averaged on a ring of radius r.
@@ -60,9 +60,13 @@ func ripple_slope(_x: float, _z: float) -> Vector2:
 	return Vector2.ZERO
 
 
-## Bottom depth below the rest surface at (x, z). Terrain will replace this.
-func floor_depth_at(_x: float, _z: float) -> float:
-	return floor_depth
+## How deep the water is to the bottom at (x, z) (m below its surface): down
+## to the ground (Terrain), or floor_depth where there is none.
+func floor_depth_at(x: float, z: float) -> float:
+	var g := Terrain.height_at(x, z)
+	if g == Terrain.NO_GROUND:
+		return floor_depth
+	return maxf(0.0, surface_height(x, z) - g)
 
 
 ## Current (m/s) at (x, z): rivers flow, tides and currents later.

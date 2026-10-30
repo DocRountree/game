@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="AccessoryDef" format=3]
+
+[ext_resource type="Script" path="res://src/data/characters/accessory_part.gd" id="1_pq7nx"]
+[ext_resource type="Script" path="res://src/data/characters/accessory_def.gd" id="2_oglwf"]
+
+[sub_resource type="TorusMesh" id="TorusMesh_h4tvp"]
+inner_radius = 0.014
+outer_radius = 0.024
+rings = 16
+ring_segments = 6
+
+[sub_resource type="Resource" id="Resource_erkee"]
+script = ExtResource("1_pq7nx")
+mesh = SubResource("TorusMesh_h4tvp")
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, -1, 0, 1, -4.371139e-08, 0, -0.005, 0.135)
+
+[resource]
+script = ExtResource("2_oglwf")
+id = &"ponytail"
+display_name = "Ponytail"
+kind = 2
+slot = 15
+default_color = Color(0.15, 0.15, 0.15, 1)
+min_hair = 0.15
+parts = Array[ExtResource("1_pq7nx")]([SubResource("Resource_erkee")])

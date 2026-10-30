@@ -19,7 +19,7 @@ uniform vec3 rock_color : source_color = vec3(0.42, 0.40, 0.37);
 uniform vec3 dark_rock_color : source_color = vec3(0.26, 0.25, 0.24);
 uniform vec3 sand_color : source_color = vec3(0.80, 0.74, 0.58);
 uniform float own_shape = 0.3;   // how much of its own (ledged) shape shows in its shading
-uniform float planet_radius = 6400000.0;
+#include "res://src/systems/rendering/world_globals.gdshaderinc"
 
 varying vec3 wpos;
 varying vec3 ground_n;
@@ -40,7 +40,7 @@ float vnoise(vec2 p) {
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	wpos = world;
-	world.y -= dot(world.xz - CAMERA_POSITION_WORLD.xz, world.xz - CAMERA_POSITION_WORLD.xz) / (2.0 * planet_radius);
+	world.y -= planet_drop(world.xz);
 	VERTEX = (inverse(MODEL_MATRIX) * vec4(world, 1.0)).xyz;
 	ground_n = COLOR.rgb * 2.0 - 1.0;
 }

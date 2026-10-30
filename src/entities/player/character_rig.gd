@@ -31,7 +31,7 @@ const FOOT_DROP := 0.04                         ## Ankle above the sole.
 const HEAD := Vector3(0, 0.31, -0.005)         ## The head's centre in model space.
 const RUN_SPEED := 4.5                          ## m/s: above it the feet run a cycle instead of planting.
 
-var player: Player
+var body: Character   ## The body it animates (the Player, later NPCs).
 
 var _limb: Dictionary = {}          # name -> MeshInstance3D (top-level, posed in world space)
 var _feet: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
@@ -62,7 +62,7 @@ var _wet := 0.0
 ## one mesh each (posed every frame). All of them use the one palette
 ## material (character.gdshader), left on the model as meta for apply_to().
 func build() -> void:
-	var m := player.model
+	var m := body.model
 	material = ShaderMaterial.new()
 	material.shader = preload("res://src/entities/player/character.gdshader")
 	var default := CharacterTraits.new()
@@ -133,16 +133,16 @@ func build() -> void:
 
 ## Dress the body in traits (scale, palette, hair ...).
 func apply(traits: CharacterTraits) -> void:
-	traits.apply_to(player.model)
+	traits.apply_to(body.model)
 
 
 func _process(delta: float) -> void:
 	_time += delta
-	if not player.model.visible:
+	if not body.model.visible:
 		_walk_ready = false
 		_climb_ready = false
 		return
-	var b := player.model.global_transform
+	var b := body.model.global_transform
 	var s := b.basis.get_scale().y
 	_hair_motion(b, delta)
 	var hips: Array[Vector3] = [b * Vector3(-HIP.x, HIP.y, 0), b * Vector3(HIP.x, HIP.y, 0)]
@@ -154,12 +154,12 @@ func _process(delta: float) -> void:
 	var hands: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO]
 	var knee_pole: Array[Vector3] = [fwd, fwd]
 	var elbow_pole: Array[Vector3] = [-fwd - right * 0.3, -fwd + right * 0.3]
-	var st := player.state
+	var st := body.pose
 	if st != &"CLIMBING":
 		_climb_ready = false
 	if st == &"CLIMBING":
 		_climb(delta, s, hips, shoulders, feet, hands)
-		var n := player.climb_normal
+		var n := body.climb_normal
 		var side := right
 		knee_pole = [-side * 0.8 - n * 0.3, side * 0.8 - n * 0.3]
 		elbow_pole = [-side * 0.8 - up * 0.5 + n * 0.2, side * 0.8 - up * 0.5 + n * 0.2]
@@ -222,8 +222,8 @@ func _process(delta: float) -> void:
 		var toe := fwd
 		var sole := up
 		if st == &"CLIMBING":
-			sole = (up * 0.6 + player.climb_normal * 0.4).normalized()
-			toe = -player.climb_normal
+			sole = (up * 0.6 + body.climb_normal * 0.4).normalized()
+			toe = -body.climb_normal
 		toe = (toe - sole * toe.dot(sole)).normalized()
 		var bx := sole.cross(toe).normalized()
 		boot.global_transform = Transform3D(Basis(bx, sole, -toe).scaled(Vector3.ONE * s),
@@ -241,7 +241,7 @@ func _hair_motion(b: Transform3D, delta: float) -> void:
 	var target := (inv * (-vel)).limit_length(8.0) * 0.006 + inv * Vector3.DOWN * 0.03
 	_sway = _sway.lerp(target, minf(1.0, 7.0 * delta))
 	material.set_shader_parameter("sway", _sway)
-	var in_water := player.state == &"SWIMMING" or player.state == &"TREADING" or player.state == &"SINKING" or player.head_under
+	var in_water := body.pose == &"SWIMMING" or body.pose == &"TREADING" or body.pose == &"SINKING" or body.head_under
 	_wet = minf(1.0, _wet + delta / 2.0) if in_water else maxf(0.0, _wet - delta / 40.0)
 	material.set_shader_parameter("wet", _wet)
 
@@ -254,9 +254,9 @@ func _walk(delta: float, s: float, hips: Array[Vector3], feet: Array[Vector3]) -
 		for i in 2:
 			_feet[i] = _ground_below(hips[i], leg)
 			_t[i] = -1.0
-	var vel := Vector3(player.velocity.x, 0.0, player.velocity.z)
+	var vel := Vector3(body.velocity.x, 0.0, body.velocity.z)
 	var speed := vel.length()
-	var airborne := player.state != &"WALKING"
+	var airborne := body.pose != &"WALKING"
 	# strides lengthen up to what the legs can reach, then steps just quicken
 	var reach := minf(0.22 + speed * 0.11, 0.85) * s
 	var step_time := clampf(reach / maxf(speed, 0.01) * 0.9, 0.06, 0.32)
@@ -319,7 +319,7 @@ func _ground_below(p: Vector3, leg: float) -> Vector3:
 # diagonal limbs at a time.
 func _climb(delta: float, s: float, hips: Array[Vector3], shoulders: Array[Vector3],
 		feet: Array[Vector3], hands: Array[Vector3]) -> void:
-	var n := player.climb_normal
+	var n := body.climb_normal
 	var up := (Vector3.UP - n * Vector3.UP.dot(n)).normalized()
 	var right := up.cross(n).normalized()
 	var ideal: Array[Vector3] = [
@@ -329,7 +329,7 @@ func _climb(delta: float, s: float, hips: Array[Vector3], shoulders: Array[Vecto
 		hips[1] - up * 0.62 * s + right * 0.08 * s,
 	]
 	# lead with the limbs in the direction of travel
-	var v := player.velocity
+	var v := body.velocity
 	for k in 4:
 		ideal[k] += v * 0.18
 	if not _climb_ready:
@@ -375,8 +375,8 @@ func _on_rock(p: Vector3, n: Vector3) -> Vector3:
 
 func _ray(a: Vector3, b: Vector3) -> Dictionary:
 	var q := PhysicsRayQueryParameters3D.create(a, b)
-	q.exclude = [player.get_rid()]
-	return player.get_world_3d().direct_space_state.intersect_ray(q)
+	q.exclude = [body.get_rid()]
+	return body.get_world_3d().direct_space_state.intersect_ray(q)
 
 
 # --- solving and placing ---------------------------------------------------------------

@@ -123,6 +123,29 @@ quit={
 "events": []
 }
 
+[shader_globals]
+
+world_time={
+"type": "float",
+"value": 0.0
+}
+world_view_pos={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}
+sun_direction={
+"type": "vec3",
+"value": Vector3(0, 0.4, 0.9)
+}
+sun_color={
+"type": "vec3",
+"value": Vector3(1, 1, 1)
+}
+planet_radius={
+"type": "float",
+"value": 6400000.0
+}
+
 [layer_names]
 
 3d_physics/layer_1="world"

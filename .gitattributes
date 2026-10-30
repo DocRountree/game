@@ -20,3 +20,9 @@
 *.ttf binary
 *.otf binary
 *.woff2 binary
+
+# The generated world (tools/worldgen): binary planes, and a one-line JSON too
+# big to diff usefully. If regenerating it often makes the repository heavy,
+# move world/*.bin to Git LFS (everyone pulling then needs git-lfs installed).
+*.bin binary
+world/world.json -diff linguist-generated

@@ -102,11 +102,8 @@ func _process(delta: float) -> void:
 		_material.set_shader_parameter("h_min", t.world.h_min)
 		_material.set_shader_parameter("h_scale", t.world.h_scale)
 		_material.set_shader_parameter("has_seabed", true)
-		_material.set_shader_parameter("river_mask", t.world.river_mask())
+		_material.set_shader_parameter("river_mask", t.world.river_network.mask_texture(t.world.texels / 4))
 		_material.set_shader_parameter("has_river_mask", true)
-	if sun:
-		_material.set_shader_parameter("sun_direction", sun.global_basis.z)
-		_material.set_shader_parameter("sun_color", Vector3(sun.light_color.r, sun.light_color.g, sun.light_color.b) * sun.light_energy)
 	var cam := get_viewport().get_camera_3d()
 	if cam and not Engine.is_editor_hint():
 		surface.global_position = Vector3(cam.global_position.x, 0.0, cam.global_position.z)
@@ -118,7 +115,7 @@ func _process(delta: float) -> void:
 ## radius (0 = at the point) so an object doesn't feel its own displacement trough.
 func surface_height(x: float, z: float, footprint := 0.0, ripple_radius := -1.0) -> float:
 	var amp := _amp
-	var depth := -Terrain.height_at(x, z) if Terrain.current() else INF
+	var depth := -Terrain.height_at(x, z)
 	if footprint > 0.0 or depth < 60.0:
 		amp = _amp.duplicate()
 		for i in _n:
@@ -149,10 +146,6 @@ func surface_height(x: float, z: float, footprint := 0.0, ripple_radius := -1.0)
 ## the waves washing up the beach).
 func contains_point(x: float, z: float) -> bool:
 	return Terrain.height_at(x, z) < 0.3
-
-
-func floor_depth_at(x: float, z: float) -> float:
-	return maxf(0.0, -Terrain.height_at(x, z)) if Terrain.current() else floor_depth
 
 
 func ripple_height(x: float, z: float, r := 0.0) -> float:

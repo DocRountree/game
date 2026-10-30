@@ -1,4 +1,4 @@
-extends SceneTree
+extends "res://tests/lib/test_run.gd"
 ## Headless smoke test: loads the main scene, simulates, and checks the core
 ## water gameplay. Exit code 0 = pass.
 ##
@@ -6,8 +6,6 @@ extends SceneTree
 ##
 ## Headless has no GPU, so this covers the no-ripples fallback path; the
 ## ripple simulation itself needs a real renderer.
-
-var _failures := 0
 
 
 func _initialize() -> void:
@@ -129,11 +127,11 @@ func _run() -> void:
 	var press := InputEventAction.new()
 	press.action = &"toggle_view"
 	press.pressed = true
-	world._unhandled_input(press)
+	camera._unhandled_input(press)
 	for i in 3:
 		await process_frame
 	_check(not camera.first_person and player.model.visible, "F5 switches to third person")
-	world._unhandled_input(press)
+	camera._unhandled_input(press)
 	for i in 3:
 		await process_frame
 	_check(camera.first_person and not player.model.visible, "F5 again returns to first person")
@@ -146,19 +144,34 @@ func _run() -> void:
 	camera.yaw = PI
 	clock.time_of_day = start_time
 
+	# a buoyant 1 m box (a rigid body with one Buoyancy probe at its bottom),
+	# dropped beside the boat
+	var float_box := RigidBody3D.new()
+	float_box.mass = 300.0
+	float_box.can_sleep = false
+	var box_shape := CollisionShape3D.new()
+	box_shape.shape = BoxShape3D.new()
+	float_box.add_child(box_shape)
+	var buoy := Buoyancy.new()
+	buoy.footprint = 1.0
+	var probe := Marker3D.new()
+	probe.position = Vector3(0, -0.5, 0)
+	buoy.add_child(probe)
+	float_box.add_child(buoy)
+	world.add_child(float_box)
+	float_box.global_position = boat.global_position + boat.global_basis.z * 8.0 + Vector3(0, 1.0, 0)
 	await _frames(300)
 	var boat_draft := boat.buoyancy.submerged * boat.buoyancy.max_depth   # mean probe depth
 	_check(boat_draft > 0.05 and boat_draft < 0.5, "boat floats (draft %.2f m)" % boat_draft)
-	var crate: RigidBody3D = world.get_node("Crates").get_child(0)
-	var crate_top := crate.global_position.y + 0.5 - ocean.surface_height(crate.global_position.x, crate.global_position.z)
-	_check(crate_top > 0.0 and crate_top < 1.0, "crate floats (%.2f m above water)" % crate_top)
+	var crate_top := float_box.global_position.y + 0.5 - ocean.surface_height(float_box.global_position.x, float_box.global_position.z)
+	_check(crate_top > 0.0 and crate_top < 1.0, "a buoyant box floats (%.2f m above water)" % crate_top)
 
 	# (you start ashore: into the sea beyond the boat, where it's deep)
 	var w := WorldData.get_world()
 	var seaward := (boat.global_position - Vector3(w.spawn.x, boat.global_position.y, w.spawn.y)).normalized()
 	player.respawn(boat.global_position + seaward * 12.0)
 	await _frames(360)   # idle: should sink
-	_check(player.state == &"SINKING" and player.head_depth() > 1.0,
+	_check(player.pose == &"SINKING" and player.head_depth() > 1.0,
 			"idle player sinks (head %.1f m under)" % player.head_depth())
 
 	Input.action_press(&"tread")
@@ -168,7 +181,7 @@ func _run() -> void:
 
 	player.respawn(boat.global_position + boat.global_basis.x * 3.0)
 	await _frames(5)
-	player._try_board()
+	player.try_board()
 	_check(player.boat == boat, "player can board the boat")
 	Input.action_press(&"move_forward")
 	await _frames(600)
@@ -186,23 +199,11 @@ func _run() -> void:
 
 	# regression: re-enabling the player's collision used to launch the boat
 	var before := boat.speed()
-	player._leave_boat()
+	(player.mode as DriveMode).jump_off()
 	await _frames(30)
 	_check(boat.speed() <= before + 0.5, "jumping off doesn't kick the boat (%.1f -> %.1f m/s)" % [before, boat.speed()])
 
-	print("\n%s: %d failure(s)" % ["PASS" if _failures == 0 else "FAIL", _failures])
-	quit(1 if _failures else 0)
-
-
-func _frames(n: int) -> void:
-	for i in n:
-		await physics_frame
-
-
-func _check(ok: bool, what: String) -> void:
-	print(("  ok    " if ok else "  FAIL  ") + what)
-	if not ok:
-		_failures += 1
+	_finish()
 
 
 func _shader_compiles(path: String) -> bool:

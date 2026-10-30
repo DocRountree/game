@@ -147,7 +147,7 @@ static func add_hair(mb: MeshBuilder, t: CharacterTraits) -> void:
 	if shaved:
 		return
 	# the clumps
-	var style := "ponytail" if t.has_accessory("ponytail") else ("bun" if t.has_accessory("bun") else "")
+	var style := t.hair_style()
 	if style == "bun" and len_f > 0.15:   # (its body: the clumps wind round it)
 		var ball := SphereMesh.new()
 		ball.radius = 0.02 + 0.03 * len_f

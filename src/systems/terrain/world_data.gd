@@ -1,7 +1,11 @@
 class_name WorldData
 extends RefCounted
-## The generated world (tools/gen_world.py writes it to res://world/): heights,
-## ground masks, rivers, trees and where to start. Loaded once and shared.
+## The generated world, as loaded from res://world/ (written by tools/worldgen,
+## in the format world/schema.json describes, which this checks): the height
+## map's byte planes, the ground masks, the rivers (RiverData, with their
+## RiverNetwork), the river islands, trees, landmasses and where to start.
+## Loaded once and shared. Only a file loader: the ground is asked through
+## Terrain (HeightmapSource answers from this), the rivers through RiverBody.
 ##
 ## Heights are 16-bit, stored as two byte planes (high and low), each with its
 ## whole mip chain, so the GPU reads them as two R8 textures without any
@@ -20,21 +24,15 @@ var lo := PackedByteArray()
 var ground: Image                   ## RGBA: rock, sand, forest density, ambient occlusion.
 var spawn := Vector2.ZERO           ## Where the player starts (world x, z).
 var boat := Vector2.ZERO            ## Where the boat is moored.
-## Rivers: Dictionaries with "points" (PackedVector3Array: x, water level, z),
-## "half_width", "depth", "speed", "riser" (PackedFloat32Array per point),
-## "falls" (Array[Vector2i]) and "joins" (the index of the river it runs into,
-## -1 for the sea). Downstream order. Each waterfall is one steep drop, sampled
-## finely down its face (its first and last point in "falls"); "riser" is how
-## far down a fall's face a point is (0 at its lip, 1 at its foot; -1 off them).
-var rivers: Array[Dictionary] = []
+var rivers: Array[RiverData] = []   ## Downstream order.
+var river_network: RiverNetwork
 var landmasses: Array = []
 ## Islands in the rivers: Dictionaries with "x", "z" (middle), "dx", "dz"
 ## (downstream), "length", "width" (half width at its middle), "top" (m).
 var islands: Array = []
-var trees := PackedByteArray()      ## 8 bytes per tree: uint16 x, uint16 z, uint16 ground height (as the heights), uint8 height (dm), uint8 spare.
+var trees := PackedByteArray()      ## 8 bytes per tree (see world/schema.json).
 
 static var _shared: WorldData
-var _river_mask: ImageTexture
 
 
 ## The world, loaded on first use (null if it hasn't been generated).
@@ -46,11 +44,26 @@ static func get_world() -> WorldData:
 	return _shared
 
 
+## The format this build reads (world/schema.json).
+static func schema() -> Dictionary:
+	var s = JSON.parse_string(FileAccess.get_file_as_string(DIR + "schema.json"))
+	return s if s is Dictionary else {}
+
+
 func _load() -> bool:
 	var meta = JSON.parse_string(FileAccess.get_file_as_string(DIR + "world.json"))
 	if meta == null:
-		push_error("No generated world in %s: run tools/gen_world.py" % DIR)
+		push_error("No generated world in %s: run tools/worldgen" % DIR)
 		return false
+	var sch := schema()
+	if int(meta.get("version", 0)) != int(sch.get("version", -1)):
+		push_error("The world in %s is format %s, this build reads %s: regenerate it with tools/worldgen"
+				% [DIR, meta.get("version", "?"), sch.get("version", "?")])
+		return false
+	for field: String in sch.get("required", []):
+		if not meta.has(field):
+			push_error("world.json has no \"%s\": regenerate it with tools/worldgen" % field)
+			return false
 	size = meta.world_size
 	texels = int(meta.texels)
 	spacing = size / texels
@@ -60,7 +73,7 @@ func _load() -> bool:
 	spawn = Vector2(meta.spawn[0], meta.spawn[1])
 	boat = Vector2(meta.boat[0], meta.boat[1])
 	landmasses = meta.landmasses
-	islands = meta.get("islands", [])
+	islands = meta.islands
 	var total := 0
 	var s := texels
 	while s >= 1:
@@ -69,196 +82,22 @@ func _load() -> bool:
 	hi = FileAccess.get_file_as_bytes(DIR + "height_hi.bin").decompress(total, FileAccess.COMPRESSION_DEFLATE)
 	lo = FileAccess.get_file_as_bytes(DIR + "height_lo.bin").decompress(total, FileAccess.COMPRESSION_DEFLATE)
 	if hi.size() != total or lo.size() != total:
-		push_error("World heights are damaged: regenerate them with tools/gen_world.py")
+		push_error("World heights are damaged: regenerate them with tools/worldgen")
 		return false
 	ground = Image.new()
 	ground.load_png_from_buffer(FileAccess.get_file_as_bytes(DIR + "ground.png"))
-	var tz := FileAccess.get_file_as_bytes(DIR + "trees.bin")
-	trees = tz.decompress(int(meta.get("trees", 0)) * 8, FileAccess.COMPRESSION_DEFLATE)
+	trees = FileAccess.get_file_as_bytes(DIR + "trees.bin").decompress(int(meta.trees) * 8, FileAccess.COMPRESSION_DEFLATE)
 	for r: Dictionary in meta.rivers:
 		var pts := PackedVector3Array()
 		for p: Array in r.points:
 			pts.append(Vector3(p[0], p[1], p[2]))
-		var hw := PackedFloat32Array(r.half_width)
-		var depth := PackedFloat32Array(r.depth)
-		var riser := PackedFloat32Array(r.get("riser", []))
-		if riser.size() != pts.size():
-			riser.resize(pts.size())
-			riser.fill(-1.0)
 		var falls: Array[Vector2i] = []
-		for c: Array in r.get("falls", []):
+		for c: Array in r.falls:
 			falls.append(Vector2i(int(c[0]), int(c[1])))
-		rivers.append({"points": pts, "half_width": hw, "depth": depth, "riser": riser, "falls": falls,
-				"speed": _current(pts, hw, riser), "joins": int(r.joins)})
+		rivers.append(RiverData.new(pts, PackedFloat32Array(r.half_width), PackedFloat32Array(r.depth),
+				PackedFloat32Array(r.riser), falls, int(r.joins)))
+	river_network = RiverNetwork.new(rivers, size)
 	return true
-
-
-## Where the rivers' water stands above the sea, for the ocean (which isn't
-## drawn under it): an R8 texture of the world at 1/4 the height resolution,
-## each texel the level of the nearest reach (0..2 m as 0..1; 0 outside the rivers);
-## where two rivers' water overlaps, the lower (so a tributary's never breaks
-## up the smooth fall of its river's to the sea).
-## Only the reaches low enough to have sea-level ground under them count.
-func river_mask() -> ImageTexture:
-	if _river_mask:
-		return _river_mask
-	var n := texels / 4
-	var cell := size / n
-	var data := PackedByteArray()
-	data.resize(n * n)
-	var near := PackedFloat32Array()
-	near.resize(n * n)
-	near.fill(INF)
-	var owner := PackedInt32Array()
-	owner.resize(n * n)
-	owner.fill(-1)
-	for ri in rivers.size():
-		var r: Dictionary = rivers[ri]
-		var pts: PackedVector3Array = r.points
-		var hw: PackedFloat32Array = r.half_width
-		for k in pts.size() - 1:
-			if pts[k].y > 12.0:
-				continue   # (right down to the sea, so the mask fades out smoothly at the coast)
-			var steps := maxi(ceili(Vector2(pts[k + 1].x - pts[k].x, pts[k + 1].z - pts[k].z).length() / 5.0), 1)
-			for st in steps:
-				var t := float(st) / steps
-				var p := pts[k].lerp(pts[k + 1], t)
-				var rad := lerpf(hw[k], hw[k + 1], t) * 1.05   # (the water itself, not the shore beside it)
-				var v := int(clampf(p.y / 2.0, 0.0, 1.0) * 255.0)
-				var cx := (p.x + size * 0.5) / cell
-				var cz := (p.z + size * 0.5) / cell
-				var rc := rad / cell
-				for iz in range(maxi(int(cz - rc), 0), mini(int(cz + rc) + 1, n)):
-					for ix in range(maxi(int(cx - rc), 0), mini(int(cx + rc) + 1, n)):
-						var dd := Vector2(ix + 0.5 - cx, iz + 0.5 - cz).length()
-						var i := iz * n + ix
-						if dd > rc:
-							continue
-						if owner[i] == ri and dd < near[i] or owner[i] == -1 or owner[i] != ri and v < data[i]:
-							owner[i] = ri
-							near[i] = dd
-							data[i] = v
-	_river_mask = ImageTexture.create_from_image(Image.create_from_data(n, n, false, Image.FORMAT_R8, data))
-	return _river_mask
-
-
-## A river's current (m/s) at each point: faster where the water falls (the
-## drop over 80 m of it, not counting waterfalls), bigger rivers a little
-## faster, and smoothed over about 120 m, so it never changes abruptly from
-## one point to the next (however unevenly the points are spaced). Below a
-## waterfall the water gathers in its pool and picks its current up again
-## over a few widths.
-static func _current(pts: PackedVector3Array, hw: PackedFloat32Array, riser: PackedFloat32Array) -> PackedFloat32Array:
-	var n := pts.size()
-	var arc := PackedFloat32Array([0.0])
-	for k in range(1, n):
-		arc.append(arc[k - 1] + Vector2(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z).length())
-	# the level with its waterfalls taken out (a fall doesn't speed a river up)
-	var lvl := PackedFloat32Array([pts[0].y])
-	var since_fall := PackedFloat32Array([1e9])
-	for k in range(1, n):
-		var drop := pts[k - 1].y - pts[k].y
-		var run := arc[k] - arc[k - 1]
-		var fall := riser[k] > 0.0
-		lvl.append(lvl[k - 1] - (0.0 if fall else drop))
-		since_fall.append(0.0 if fall else since_fall[k - 1] + run)
-	var raw := PackedFloat32Array()
-	var a := 0
-	var b := 0
-	for k in n:
-		while a < k and arc[k] - arc[a] > 40.0:
-			a += 1
-		while b < n - 1 and arc[b] - arc[k] < 40.0:
-			b += 1
-		var slope := maxf(lvl[a] - lvl[b], 0.0) / maxf(arc[b] - arc[a], 1.0)
-		raw.append(clampf(0.5 + 0.02 * hw[k] + 9.0 * sqrt(slope), 0.5, 6.0))
-	var out := PackedFloat32Array()
-	a = 0
-	b = 0
-	var sum := 0.0
-	for k in n:
-		# a running mean over +-60 m
-		while b < n and arc[b] - arc[k] <= 60.0:
-			sum += raw[b]
-			b += 1
-		while arc[k] - arc[a] > 60.0:
-			sum -= raw[a]
-			a += 1
-		out.append(sum / (b - a) * lerpf(0.2, 1.0, smoothstep(0.0, 4.0 * hw[k] + 20.0, since_fall[k])))
-	return out
-
-
-## The 16-bit height sample (ix, iz) of mip level 0, in metres.
-func sample(ix: int, iz: int) -> float:
-	ix = clampi(ix, 0, texels - 1)
-	iz = clampi(iz, 0, texels - 1)
-	var i := iz * texels + ix
-	return (hi[i] * 256 + lo[i]) * h_scale + h_min
-
-
-## Ground height (m) at a world point, bilinear between samples (as the
-## finest terrain patches draw it). Deep sea outside the world.
-func height_at(x: float, z: float) -> float:
-	var gx := (x + size * 0.5) / spacing
-	var gz := (z + size * 0.5) / spacing
-	if gx < 0.0 or gz < 0.0 or gx > texels - 1 or gz > texels - 1:
-		return h_min
-	var ix := int(gx)
-	var iz := int(gz)
-	var fx := gx - ix
-	var fz := gz - iz
-	return lerpf(lerpf(sample(ix, iz), sample(ix + 1, iz), fx), lerpf(sample(ix, iz + 1), sample(ix + 1, iz + 1), fx), fz)
-
-
-## Ground height (m) at a world point exactly as the finest terrain patches
-## draw it: each 2.5 m quad split into two triangles, the diagonal alternating
-## quad by quad (see Terrain._patch_mesh). Water laid over the ground (down a
-## waterfall) uses this, so it lies on the rock the player sees.
-func surface_at(x: float, z: float) -> float:
-	var gx := (x + size * 0.5) / spacing
-	var gz := (z + size * 0.5) / spacing
-	if gx < 0.0 or gz < 0.0 or gx > texels - 1 or gz > texels - 1:
-		return h_min
-	var ix := int(gx)
-	var iz := int(gz)
-	var fx := gx - ix
-	var fz := gz - iz
-	var h00 := sample(ix, iz)
-	var h10 := sample(ix + 1, iz)
-	var h01 := sample(ix, iz + 1)
-	var h11 := sample(ix + 1, iz + 1)
-	if (ix + iz) % 2 == 0:   # (split from (1, 0) to (0, 1))
-		if fx + fz <= 1.0:
-			return h00 + (h10 - h00) * fx + (h01 - h00) * fz
-		return h11 + (h01 - h11) * (1.0 - fx) + (h10 - h11) * (1.0 - fz)
-	if fx >= fz:             # (split from (0, 0) to (1, 1))
-		return h00 + (h10 - h00) * fx + (h11 - h10) * fz
-	return h00 + (h01 - h00) * fz + (h11 - h01) * fx
-
-
-## The ground's normal at a world point, as the terrain shades its nearest
-## ground (from the heights either side, a sample apart).
-func normal_at(x: float, z: float) -> Vector3:
-	var hx := height_at(x + spacing, z) - height_at(x - spacing, z)
-	var hz := height_at(x, z + spacing) - height_at(x, z - spacing)
-	return Vector3(-hx, 2.0 * spacing, -hz).normalized()
-
-
-## The ground masks at a point: rock, sand, forest density, ambient occlusion (0..1).
-func ground_at(x: float, z: float) -> Color:
-	var w := ground.get_width()
-	var px := clampi(int((x + size * 0.5) / size * w), 0, w - 1)
-	var pz := clampi(int((z + size * 0.5) / size * w), 0, w - 1)
-	return ground.get_pixel(px, pz)
-
-
-## The two byte planes as mipmapped R8 textures, for the shaders.
-func height_textures() -> Array[ImageTexture]:
-	var out: Array[ImageTexture] = []
-	for plane in [hi, lo]:
-		var img := Image.create_from_data(texels, texels, true, Image.FORMAT_R8, plane)
-		out.append(ImageTexture.create_from_image(img))
-	return out
 
 
 func tree_count() -> int:

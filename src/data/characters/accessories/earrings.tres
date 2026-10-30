@@ -1,0 +1,56 @@
+[gd_resource type="Resource" script_class="AccessoryDef" format=3]
+
+[ext_resource type="Script" path="res://src/data/characters/accessory_part.gd" id="1_t03ch"]
+[ext_resource type="Script" path="res://src/data/characters/accessory_def.gd" id="2_s03h2"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_1kcld"]
+radius = 0.009
+height = 0.018
+radial_segments = 8
+rings = 4
+
+[sub_resource type="Resource" id="Resource_y6vvr"]
+script = ExtResource("1_t03ch")
+mesh = SubResource("SphereMesh_1kcld")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.124, -0.032, 0)
+
+[sub_resource type="SphereMesh" id="SphereMesh_mn5oi"]
+radius = 0.006
+height = 0.012
+radial_segments = 8
+rings = 4
+
+[sub_resource type="Resource" id="Resource_pg6f7"]
+script = ExtResource("1_t03ch")
+mesh = SubResource("SphereMesh_mn5oi")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.124, -0.048, 0)
+
+[sub_resource type="SphereMesh" id="SphereMesh_61sgk"]
+radius = 0.009
+height = 0.018
+radial_segments = 8
+rings = 4
+
+[sub_resource type="Resource" id="Resource_befib"]
+script = ExtResource("1_t03ch")
+mesh = SubResource("SphereMesh_61sgk")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.124, -0.032, 0)
+
+[sub_resource type="SphereMesh" id="SphereMesh_yqab1"]
+radius = 0.006
+height = 0.012
+radial_segments = 8
+rings = 4
+
+[sub_resource type="Resource" id="Resource_22usp"]
+script = ExtResource("1_t03ch")
+mesh = SubResource("SphereMesh_yqab1")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.124, -0.048, 0)
+
+[resource]
+script = ExtResource("2_s03h2")
+id = &"earrings"
+display_name = "Earrings"
+slot = 11
+default_color = Color(0.9, 0.75, 0.3, 1)
+parts = Array[ExtResource("1_t03ch")]([SubResource("Resource_y6vvr"), SubResource("Resource_pg6f7"), SubResource("Resource_befib"), SubResource("Resource_22usp")])

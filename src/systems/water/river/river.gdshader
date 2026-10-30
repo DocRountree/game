@@ -36,11 +36,7 @@ render_mode blend_mix, depth_draw_never, cull_disabled;
 // capped and fall away with distance (light()), so no reach turns into a
 // glinting blob.
 
-uniform float time;
-uniform vec3 sun_direction = vec3(0.0, 0.4, 0.9);
-uniform vec3 sun_color = vec3(1.0);
-uniform vec3 view_pos;
-uniform float planet_radius = 6400000.0;
+#include "res://src/systems/rendering/world_globals.gdshaderinc"
 
 uniform float bed_visibility = 0.82;  // at most this much of the bed shows through
 uniform vec3 bed_tint = vec3(0.86, 0.96, 0.9);
@@ -112,7 +108,7 @@ void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	wpos = world;
 	// the planet curves away, as the terrain does
-	world.y -= dot(world.xz - view_pos.xz, world.xz - view_pos.xz) / (2.0 * planet_radius);
+	world.y -= planet_drop(world.xz);
 	VERTEX = (inverse(MODEL_MATRIX) * vec4(world, 1.0)).xyz;
 	speed = COLOR.r * 8.0;
 	depth = COLOR.g * 8.0;
@@ -194,7 +190,7 @@ vec3 flowing_normal(vec2 p, vec2 flow, float rough) {
 	float mag = 2.5 / (1.0 + dot(flow, flow) * 0.05) / rough;   // flatter where it runs fast
 	vec2 fw = max(abs(dFdx(p)), abs(dFdy(p))) * noise_scale / 20.0;
 	float filter_width = max(fw.x, fw.y);
-	float t = time / flow_period;
+	float t = world_time / flow_period;
 	float t0 = fract(t);
 	float t1 = fract(t + 0.5);
 	vec3 n0 = water_normal(p, -flow * flow_period * (t0 - 0.5), mag, filter_width);
@@ -210,7 +206,7 @@ vec3 fft_flow_normal(vec2 p, vec2 flow, float rough) {
 	// own direction, a pattern this far from the origin would swing about
 	// and its mip levels go wild)
 	float sp = length(flow);
-	float t = time / flow_period;
+	float t = world_time / flow_period;
 	float t0 = fract(t);
 	float t1 = fract(t + 0.5);
 	vec2 qa = p - flow * flow_period * (t0 - 0.5);
@@ -248,7 +244,7 @@ vec3 gnoise(vec2 p) {
 // a period apart, crossfaded, so however long the game runs it never shears
 // where the current changes.
 float drift_noise(vec2 p, float v, float period) {
-	float t = time / period;
+	float t = world_time / period;
 	float t0 = fract(t);
 	float t1 = fract(t + 0.5);
 	float a = gnoise(p - vec2(0.0, v * period * t0)).x;
@@ -269,7 +265,7 @@ vec3 fall_sheet(float across, float tau, float v, float px) {
 	float fx = 1.1;    // cycles per metre across
 	float ft = 2.2;    // cycles per second of fall
 	for (int o = 0; o < 4; o++) {
-		vec3 g = gnoise(vec2(across * fx, (tau - time) * ft) + float(o) * 17.3);
+		vec3 g = gnoise(vec2(across * fx, (tau - world_time) * ft) + float(o) * 17.3);
 		g *= 1.0 - smoothstep(0.25, 0.5, px * fx);
 		acc += vec3(g.x, g.y * fx, g.z * ft / max(v, 0.5)) * amp;
 		amp *= 0.5;
@@ -427,7 +423,7 @@ void fragment() {
 	float rf = cl.y;
 	float wav = gnoise(vec2(rp.x * 0.7, 2.1 + 3.7 * floor(d))).x * 0.5 + 0.5;
 	float lip = (1.0 - smoothstep(0.0, 0.2 + 0.35 * wav, dl)) * step(0.0, sheet);
-	float rag = 0.1 + 0.3 * (gnoise(vec2(rp.x * 0.6, (tau - time) * 2.0)).x * 0.5 + 0.5);
+	float rag = 0.1 + 0.3 * (gnoise(vec2(rp.x * 0.6, (tau - world_time) * 2.0)).x * 0.5 + 0.5);
 	float cell_a = on_face ? smoothstep(-0.05, rag, fall_inside(face, rp.x, d)) : 1.0;
 	// strands straight down each little fall, thin water between them
 	float sn = gnoise(vec2(rp.x * 1.1, 31.7)).x + 0.5 * gnoise(vec2(rp.x * 2.7, 7.1 + tau)).x;
